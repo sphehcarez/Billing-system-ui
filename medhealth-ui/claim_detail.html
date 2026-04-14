@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claim detail</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="assets/MedhealthLogo.png" alt="Med Directory" />
+        <div class="title">
+          <strong>Med Directory</strong>
+          <span>Billing and Rules Engine</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <a href="dashboard.html" data-module="dashboard">Dashboard</a>
+        <a href="patients.html" data-module="patients">Patients</a>
+        <a href="providers.html" data-module="providers">Providers</a>
+        <a href="claims.html" data-module="claims">Claims</a>
+        <a href="payments.html" data-module="payments">Payments</a>
+        <a href="reports.html" data-module="reports">Reports <span class="badge">Insights</span></a>
+        <a href="audit.html" data-module="audit">Audit</a>
+        <a href="users.html" data-module="users">Users</a>
+        <a href="settings.html" data-module="settings">Settings</a>
+      </nav>
+
+      <div class="footer">
+        <div class="kv"><span>Role</span><strong data-role>Billing Specialist</strong></div>
+        <div class="kv"><span>Environment</span><strong>Preview UI</strong></div>
+        <a class="chip info" href="index.html" style="justify-content:center">Sign out</a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="h1">
+          <h1>Claim detail</h1>
+          <p>Single claim cockpit: readiness, closure, payload preview, submission, remittance, evidence.</p>
+        </div>
+        <div class="actions">
+          <div class="pill">
+            <span class="code">Search</span>
+            <input placeholder="Claim ID, member number, batch ref..." />
+          </div>
+          <button class="btn secondary" data-action="open-api-docs">API Docs</button>
+          <button class="btn" data-action="create-new">New</button>
+        </div>
+      </div>
+
+      
+    <div class="split">
+      <div class="card">
+        <h3>Lifecycle actions</h3>
+        <div class="panel" style="margin-bottom:10px">
+          <div class="kv"><span>Claim</span><strong id="claim-number" class="code">CLM-001</strong></div>
+          <div class="kv"><span>Member</span><strong id="claim-member">12345677</strong></div>
+          <div class="kv"><span>Status</span><strong><span id="claim-status-chip" class="chip pass">Ready to Close</span></strong></div>
+        </div>
+        <div class="grid" style="grid-template-columns: repeat(12, 1fr); gap:10px">
+          <button class="btn secondary" style="grid-column: span 4" data-action="readiness-run">Run readiness</button>
+          <button class="btn secondary" style="grid-column: span 4" data-action="closure-confirm">Close file</button>
+          <button class="btn secondary" style="grid-column: span 4" data-action="post-closure-validation">Post-closure validate</button>
+
+          <button class="btn secondary" style="grid-column: span 12" data-action="build-payload">Build payload</button>
+
+          <button class="btn" style="grid-column: span 6" data-action="submit-direct">Submit (Direct)</button>
+          <button class="btn" style="grid-column: span 6" data-action="submit-switch">Submit (Switch)</button>
+
+          <button class="btn secondary" style="grid-column: span 6" data-action="view-remittance">View remittance</button>
+          <button class="btn secondary" style="grid-column: span 6" data-action="evidence-packet">Evidence packet</button>
+        </div>
+
+        <div class="muted" style="margin-top:10px">
+          In the functional back-end pack, these actions map to: readiness, closure, post-closure validation, payload build, submission, response simulation, remittance, reconciliation, and audit events.
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Readiness and validation summary</h3>
+        <div class="panel">
+          <div class="kv"><span>Readiness outcome</span><strong id="readiness-status">PASS</strong></div>
+          <div class="kv"><span>Closure gate</span><strong id="closure-status">PASS</strong></div>
+          <div class="kv"><span>Post-closure</span><strong id="post-closure-status">PASS</strong></div>
+        </div>
+        <div class="muted" style="margin-top:10px">Preview UI. Replace with live outputs from Decision Bundles.</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card" style="grid-column: span 6">
+        <h3>Canonical payload preview</h3>
+        <pre id="payload-preview">{
+  "header": {"claim_id": "…", "scheme_id": "SCHEMEA", "member_number": "12345677"},
+  "diagnoses": ["J11.1"],
+  "lines": [{"line_id":"L1","code":"CONS001","claimed_amount":500}],
+  "totals": {"claimed_total": 1000}
+}</pre>
+      </div>
+      <div class="card" style="grid-column: span 6">
+        <h3>Pseudo-EDI preview</h3>
+        <pre id="edi-preview">UNH+ABC123...+MEDCLM+0:912:13.4+ZA'
+BGM+CLAIM+...'
+DTM+137+2026-04-14+102'
+NAD+MSN+12345677'
+RFF+SCH+SCHEMEA'
+RFF+ICD+J11.1'
+LIN+1+CONS001+Procedure'
+QTY+47+1'
+MOA+203+500'
+UNT+...'</pre>
+      </div>
+    </div>
+    
+    </main>
+  </div>
+
+  <script src="js/api-client.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Med Directory Billing Platform | Login</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login">
+      <div class="hero">
+        <img class="logo" src="assets/MedhealthLogo.png" alt="Med Directory" />
+        <h1>Billing and Rules Engine Platform</h1>
+        <p>Role-based operational cockpit for readiness, closure, validation, submission, remittance and audit evidence.</p>
+        <div style="margin-top:14px" class="panel">
+          <div class="kv"><span>Demo mode</span><strong>Enabled</strong></div>
+          <div class="kv"><span>Security</span><strong>RBAC enforced server-side</strong></div>
+        </div>
+      </div>
+
+      <div class="form">
+        <h3 style="margin:0 0 10px 0">Sign in</h3>
+        <div class="field">
+          <div class="label">Role</div>
+          <select id="role" class="input">
+            <option>Administrator</option>
+            <option selected>Billing Specialist</option>
+            <option>Healthcare Provider</option>
+            <option>Finance Officer</option>
+            <option>Compliance Auditor</option>
+          </select>
+          <div class="small">This UI preview switches modules by role. Your API layer must enforce RBAC.</div>
+        </div>
+        <div class="field">
+          <div class="label">Username</div>
+          <input id="user" class="input" placeholder="e.g., demo.user" />
+        </div>
+        <div class="field">
+          <div class="label">Password</div>
+          <input type="password" id="pass" class="input" placeholder="••••••••" />
+        </div>
+        <button class="btn" id="login">Continue</button>
+        <div style="display:flex;gap:10px;margin-top:12px;">
+          <a class="btn secondary" href="manual.html">Open User Manual</a>
+        </div>
+        <div class="small" style="margin-top:12px">Tip: select <strong>Administrator</strong> to see the full navigation set.</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api-client.js"></script>
+  <script>
+    document.getElementById("login").addEventListener("click", async () => {
+      const username = document.getElementById("user").value.trim();
+      const password = document.getElementById("pass").value;
+      const role = document.getElementById("role").value;
+      const loginBtn = document.getElementById("login");
+
+      if (!username || !password) {
+        alert("Please enter username and password");
+        return;
+      }
+
+      loginBtn.disabled = true;
+      loginBtn.textContent = "Authenticating...";
+
+      try {
+        // Authenticate against the API
+        const response = await window.api.login(username, password, role);
+        
+        // Store the role resolved by the backend.
+        localStorage.setItem("role", response.role);
+        
+        // Navigate to dashboard
+        location.href = "dashboard.html";
+      } catch (error) {
+        alert("Authentication failed: " + error.message);
+        loginBtn.disabled = false;
+        loginBtn.textContent = "Continue";
+      }
+    });
+
+    // Demo credentials helper
+    document.addEventListener("DOMContentLoaded", () => {
+      const tip = document.createElement("div");
+      tip.className = "small";
+      tip.style.marginTop = "12px";
+      tip.style.color = "#666";
+      tip.innerHTML = `Demo Credentials: <strong>demo.user</strong> / password123 or <strong>admin</strong> / admin123`;
+      document.querySelector(".form").appendChild(tip);
+    });
+  </script>
+</body>
+</html>

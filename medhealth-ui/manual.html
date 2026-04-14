@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Med Directory Billing Platform | Navigation Manual</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="assets/MedhealthLogo.png" alt="Med Directory" />
+        <div class="title">
+          <strong>Med Directory</strong>
+          <span>Navigation Manual</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <a href="#start" class="active">1. Start Here</a>
+        <a href="#patients">2. Patient Onboarding</a>
+        <a href="#providers">3. Provider Onboarding</a>
+        <a href="#claims">4. Claim Processing</a>
+        <a href="#payments">5. Payments</a>
+        <a href="#reports">6. Reports</a>
+        <a href="#audit">7. Audit and Evidence</a>
+        <a href="#roles">8. Role Access</a>
+        <a href="#troubleshooting">9. Troubleshooting</a>
+      </nav>
+
+      <div class="footer">
+        <div class="kv"><span>Use this page for</span><strong>Step-by-step onboarding</strong></div>
+        <div class="kv"><span>Environment</span><strong>localhost:8000</strong></div>
+        <a class="chip info" href="index.html" style="justify-content:center">Back to Login</a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="h1">
+          <h1>Navigation Manual</h1>
+          <p>Step-by-step guide for patients, providers, claims, payments, reports, and audit.</p>
+        </div>
+        <div class="actions">
+          <a class="btn secondary" href="index.html">Open Login</a>
+          <a class="btn" href="dashboard.html">Open App</a>
+        </div>
+      </div>
+
+      <div class="card" id="start">
+        <h3>1. Start Here</h3>
+        <div class="panel">
+          <div class="kv"><span>Frontend</span><strong>http://localhost:8000</strong></div>
+          <div class="kv"><span>Backend</span><strong>http://localhost:8001</strong></div>
+          <div class="kv"><span>Swagger</span><strong>http://localhost:8001/docs</strong></div>
+        </div>
+        <ol class="manual-steps">
+          <li>Open <span class="code">http://localhost:8000</span>.</li>
+          <li>Select your role from the login screen.</li>
+          <li>Enter your username and password, then click <strong>Continue</strong>.</li>
+          <li>After login, use the left-side navigation to move between Dashboard, Patients, Providers, Claims, Payments, Reports, Audit, Users, and Settings.</li>
+          <li>Use the <strong>User Manual</strong> button in the top bar whenever you need to return to this guide.</li>
+        </ol>
+        <div class="manual-note">
+          Recommended demo accounts:
+          <span class="code">admin / admin123</span>,
+          <span class="code">billing / billing123</span>,
+          <span class="code">provider / provider123</span>,
+          <span class="code">finance / finance123</span>,
+          <span class="code">auditor / auditor123</span>.
+        </div>
+      </div>
+
+      <div class="card" id="patients">
+        <h3>2. Patient Onboarding</h3>
+        <p class="muted">Use this flow to register a patient record before creating or processing claims.</p>
+        <ol class="manual-steps">
+          <li>From the left navigation, click <strong>Patients</strong>.</li>
+          <li>Click <strong>New</strong> in the top-right corner.</li>
+          <li>Capture the patient details:
+            <span class="code">Name</span>,
+            <span class="code">Medical Record Number</span>,
+            <span class="code">Date of Birth</span>,
+            <span class="code">Email</span>,
+            <span class="code">Phone</span>.
+          </li>
+          <li>Click <strong>Create</strong>.</li>
+          <li>Confirm the patient appears in the table and note the MRN for future reference.</li>
+          <li>Use <strong>Edit</strong> if you need to update contact details or status later.</li>
+        </ol>
+        <div class="manual-note">Best practice: onboard the patient first so the claims team has a valid patient ID before opening a claim.</div>
+      </div>
+
+      <div class="card" id="providers">
+        <h3>3. Provider Onboarding</h3>
+        <p class="muted">Use Providers to register doctors, practices, or facilities that will appear on claims.</p>
+        <ol class="manual-steps">
+          <li>Click <strong>Providers</strong> in the left navigation.</li>
+          <li>Click <strong>New</strong>.</li>
+          <li>Capture:
+            <span class="code">Name</span>,
+            <span class="code">NPI</span>,
+            <span class="code">Specialty</span>,
+            <span class="code">Email</span>,
+            <span class="code">Phone</span>.
+          </li>
+          <li>Click <strong>Create</strong>.</li>
+          <li>Verify the provider is visible in the list and note the provider ID or NPI if you will use it in a claim.</li>
+          <li>Use <strong>Edit</strong> to correct specialty or contact information when needed.</li>
+        </ol>
+        <div class="manual-note">Providers should be created before claims so claim capture can link a valid provider ID.</div>
+      </div>
+
+      <div class="card" id="claims">
+        <h3>4. Claim Processing</h3>
+        <p class="muted">Claims move through readiness, closure, validation, payload generation, submission, remittance, and evidence review.</p>
+        <table class="table">
+          <thead>
+            <tr><th>Stage</th><th>What to do</th><th>Expected result</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Draft</td><td>Create or open a claim</td><td>Claim appears in the claims list</td></tr>
+            <tr><td>Readiness</td><td>Run readiness</td><td>PASS, WARN, or BLOCKED</td></tr>
+            <tr><td>Closure</td><td>Close file</td><td>Immutable snapshot is created</td></tr>
+            <tr><td>Validation</td><td>Post-closure validate</td><td>Claim becomes ready to submit or fails validation</td></tr>
+            <tr><td>Payload</td><td>Build payload</td><td>Canonical JSON and pseudo-EDI preview are generated</td></tr>
+            <tr><td>Submission</td><td>Submit Direct or Switch</td><td>ACK, REJ, or PEND response is stored</td></tr>
+            <tr><td>Financials</td><td>View remittance and evidence</td><td>Payment and audit chain can be reviewed</td></tr>
+          </tbody>
+        </table>
+
+        <h3 style="margin-top:18px">4.1 Create a New Claim</h3>
+        <ol class="manual-steps">
+          <li>Go to <strong>Claims</strong>.</li>
+          <li>Click <strong>New</strong>.</li>
+          <li>Capture:
+            <span class="code">Claim Number</span>,
+            <span class="code">Patient ID</span>,
+            <span class="code">Provider ID</span>,
+            <span class="code">Amount</span>.
+          </li>
+          <li>Click <strong>Create</strong>.</li>
+          <li>Click <strong>Open</strong> on the claim row to enter the claim cockpit.</li>
+        </ol>
+
+        <h3 style="margin-top:18px">4.2 Run Readiness</h3>
+        <ol class="manual-steps">
+          <li>In <strong>Claim detail</strong>, click <strong>Run readiness</strong>.</li>
+          <li>Read the summary panel on the right:
+            <span class="chip pass">PASS</span>,
+            <span class="chip warn">WARN</span>,
+            <span class="chip fail">BLOCKED</span>.
+          </li>
+          <li>If the claim passes or warns, proceed to closure.</li>
+          <li>If the claim is blocked, stop and review the reason code before continuing.</li>
+        </ol>
+
+        <div class="manual-note">
+          Example from your screenshot:
+          <span class="code">Closure result for CLM-1002: blocked. ICD_MISSING</span>.
+          This means the claim failed readiness because the primary ICD-10 diagnosis is missing, so the system will not allow closure.
+        </div>
+
+        <h3 style="margin-top:18px">4.3 Close the Claim</h3>
+        <ol class="manual-steps">
+          <li>Click <strong>Close file</strong>.</li>
+          <li>If closure succeeds, the claim is frozen into a billing snapshot.</li>
+          <li>If closure is blocked or requires override, read the popup message and resolve the issue before retrying.</li>
+        </ol>
+
+        <h3 style="margin-top:18px">4.4 Post-Closure Validate</h3>
+        <ol class="manual-steps">
+          <li>Click <strong>Post-closure validate</strong>.</li>
+          <li>Wait for the post-closure status to update to <strong>VALID</strong>, <strong>WARNING</strong>, or <strong>INVALID</strong>.</li>
+          <li>If valid or warning, continue to payload generation.</li>
+        </ol>
+
+        <h3 style="margin-top:18px">4.5 Build Payload</h3>
+        <ol class="manual-steps">
+          <li>Click <strong>Build payload</strong>.</li>
+          <li>Review the <strong>Canonical payload preview</strong> on the left.</li>
+          <li>Review the <strong>Pseudo-EDI preview</strong> on the right.</li>
+          <li>Use this step to confirm member number, scheme, diagnosis, and billed amount before submission.</li>
+        </ol>
+
+        <h3 style="margin-top:18px">4.6 Submit the Claim</h3>
+        <ol class="manual-steps">
+          <li>Click <strong>Submit (Direct)</strong> when the scheme should be reached directly.</li>
+          <li>Click <strong>Submit (Switch)</strong> when the claim should be routed through a switch.</li>
+          <li>Review the returned status:
+            <span class="chip pass">ACK</span>,
+            <span class="chip fail">REJ</span>,
+            <span class="chip warn">PEND</span>.
+          </li>
+          <li>Use the outcome to decide whether to correct and resubmit, upload supporting evidence, or wait for remittance.</li>
+        </ol>
+
+        <h3 style="margin-top:18px">4.7 Remittance and Evidence</h3>
+        <ol class="manual-steps">
+          <li>Click <strong>View remittance</strong> to inspect payment status and references.</li>
+          <li>Click <strong>Evidence packet</strong> to review the full lifecycle chain:
+            snapshot,
+            decision bundles,
+            payloads,
+            submissions,
+            responses,
+            remittance,
+            reconciliation,
+            audit events.
+          </li>
+        </ol>
+      </div>
+
+      <div class="card" id="payments">
+        <h3>5. Payments</h3>
+        <p class="muted">Use Payments to log or review EFTs and other claim-linked payments.</p>
+        <ol class="manual-steps">
+          <li>Go to <strong>Payments</strong>.</li>
+          <li>Click <strong>New</strong>.</li>
+          <li>Capture:
+            <span class="code">Claim ID</span>,
+            <span class="code">Amount</span>,
+            <span class="code">Payment Date</span>,
+            <span class="code">Method</span>.
+          </li>
+          <li>Click <strong>Create</strong>.</li>
+          <li>Use <strong>Edit</strong> to update payment status when the payment clears or needs correction.</li>
+          <li>Cross-check payment activity with claim remittance results.</li>
+        </ol>
+      </div>
+
+      <div class="card" id="reports">
+        <h3>6. Reports</h3>
+        <p class="muted">Reports show operational totals, rule-hit trends, and audit or payment analysis.</p>
+        <ol class="manual-steps">
+          <li>Go to <strong>Reports</strong>.</li>
+          <li>Click <strong>New</strong>.</li>
+          <li>Select a report type, for example:
+            <span class="code">summary</span>,
+            <span class="code">payment</span>,
+            <span class="code">audit</span>.
+          </li>
+          <li>Enter the reporting period.</li>
+          <li>Click <strong>Generate</strong>.</li>
+          <li>Use <strong>Download</strong> on the row to inspect the generated report details.</li>
+        </ol>
+      </div>
+
+      <div class="card" id="audit">
+        <h3>7. Audit and Evidence</h3>
+        <p class="muted">Use Audit to trace who did what, when it happened, and what policy or decision data was involved.</p>
+        <ol class="manual-steps">
+          <li>Go to <strong>Audit</strong>.</li>
+          <li>Review the table columns:
+            <span class="code">Action</span>,
+            <span class="code">Resource</span>,
+            <span class="code">User</span>,
+            <span class="code">Timestamp</span>,
+            <span class="code">Details</span>.
+          </li>
+          <li>Look for events such as:
+            <span class="code">READINESS_RUN</span>,
+            <span class="code">SNAPSHOT_CREATED</span>,
+            <span class="code">CLAIM_SUBMITTED</span>,
+            <span class="code">RESPONSE_RECEIVED</span>,
+            <span class="code">RECONCILED</span>.
+          </li>
+          <li>For claim-specific investigations, open the claim and use <strong>Evidence packet</strong> from the claim cockpit.</li>
+        </ol>
+      </div>
+
+      <div class="card" id="roles">
+        <h3>8. Role Access</h3>
+        <table class="table">
+          <thead>
+            <tr><th>Role</th><th>Main use</th><th>Typical modules</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Administrator</td><td>Full platform management</td><td>All modules including Settings and Users</td></tr>
+            <tr><td>Billing Specialist</td><td>Operational claim processing</td><td>Patients, Providers, Claims, Payments, Reports</td></tr>
+            <tr><td>Healthcare Provider</td><td>Claim visibility and limited processing</td><td>Patients, Claims</td></tr>
+            <tr><td>Finance Officer</td><td>Payment and reporting review</td><td>Payments, Reports</td></tr>
+            <tr><td>Compliance Auditor</td><td>Read-only evidence review</td><td>Reports, Audit</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" id="troubleshooting">
+        <h3>9. Troubleshooting and Common Messages</h3>
+        <table class="table">
+          <thead>
+            <tr><th>Reason code</th><th>Meaning</th><th>What to do next</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="code">ICD_MISSING</td><td>Primary diagnosis missing</td><td>Capture or correct the ICD-10 before closure.</td></tr>
+            <tr><td class="code">DISCHARGE_MISSING</td><td>Inpatient claim has no discharge date</td><td>Update the inpatient encounter details before closure.</td></tr>
+            <tr><td class="code">PREAUTH_MISSING</td><td>Required authorisation not present</td><td>Capture a valid authorisation or check policy rules.</td></tr>
+            <tr><td class="code">MEMBER_INVALID</td><td>Member number format rejected on submission</td><td>Correct the member number and submit a new claim version.</td></tr>
+            <tr><td class="code">ATTACHMENT_REQUIRED</td><td>Supporting document is missing</td><td>Upload motivation or report and resubmit if required.</td></tr>
+            <tr><td class="code">MODIFIER_SEQUENCE_INVALID</td><td>Modifier sequence failed validation</td><td>Correct the line structure before building the payload again.</td></tr>
+          </tbody>
+        </table>
+        <div class="manual-note">
+          If a claim is blocked, do not continue to payload or submission. Resolve the blocking reason first, then rerun readiness or validation.
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

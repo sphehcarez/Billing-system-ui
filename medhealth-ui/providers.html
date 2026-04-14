@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Providers</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="assets/MedhealthLogo.png" alt="Med Directory" />
+        <div class="title">
+          <strong>Med Directory</strong>
+          <span>Billing and Rules Engine</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <a href="dashboard.html" data-module="dashboard">Dashboard</a>
+        <a href="patients.html" data-module="patients">Patients</a>
+        <a href="providers.html" data-module="providers">Providers</a>
+        <a href="claims.html" data-module="claims">Claims</a>
+        <a href="payments.html" data-module="payments">Payments</a>
+        <a href="reports.html" data-module="reports">Reports <span class="badge">Insights</span></a>
+        <a href="audit.html" data-module="audit">Audit</a>
+        <a href="users.html" data-module="users">Users</a>
+        <a href="settings.html" data-module="settings">Settings</a>
+      </nav>
+
+      <div class="footer">
+        <div class="kv"><span>Role</span><strong data-role>Billing Specialist</strong></div>
+        <div class="kv"><span>Environment</span><strong>Preview UI</strong></div>
+        <a class="chip info" href="index.html" style="justify-content:center">Sign out</a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="h1">
+          <h1>Providers</h1>
+          <p>Provider registry and practice details (editable by Administrator and Billing Specialist).</p>
+        </div>
+        <div class="actions">
+          <div class="pill">
+            <span class="code">Search</span>
+            <input placeholder="Claim ID, member number, batch ref..." />
+          </div>
+          <button class="btn secondary" data-action="open-api-docs">API Docs</button>
+          <button class="btn" data-action="create-new">New</button>
+        </div>
+      </div>
+
+      
+<div class="card">
+  <h3>Provider registry</h3>
+  <table class="table">
+    <thead>
+      <tr><th>NPI</th><th>Name</th><th>Specialty</th><th>Email</th><th>Status</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+      <tr><td colspan="6" style="text-align:center;color:#999;">Loading providers...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+    </main>
+  </div>
+
+  <script src="js/api-client.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
