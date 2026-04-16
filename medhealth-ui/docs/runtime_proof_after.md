@@ -1,43 +1,8 @@
-# Runtime Proof
+# Runtime Proof After
 
 Date verified: `2026-04-16`
 
-## Runtime status
-
-`docker compose ps`
-
-```text
-NAME                      IMAGE                   COMMAND                  SERVICE    CREATED          STATUS                    PORTS
-medhealth-ui-backend-1    medhealth-ui-backend    "/app/docker-entrypo…"   backend    14 seconds ago   Up 12 seconds (healthy)   0.0.0.0:8001->8001/tcp, [::]:8001->8001/tcp
-medhealth-ui-db-1         postgres:16-alpine      "docker-entrypoint.s…"   db         21 minutes ago   Up 21 minutes (healthy)   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
-medhealth-ui-frontend-1   medhealth-ui-frontend   "python -m http.serv…"   frontend   21 minutes ago   Up 20 minutes (healthy)   0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
-```
-
-## Before seeding
-
-Fresh Postgres after rebuild, before reference/UAT seeds:
-
-```sql
-select count(*) as claims_count from claims;
-select count(*) as icd10_count from icd10_reference;
-select count(*) as audit_event_count from audit_events;
-```
-
-```text
- claims_count
---------------
-            0
-
- icd10_count
--------------
-           0
-
- audit_event_count
--------------------
-                 0
-```
-
-## Seed outputs
+## Seed Outputs
 
 Reference data seed:
 
@@ -71,9 +36,7 @@ UAT scenario seed:
 }
 ```
 
-## After seeding
-
-Reference and audit proof queries:
+## Persisted Reference And Audit Proof
 
 ```sql
 select count(*) as claims_count from claims;
@@ -101,11 +64,9 @@ select count(*) as audit_event_count from audit_events;
                103
 ```
 
-## Live API proof
+## Live API Proof
 
-The live backend was exercised with a fresh runtime-proof claim created through `/api/claims`, then processed through readiness, closure, post-closure validation, and idempotent submission.
-
-Proof response:
+The backend was exercised with a fresh runtime-proof claim created through `/api/claims`, then processed through readiness, closure, post-closure validation, and idempotent submission.
 
 ```json
 {
@@ -147,9 +108,9 @@ Proof response:
 }
 ```
 
-## UI contract proof
+## UI Contract Proof
 
-The rebuilt API was also verified for the PMB explainability and diagnosis-navigation action contract:
+The rebuilt API was also checked specifically for the PMB explainability contract and the readiness action metadata contract.
 
 ```json
 {
@@ -180,9 +141,7 @@ The rebuilt API was also verified for the PMB explainability and diagnosis-navig
 }
 ```
 
-## Claim-specific DB proof
-
-The runtime-proof claim persisted the expected artefacts exactly once where required.
+## Claim-Specific Database Proof
 
 ```sql
 select count(*) as snapshot_count from billing_snapshots where claim_id = 7;
@@ -192,16 +151,6 @@ select count(*) as transport_log_count
 from transport_logs tl
 join submissions s on s.submission_id = tl.submission_id
 where s.claim_id = 7;
-
-select claim_id, stage, route, reason_code
-from benefit_routing_decisions
-where claim_id = 7
-order by created_at;
-
-select claim_id, stage, allowed_total, pmb_allowed_total, member_liability_estimate, pricing_basis
-from costing_previews
-where claim_id = 7
-order by created_at;
 ```
 
 ```text
@@ -220,7 +169,23 @@ order by created_at;
  transport_log_count
 ---------------------
                    2
+```
 
+## Decision Proof
+
+```sql
+select claim_id, stage, route, reason_code
+from benefit_routing_decisions
+where claim_id = 7
+order by created_at;
+
+select claim_id, stage, allowed_total, pmb_allowed_total, member_liability_estimate, pricing_basis
+from costing_previews
+where claim_id = 7
+order by created_at;
+```
+
+```text
  claim_id |          stage          |       route        |     reason_code
 ----------+-------------------------+--------------------+---------------------
         7 | READINESS               | PMB_BENEFIT_BUCKET | ROUTE_PMB_CONFIRMED
@@ -234,12 +199,12 @@ order by created_at;
         7 | POST_CLOSURE_VALIDATION |        650.00 |            900.00 |                      0.00 | DSP
 ```
 
-## Test proof
+## Test Proof
 
-`pytest` result captured through the Docker-backed repo mount:
+Docker-backed `pytest` verification:
 
 ```text
 24 passed, 3 warnings in 49.71s
 ```
 
-The warnings are from `httpx` deprecating the legacy `app=` shortcut used by `TestClient`; they do not indicate a failing persistence path. The idempotent submission test asserts persisted `remittances`, `reconciliations`, and joined `transport_logs`, and the runtime proof now also includes the PMB explainability and diagnosis-navigation action contract.
+The warnings are from the legacy `TestClient`/`httpx` shortcut and do not indicate a persistence failure.

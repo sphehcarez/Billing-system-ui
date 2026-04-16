@@ -21,7 +21,9 @@ class PlatformCoreTests(unittest.TestCase):
         self.assertIn("validation_summary", result)
         blocker = result["validation_summary"]["blockers"][0]
         self.assertEqual(blocker["reason_code"], "ICD_MISSING_PRIMARY")
+        self.assertEqual(blocker["action"]["type"], "NAVIGATE_DIAGNOSES")
         self.assertEqual(blocker["action"]["target"], "diagnoses")
+        self.assertEqual(blocker["action_target"], "diagnoses")
         self.assertFalse(blocker["allowAutoFix"])
         self.assertEqual(result["pmb_decision"]["pmb_status"], "UNKNOWN")
 
@@ -58,6 +60,11 @@ class PlatformCoreTests(unittest.TestCase):
         result = self.store.run_readiness(1, "tester", "Billing Specialist")
         self.assertEqual(result["pmb_decision"]["matched_icd10"], "I10")
         self.assertFalse(result["pmb_decision"]["provider_marked_pmb"])
+        self.assertTrue(result["pmb_decision"]["auto_flagged"])
+        self.assertEqual(
+            result["pmb_decision"]["condition_name"],
+            "Business-owned PMB placeholder hypertension condition",
+        )
         self.assertEqual(result["pmb_decision"]["pmb_status"], "CONFIRMED")
         self.assertEqual(result["benefit_routing_decision"]["route"], "PMB_BENEFIT_BUCKET")
         self.assertEqual(self.store.claims[1].pmb_status, "confirmed")

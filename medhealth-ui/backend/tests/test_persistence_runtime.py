@@ -36,6 +36,8 @@ def test_pmb_detection_service_matches_mapping_from_database(reference_store):
     readiness = reference_store.run_readiness(claim.id, "tester", "Billing Specialist")
     assert readiness["pmb_decision"]["mapping_id"] == "DEMO_MAP_I10"
     assert readiness["pmb_decision"]["condition_id"] == "DEMO_DTP_001"
+    assert readiness["pmb_decision"]["condition_name"] == "DEMO diagnosis treatment pair"
+    assert readiness["pmb_decision"]["auto_flagged"] is True
     assert readiness["pmb_decision"]["pmb_status"] == "CONFIRMED"
 
 

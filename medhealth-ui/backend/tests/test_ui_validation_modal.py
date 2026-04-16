@@ -12,6 +12,7 @@ class UIValidationModalTests(unittest.TestCase):
         self.assertIn("pmbDecisionMarkup", app_js)
         self.assertIn("PMB Detection and Benefit Routing", app_js)
         self.assertIn("PMB cannot be evaluated until primary diagnosis is captured.", app_js)
+        self.assertIn("System auto-flagged", app_js)
         self.assertIn('data-action="auto-fix-primary"', app_js)
         self.assertIn("jumpToClaimTarget", app_js)
         self.assertIn("focusDiagnosisSearchInput", app_js)

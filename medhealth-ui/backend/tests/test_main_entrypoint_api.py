@@ -65,6 +65,8 @@ class MainEntrypointApiTests(unittest.TestCase):
         self.assertIn("validation_summary", payload)
         self.assertTrue(payload["benefit_route_decisions"])
         self.assertEqual(payload["pmb_decision"]["pmb_status"], "CONFIRMED")
+        self.assertTrue(payload["pmb_decision"]["auto_flagged"])
+        self.assertEqual(payload["pmb_decision"]["condition_name"], "DEMO diagnosis treatment pair")
         self.assertEqual(payload["benefit_route_decisions"][0]["route"], "PMB_BENEFIT_BUCKET")
         self.assertFalse(payload["benefit_route_decisions"][0]["provider_marked_pmb"])
         self.assertEqual(payload["validation_summary"]["pmb"][0]["trigger_icd10"], "I10")
@@ -148,7 +150,9 @@ class MainEntrypointApiTests(unittest.TestCase):
         readiness = platform_api.run_readiness(claim["id"], current_user=current_user)
         blocker = readiness["validation_summary"]["blockers"][0]
         self.assertEqual(blocker["reason_code"], "ICD_MISSING_PRIMARY")
+        self.assertEqual(blocker["action"]["type"], "NAVIGATE_DIAGNOSES")
         self.assertEqual(blocker["action"]["target"], "diagnoses")
+        self.assertEqual(blocker["action_target"], "diagnoses")
 
         add_result = platform_api.add_claim_diagnosis(
             claim["id"],

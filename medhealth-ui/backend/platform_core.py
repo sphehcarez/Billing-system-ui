@@ -245,8 +245,10 @@ class PMBDecision(BaseModel):
     matched_icd10: Optional[str] = None
     mapping_id: Optional[str] = None
     condition_id: Optional[str] = None
+    condition_name: Optional[str] = None
     condition_type: Optional[str] = None
     provider_marked_pmb: bool = False
+    auto_flagged: bool = False
     reason_code: str
     message: str
     remediation_hint: str
@@ -682,6 +684,7 @@ class PMBDetectionService:
                 stage=stage,
                 pmb_status="UNKNOWN",
                 provider_marked_pmb=provider_marked_pmb,
+                auto_flagged=False,
                 reason_code="ICD_MISSING_PRIMARY",
                 message="PMB cannot be evaluated until primary diagnosis is captured.",
                 remediation_hint="Jump to diagnoses, capture a valid primary ICD-10, and rerun readiness.",
@@ -698,6 +701,7 @@ class PMBDetectionService:
                 stage=stage,
                 pmb_status="NOT_DETECTED",
                 provider_marked_pmb=provider_marked_pmb,
+                auto_flagged=False,
                 matched_icd10=primary.icd10_code,
                 reason_code="PMB_NOT_DETECTED",
                 message="No configured ICD-10 to PMB mapping matched the claim diagnoses.",
@@ -740,8 +744,10 @@ class PMBDetectionService:
             matched_icd10=primary.icd10_code,
             mapping_id=mapping.mapping_id,
             condition_id=mapping.pmb_condition_id,
+            condition_name=condition.name if condition else None,
             condition_type=condition.type if condition else None,
             provider_marked_pmb=provider_marked_pmb,
+            auto_flagged=True,
             reason_code=reason_code,
             message=message,
             remediation_hint=remediation_hint,
@@ -2413,7 +2419,8 @@ class PlatformStore:
             "jump_target": hit.affected_fields[0] if hit.affected_fields else None,
         }
         if claim_id and hit.reason_code == "ICD_MISSING_PRIMARY":
-            item["action"] = {"type": "NAVIGATE", "target": "diagnoses", "claimId": claim_id}
+            item["action"] = {"type": "NAVIGATE_DIAGNOSES", "target": "diagnoses", "claimId": claim_id}
+            item["action_target"] = "diagnoses"
             item["allowAutoFix"] = self._safe_primary_autofix_available(claim_id)
         return item
 
@@ -2443,6 +2450,7 @@ class PlatformStore:
                     "remediation": "Resolve the prerequisite workflow step and retry the action.",
                     "affected_fields": [],
                     "jump_target": None,
+                    "action_target": None,
                 }
             )
         pmb_items = []

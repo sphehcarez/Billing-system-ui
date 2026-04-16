@@ -810,8 +810,8 @@
             pmbStatus === "CONFIRMED" ? "pass" : pmbStatus === "NOT_DETECTED" ? "info" : pmbStatus === "UNKNOWN" ? "fail" : "warn"
           }">${escapeHtml(pmbDecision?.reason_code || routingDecision?.reason_code || "PMB")}</span>
         </div>
-        <div class="muted">ICD-10: ${escapeHtml(pmbDecision?.matched_icd10 || "-")} · Mapping: ${escapeHtml(pmbDecision?.mapping_id || "-")} · Condition: ${escapeHtml(pmbDecision?.condition_id || "-")}</div>
-        <div class="muted">Route: ${escapeHtml(route)} · Provider marked PMB: ${escapeHtml(pmbDecision?.provider_marked_pmb ? "yes" : "no")}</div>
+        <div class="muted">ICD-10: ${escapeHtml(pmbDecision?.matched_icd10 || "-")} · Mapping: ${escapeHtml(pmbDecision?.mapping_id || "-")} · Condition: ${escapeHtml(pmbDecision?.condition_id || "-")} (${escapeHtml(pmbDecision?.condition_name || "-")})</div>
+        <div class="muted">Route: ${escapeHtml(route)} · Provider marked PMB: ${escapeHtml(pmbDecision?.provider_marked_pmb ? "yes" : "no")} · System auto-flagged: ${escapeHtml(pmbDecision?.auto_flagged ? "yes" : "no")}</div>
         <div class="muted">Pricing basis: ${escapeHtml(pricingBasis)} · Scheme allowed: ${formatCurrency(costingPreview?.allowed_total || 0)} · PMB allowed: ${escapeHtml(pmbAllowed)}</div>
         <div class="muted">Member liability estimate: ${formatCurrency(costingPreview?.member_liability_estimate || 0)}</div>
       </div>
@@ -1442,7 +1442,7 @@
         <h3 style="margin:0;font-size:.95rem;">${escapeHtml(title)}</h3>
         ${items
           .map((item) => {
-            const jumpTarget = item.action?.target || item.jump_target || item.affected_fields?.[0] || "";
+            const jumpTarget = item.action?.target || item.action_target || item.jump_target || item.affected_fields?.[0] || "";
             const jumpButton = jumpTarget
               ? `<button type="button" class="chip" data-jump-target="${escapeHtml(jumpTarget)}">Jump to ${escapeHtml(jumpTarget)}</button>`
               : "";
@@ -1479,6 +1479,7 @@
     const matchedCode = pmbDecision?.matched_icd10 || routingDecision?.trigger_icd10 || legacyItems[0]?.trigger_icd10 || "-";
     const mappingId = pmbDecision?.mapping_id || routingDecision?.mapping_id || legacyItems[0]?.mapping_id || "-";
     const conditionId = pmbDecision?.condition_id || routingDecision?.pmb_condition_id || legacyItems[0]?.pmb_condition_id || "-";
+    const conditionName = pmbDecision?.condition_name || "-";
     const pmbMessage =
       pmbDecision?.message ||
       routingDecision?.message ||
@@ -1487,6 +1488,7 @@
     const routeLabel = routingDecision?.route || legacyItems[0]?.route || "-";
     const routeReason = routingDecision?.reason_code || legacyItems[0]?.reason_code || "-";
     const providerMarked = pmbDecision?.provider_marked_pmb ?? routingDecision?.provider_marked_pmb ?? legacyItems[0]?.provider_marked_pmb;
+    const autoFlagged = pmbDecision?.auto_flagged;
     const schemeAllowed = costingPreview ? formatCurrency(costingPreview.allowed_total || 0) : "-";
     const pmbAllowed =
       costingPreview && costingPreview.pmb_allowed_total != null
@@ -1509,8 +1511,8 @@
           </div>
           <p style="margin:0;color:#334155;">${escapeHtml(pmbMessage)}</p>
           <p style="margin:0;color:#64748b;font-size:.9rem;">
-            ICD-10: ${escapeHtml(matchedCode)} · Mapping: ${escapeHtml(mappingId)} · Condition: ${escapeHtml(conditionId)} ·
-            Provider marked PMB: ${escapeHtml(providerMarked ? "yes" : "no")}
+            ICD-10: ${escapeHtml(matchedCode)} · Mapping: ${escapeHtml(mappingId)} · Condition: ${escapeHtml(conditionId)} (${escapeHtml(conditionName)}) ·
+            Provider marked PMB: ${escapeHtml(providerMarked ? "yes" : "no")} · System auto-flagged: ${escapeHtml(autoFlagged ? "yes" : "no")}
           </p>
           <p style="margin:0;color:#64748b;font-size:.9rem;">
             Route: ${escapeHtml(routeLabel)} · Route reason: ${escapeHtml(routeReason)} · Pricing basis:
