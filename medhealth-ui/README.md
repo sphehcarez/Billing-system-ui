@@ -1,11 +1,19 @@
-Med Directory Billing Platform UI (Preview)
-- Static HTML/CSS/JS preview with role-based navigation
-- Uses assets/MedhealthLogo.png
-- Designed to integrate with the FastAPI back-end endpoints in the Python functional packs
+Medhealth Claims Platform
 
-How to preview:
-- Open index.html in a browser
-- Select a role and proceed to dashboard
+- Static HTML/CSS/JS frontend for the claims workflow
+- FastAPI backend under `backend/` for RBAC, readiness, PMB routing, and audit-backed actions
+- Uses `assets/MedhealthLogo.png`
+
+Run locally:
+- `bash wsl_start_system.sh`
+
+Run with Docker:
+- `docker compose up --build`
+
+Access points:
+- Frontend: `http://localhost:8000`
+- Backend API: `http://localhost:8001`
+- API docs: `http://localhost:8001/docs`
 
 Note:
-- This is a UI preview only. Your API layer must enforce RBAC and drive all outcomes.
+- The frontend displays outcomes, but backend APIs must continue to enforce RBAC and business rules.

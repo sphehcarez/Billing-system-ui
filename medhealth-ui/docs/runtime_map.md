@@ -1,0 +1,22 @@
+# Runtime Map
+
+- Repo root: `/mnt/c/pe/MEDHEALTH FINAL/Billing system ui/medhealth-ui`
+- Git root: `/mnt/c/pe/MEDHEALTH FINAL/Billing system ui/.git`
+- Backend folder: `backend/`
+- Backend entry file: `backend/main.py`
+- Backend API module: `backend/platform_api.py`
+- Backend runtime port: `8001`
+- Backend Docker entrypoint: `backend/docker-entrypoint.sh`
+- UI folder: repo root static HTML/CSS/JS pages plus `js/` and `css/`
+- UI start method: `python -m http.server 8000` or `Dockerfile.frontend`
+- UI API base URL: `js/api-client.js` points to `http://localhost:8001/api`
+- Docker Compose location: `docker-compose.yml`
+- Alembic config location: `backend/alembic.ini`
+- Alembic env: `backend/alembic/env.py`
+- Alembic revision folder: `backend/alembic/versions/`
+- Seed scripts:
+  - `infra/seed/seed_reference_data.py`
+  - `infra/seed/seed_uat_scenarios.py`
+- Dev startup scripts:
+  - `scripts/dev_up.sh`
+  - `scripts/dev_up.ps1`

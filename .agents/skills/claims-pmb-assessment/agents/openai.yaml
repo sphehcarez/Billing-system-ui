@@ -1,0 +1,3 @@
+display_name: Claims PMB Assessment
+short_description: Assess and improve ICD-10, PMB, claims lifecycle, RBAC, and audit evidence flows.
+default_prompt: Scan this repo, detect the claims-platform guidance, assess ICD-10 and PMB lifecycle gaps, then implement the highest-value backend/UI/test changes.

@@ -3166,7 +3166,7 @@ class PlatformStore:
         if not re.match(member_regex, claim.member_number):
             status = "REJ"
             reasons.append(ResponseReason(level="HEADER", reason_code="MEMBER_INVALID", message="Member number failed scheme format validation."))
-        elif claim.scenario_key == "pending_attachment_motivation":
+        elif claim.scenario_key in {"pending_attachment_motivation", "PMB_REVIEW_REQUIRED"}:
             status = "PEND"
             reasons.append(ResponseReason(level="HEADER", reason_code="ATTACHMENT_REQUIRED", message="Additional motivation is required before adjudication."))
         response = ResponseRecord(
@@ -3191,7 +3191,7 @@ class PlatformStore:
         total_member = 0.0
         for item in claim.line_items:
             claimed_amount = round(item.claimed_amount, 2)
-            if claim.scenario_key == "partial_payment_remittance":
+            if claim.scenario_key in {"partial_payment_remittance", "PARTIAL_PAYMENT"}:
                 allowed_amount = round(claimed_amount * 0.9, 2)
                 paid_amount = round(claimed_amount * 0.7, 2)
             else:
@@ -3240,9 +3240,9 @@ class PlatformStore:
             adjustment_amount = round(item.claimed_amount - paid_amount, 2)
             status: Literal["PAID", "PARTIAL", "DENIED"] = "PAID"
             reason_codes = list(item.reason_codes)
-            if claim.scenario_key == "partial_payment_remittance":
+            if claim.scenario_key in {"partial_payment_remittance", "PARTIAL_PAYMENT"}:
                 status = "PARTIAL"
-            if claim.scenario_key == "reconciliation_mismatch_exception":
+            if claim.scenario_key in {"reconciliation_mismatch_exception", "MISMATCH_EXCEPTION"}:
                 paid_amount = round(item.paid_amount - 100, 2)
                 adjustment_amount = round(item.claimed_amount - paid_amount, 2)
                 status = "PARTIAL"
@@ -3283,10 +3283,10 @@ class PlatformStore:
         remittance = self.remittances[claim.latest_remittance_id]
         exception_reasons: List[str] = []
         status: Literal["RECONCILED", "PARTIAL", "EXCEPTION"] = "RECONCILED"
-        if claim.scenario_key == "partial_payment_remittance":
+        if claim.scenario_key in {"partial_payment_remittance", "PARTIAL_PAYMENT"}:
             status = "PARTIAL"
             exception_reasons.append("Short paid against adjudicated amount.")
-        elif claim.scenario_key == "reconciliation_mismatch_exception":
+        elif claim.scenario_key in {"reconciliation_mismatch_exception", "MISMATCH_EXCEPTION"}:
             status = "EXCEPTION"
             exception_reasons.append("Remittance totals do not align to adjudication bundle.")
         elif round(remittance.totals["paid"], 2) != round(bundle.totals["paid"], 2):

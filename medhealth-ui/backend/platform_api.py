@@ -7,11 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from jose import ExpiredSignatureError, JWTError, jwt
 
+from db_runtime import database_healthcheck
+from postgres_store import PersistentPlatformStore
 from platform_core import (
     ClaimClosureRequest,
     ClaimSubmissionRequest,
     LoginRequest,
-    PlatformStore,
     PolicyProfilePatch,
     RulePatch,
 )
@@ -77,7 +78,26 @@ ROLE_PERMISSIONS = {
     },
 }
 
-db = PlatformStore()
+class StoreProxy:
+    def __getattr__(self, name: str):
+        def call(*args, **kwargs):
+            store = PersistentPlatformStore()
+            try:
+                return getattr(store, name)(*args, **kwargs)
+            finally:
+                store.close()
+
+        store = PersistentPlatformStore()
+        try:
+            attribute = getattr(store, name)
+            if callable(attribute):
+                return call
+            return attribute
+        finally:
+            store.close()
+
+
+db = StoreProxy()
 app = FastAPI(title="Medhealth Claims Rules Platform", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -136,6 +156,11 @@ def current_identity(user: Dict[str, Any]) -> tuple[str, str]:
 @app.get("/")
 def root() -> Dict[str, str]:
     return {"message": "Medhealth claims rules platform", "docs": "/docs", "api": "/api/docs"}
+
+
+@app.get("/health")
+def health() -> Dict[str, str]:
+    return database_healthcheck()
 
 
 @app.post("/api/auth/login")

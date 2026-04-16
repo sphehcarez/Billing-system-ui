@@ -18,6 +18,8 @@ CREATE TABLE claims (
     service_date TEXT NOT NULL,
     admission_date_time TEXT,
     discharge_date_time TEXT,
+    provider_pmb_indicator INTEGER,
+    pmb_status TEXT NOT NULL DEFAULT 'not_evaluated',
     latest_snapshot_id TEXT,
     latest_payload_id TEXT,
     latest_submission_id TEXT,
@@ -25,6 +27,7 @@ CREATE TABLE claims (
     latest_financial_bundle_id TEXT,
     latest_remittance_id TEXT,
     latest_reconciliation_id TEXT,
+    latest_benefit_route_decision_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -104,6 +107,57 @@ CREATE TABLE rule_definitions (
     stage_scope_json TEXT NOT NULL,
     enabled INTEGER NOT NULL,
     decision_table_json TEXT NOT NULL
+);
+
+CREATE TABLE icd10_codes (
+    code TEXT PRIMARY KEY,
+    description TEXT NOT NULL,
+    version TEXT NOT NULL,
+    status TEXT NOT NULL
+);
+
+CREATE TABLE pmb_conditions (
+    condition_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    evidence_requirements_json TEXT NOT NULL,
+    status TEXT NOT NULL
+);
+
+CREATE TABLE pmb_mapping_rules (
+    mapping_id TEXT PRIMARY KEY,
+    icd10_code TEXT NOT NULL,
+    pmb_condition_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    confidence TEXT NOT NULL,
+    auto_route_allowed INTEGER NOT NULL,
+    required_evidence_types_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    source TEXT NOT NULL
+);
+
+CREATE TABLE benefit_route_decisions (
+    decision_id TEXT PRIMARY KEY,
+    claim_id INTEGER NOT NULL,
+    claim_version INTEGER NOT NULL,
+    stage TEXT NOT NULL,
+    trigger_icd10 TEXT,
+    mapping_id TEXT,
+    pmb_condition_id TEXT,
+    provider_marked_pmb INTEGER NOT NULL,
+    pmb_detected INTEGER NOT NULL,
+    route TEXT NOT NULL,
+    action TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    reason_code TEXT NOT NULL,
+    message TEXT NOT NULL,
+    remediation_hint TEXT NOT NULL,
+    evidence_required_json TEXT NOT NULL,
+    evidence_missing_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE submissions (

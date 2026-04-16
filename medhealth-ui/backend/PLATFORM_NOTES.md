@@ -21,7 +21,11 @@ This backend now follows a rules-driven lifecycle rather than UI-driven claim ou
 - Rule definitions are stored as decision-table metadata.
 - Policy profiles are versioned and activated at runtime.
 - The active policy controls ICD enforcement, preauth rules, warning overrides, member format rules, and default routing.
+- ICD-10 validation now checks both format and configured MIT membership during readiness, closure, and post-closure validation.
+- PMB detection is configuration-backed through ICD-10 to PMB mapping rules, PMB condition metadata, and scheme/plan benefit routing toggles.
+- Seed PMB mappings are development placeholders only; official CMS/scheme-owned PMB reference data must replace them before production use.
 - Every lifecycle stage writes immutable decision bundles and audit events.
+- Claim action failures return structured validation summaries for action-point UI popups.
 
 ## Seeded scenarios
 

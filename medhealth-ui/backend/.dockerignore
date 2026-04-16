@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+after-proof.err
+after-proof.out
+runtime.err
+runtime.out
