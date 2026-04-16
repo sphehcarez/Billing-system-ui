@@ -196,6 +196,8 @@
     role: getStoredRole(),
     claimId: getClaimIdFromLocation(),
     claimDetail: null,
+    claimDiagnoses: [],
+    icd10Reference: [],
   };
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -415,6 +417,15 @@
           break;
         case "build-payload":
           await handleBuildPayload(id);
+          break;
+        case "add-diagnosis":
+          await handleAddDiagnosis();
+          break;
+        case "make-primary-diagnosis":
+          await handleMakePrimaryDiagnosis(id);
+          break;
+        case "auto-fix-primary":
+          await handleAutoFixPrimary();
           break;
         case "submit-direct":
           await handleSubmitClaim("direct");
@@ -692,9 +703,15 @@
 
   async function loadClaimDetail() {
     const claimId = state.claimId || 1;
-    const claim = await window.api.getClaim(claimId);
+    const [claim, diagnoses, icd10Reference] = await Promise.all([
+      window.api.getClaim(claimId),
+      window.api.getClaimDiagnoses(claimId),
+      state.icd10Reference.length ? Promise.resolve(state.icd10Reference) : window.api.getIcd10Reference(),
+    ]);
     state.claimId = claim.id;
     state.claimDetail = claim;
+    state.claimDiagnoses = diagnoses || [];
+    state.icd10Reference = icd10Reference || [];
 
     setTextById("claim-number", claim.claim_number);
     setTextById("claim-member", claim.member_number || `Patient ${claim.patient_id}`);
@@ -707,14 +724,177 @@
       JSON.stringify(claim.latest_payload?.canonical_claim || buildPayloadPreview(claim), null, 2),
     );
     setPreById("edi-preview", claim.latest_payload?.pseudo_edi || buildEdiPreview(claim));
+    renderDiagnosisReferenceOptions();
+    renderClaimDiagnoses();
+    renderClaimPmbSummary(
+      claim.latest_pmb_decision,
+      claim.latest_benefit_route_decision,
+      claim.latest_costing_preview,
+    );
+  }
+
+  function renderDiagnosisReferenceOptions() {
+    const datalist = document.getElementById("icd10-options");
+    if (!datalist) {
+      return;
+    }
+    datalist.innerHTML = (state.icd10Reference || [])
+      .slice(0, 200)
+      .map(
+        (item) =>
+          `<option value="${escapeHtml(item.code)}">${escapeHtml(`${item.code} - ${item.description || ""}`)}</option>`,
+      )
+      .join("");
+  }
+
+  function renderClaimDiagnoses() {
+    const container = document.getElementById("diagnoses-list");
+    const autoFixButton = document.getElementById("diagnosis-auto-fix");
+    if (!container) {
+      return;
+    }
+
+    const diagnoses = state.claimDiagnoses || [];
+    if (autoFixButton) {
+      autoFixButton.style.display = diagnoses.length === 1 && !diagnoses.some((item) => item.is_primary) ? "" : "none";
+    }
+
+    if (!diagnoses.length) {
+      container.innerHTML =
+        '<div class="panel"><strong>No diagnoses captured.</strong><div class="muted" style="margin-top:6px;">Capture a primary ICD-10 to clear the readiness blocker and enable PMB evaluation.</div></div>';
+      return;
+    }
+
+    container.innerHTML = diagnoses
+      .map(
+        (diagnosis) => `
+          <article style="border:1px solid #e5e7eb;border-radius:14px;padding:12px;display:grid;gap:8px;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+              <div>
+                <strong class="code">${escapeHtml(diagnosis.icd10_code)}</strong>
+                <span class="chip ${diagnosis.is_primary ? "pass" : "info"}" style="margin-left:8px;">${diagnosis.is_primary ? "PRIMARY" : "SECONDARY"}</span>
+              </div>
+              <div class="row-actions">
+                ${diagnosis.is_primary ? "" : `<button class="chip" data-action="make-primary-diagnosis" data-id="${escapeHtml(diagnosis.diagnosis_id)}">Set primary</button>`}
+              </div>
+            </div>
+            <div class="muted">
+              Source: ${escapeHtml(diagnosis.source || "UserEntry")} · Captured: ${escapeHtml(diagnosis.captured_at || "-")}
+            </div>
+          </article>
+        `,
+      )
+      .join("");
+  }
+
+  function renderClaimPmbSummary(pmbDecision, routingDecision, costingPreview) {
+    const container = document.getElementById("claim-pmb-summary");
+    if (!container) {
+      return;
+    }
+    if (!pmbDecision && !routingDecision && !costingPreview) {
+      container.textContent = "Run readiness to load PMB identification, routing, and costing preview.";
+      return;
+    }
+
+    const pmbStatus = pmbDecision?.pmb_status || "UNKNOWN";
+    const route = routingDecision?.route || "-";
+    const pricingBasis = costingPreview?.pricing_basis || "-";
+    const pmbAllowed = costingPreview?.pmb_allowed_total == null ? "-" : formatCurrency(costingPreview.pmb_allowed_total);
+
+    container.innerHTML = `
+      <div class="panel" style="display:grid;gap:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+          <strong>${escapeHtml(pmbStatus)}</strong>
+          <span class="chip ${
+            pmbStatus === "CONFIRMED" ? "pass" : pmbStatus === "NOT_DETECTED" ? "info" : pmbStatus === "UNKNOWN" ? "fail" : "warn"
+          }">${escapeHtml(pmbDecision?.reason_code || routingDecision?.reason_code || "PMB")}</span>
+        </div>
+        <div class="muted">ICD-10: ${escapeHtml(pmbDecision?.matched_icd10 || "-")} · Mapping: ${escapeHtml(pmbDecision?.mapping_id || "-")} · Condition: ${escapeHtml(pmbDecision?.condition_id || "-")}</div>
+        <div class="muted">Route: ${escapeHtml(route)} · Provider marked PMB: ${escapeHtml(pmbDecision?.provider_marked_pmb ? "yes" : "no")}</div>
+        <div class="muted">Pricing basis: ${escapeHtml(pricingBasis)} · Scheme allowed: ${formatCurrency(costingPreview?.allowed_total || 0)} · PMB allowed: ${escapeHtml(pmbAllowed)}</div>
+        <div class="muted">Member liability estimate: ${formatCurrency(costingPreview?.member_liability_estimate || 0)}</div>
+      </div>
+    `;
+  }
+
+  function normalizeIcd10InputValue(value) {
+    return String(value || "")
+      .trim()
+      .split(/\s|-/)[0]
+      .toUpperCase();
+  }
+
+  function setDiagnosisFeedback(message, tone = "info") {
+    const element = document.getElementById("diagnosis-feedback");
+    if (!element) {
+      return;
+    }
+    element.textContent = message || "";
+    element.style.color =
+      tone === "error" ? "var(--fail)" : tone === "success" ? "var(--pass)" : "var(--ink-500)";
+  }
+
+  function focusDiagnosisSearchInput() {
+    const searchInput = document.getElementById("diagnosis-search-input");
+    if (!searchInput) {
+      return;
+    }
+    setTimeout(() => {
+      searchInput.focus();
+      searchInput.select?.();
+    }, 120);
+  }
+
+  async function rerunReadinessFromDiagnosisAction(titlePrefix) {
+    const result = await window.api.runReadinessCheck(resolveClaimId(state.claimId));
+    await refreshClaimViews();
+    showValidationSummaryModal(`${titlePrefix}: ${result.claim_number || `claim ${result.claim_id}`}`, result);
+  }
+
+  async function handleAddDiagnosis() {
+    const codeInput = document.getElementById("diagnosis-search-input");
+    const typeInput = document.getElementById("diagnosis-type-input");
+    const sourceInput = document.getElementById("diagnosis-source-input");
+    const icd10Code = normalizeIcd10InputValue(codeInput?.value);
+    if (!icd10Code) {
+      setDiagnosisFeedback("Enter an ICD-10 code before adding a diagnosis.", "error");
+      focusDiagnosisSearchInput();
+      return;
+    }
+    await window.api.addClaimDiagnosis(resolveClaimId(state.claimId), {
+      icd10_code: icd10Code,
+      is_primary: typeInput?.value === "PRIMARY",
+      source: sourceInput?.value || "UserEntry",
+    });
+    setDiagnosisFeedback(`Diagnosis ${icd10Code} captured. Readiness is rerunning.`, "success");
+    if (codeInput) {
+      codeInput.value = "";
+    }
+    await rerunReadinessFromDiagnosisAction("Diagnosis captured");
+  }
+
+  async function handleMakePrimaryDiagnosis(diagnosisId) {
+    await window.api.makePrimaryDiagnosis(resolveClaimId(state.claimId), diagnosisId);
+    setDiagnosisFeedback("Primary diagnosis updated. Readiness is rerunning.", "success");
+    await rerunReadinessFromDiagnosisAction("Primary diagnosis updated");
+  }
+
+  async function handleAutoFixPrimary() {
+    const result = await window.api.autoFixPrimaryDiagnosis(resolveClaimId(state.claimId));
+    if (!result.fixed) {
+      setDiagnosisFeedback(result.message || "Primary diagnosis could not be auto-fixed.", "error");
+      focusDiagnosisSearchInput();
+      return;
+    }
+    setDiagnosisFeedback("Primary diagnosis auto-fixed. Readiness is rerunning.", "success");
+    await rerunReadinessFromDiagnosisAction("Primary diagnosis auto-fixed");
   }
 
   async function handleRunReadiness(claimId) {
     const targetId = resolveClaimId(claimId);
     const result = await window.api.runReadinessCheck(targetId);
-    alert(
-      `Readiness for ${result.claim_number || `claim ${result.claim_id}`}: ${result.outcome || result.status}.`,
-    );
+    showValidationSummaryModal(`Readiness: ${result.claim_number || `claim ${result.claim_id}`}`, result);
     await refreshClaimViews();
   }
 
@@ -726,21 +906,18 @@
 
     const result = await window.api.closeClaim(targetId);
     if (result.status === "blocked" || result.status === "override_required") {
-      alert(
-        `Closure result for ${result.claim_number || result.claim_id}: ${result.status}.\n` +
-          `${(result.decision_bundle?.rule_hits || []).map((item) => item.reason_code).join(", ") || ""}`,
-      );
+      showValidationSummaryModal(`Closure ${result.status}: ${result.claim_number || result.claim_id}`, result);
       await refreshClaimViews();
       return;
     }
-    alert(`Claim ${result.claim_number || result.claim_id} is now closed.`);
+    showValidationSummaryModal(`Claim closed: ${result.claim_number || result.claim_id}`, result);
     await refreshClaimViews();
   }
 
   async function handlePostClosureValidation(claimId) {
     const targetId = resolveClaimId(claimId);
     const result = await window.api.postClosureValidate(targetId);
-    alert(`Post-closure validation status: ${result.validation_status}.`);
+    showValidationSummaryModal(`Post-closure validation: ${result.claim_number || result.claim_id}`, result);
     await refreshClaimViews();
   }
 
@@ -748,7 +925,7 @@
     const targetId = resolveClaimId(claimId);
     const result = await window.api.buildClaimPayload(targetId);
     if (result.status === "blocked") {
-      alert(result.error || "Payload generation is blocked.");
+      showValidationSummaryModal("Payload generation blocked", result);
       return;
     }
     alert(`Payload built for ${result.claim_number || `claim ${result.claim_id}`}.`);
@@ -759,7 +936,7 @@
     const targetId = resolveClaimId(state.claimId);
     const result = await window.api.submitClaim(targetId, channel);
     if (result.status === "blocked" || result.error) {
-      alert(result.error || "Submission is blocked.");
+      showValidationSummaryModal("Submission blocked", result);
       return;
     }
     alert(`Claim submitted via ${result.channel}. Status: ${result.submission_status}.`);
@@ -1192,6 +1369,205 @@
     return `<button class="chip" data-action="edit-user" data-id="${userId}">Edit</button>${deleteButton}`;
   }
 
+  function showValidationSummaryModal(title, result) {
+    const summary = result.validation_summary || buildFallbackValidationSummary(result);
+    const overlay = document.createElement("div");
+    overlay.style.cssText =
+      "position:fixed;inset:0;background:rgba(15,23,42,0.6);display:flex;align-items:center;justify-content:center;z-index:2200;padding:24px;";
+
+    const card = document.createElement("div");
+    card.style.cssText =
+      "background:#fff;border-radius:20px;width:min(760px,100%);max-height:86vh;overflow:auto;box-shadow:0 24px 55px rgba(15,23,42,0.25);";
+
+    card.innerHTML = `
+      <div style="padding:22px 24px;border-bottom:1px solid #e5e7eb;display:flex;gap:16px;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <h2 style="margin:0 0 6px 0;font-size:1.25rem;">${escapeHtml(title)}</h2>
+          <p style="margin:0;color:#475569;">${escapeHtml(summary.summary_message || "Validation completed.")}</p>
+        </div>
+        <span class="chip ${summary.blockers?.length ? "fail" : summary.warnings?.length ? "warn" : "pass"}">
+          ${escapeHtml(summary.outcome || result.outcome || result.status || "PASS")}
+        </span>
+      </div>
+      <div style="padding:18px 24px;display:grid;gap:14px;">
+        ${validationGroupMarkup("Blockers", summary.blockers || [], "fail")}
+        ${validationGroupMarkup("Warnings", summary.warnings || [], "warn")}
+        ${validationGroupMarkup("Information", summary.info || [], "info")}
+        ${pmbDecisionMarkup(summary, result)}
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:4px;">
+          <button type="button" class="btn secondary" data-modal-close>Close</button>
+        </div>
+      </div>
+    `;
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close();
+    });
+    card.querySelector("[data-modal-close]").addEventListener("click", close);
+    card.querySelectorAll("[data-jump-target]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const targetName = button.getAttribute("data-jump-target");
+        if (jumpToClaimTarget(targetName)) {
+          close();
+        }
+      });
+    });
+  }
+
+  function jumpToClaimTarget(targetName) {
+    const selectorValue = String(targetName || "").replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+    const target =
+      document.querySelector(`[data-field="${selectorValue}"]`) ||
+      document.getElementById(targetName);
+    if (!target) {
+      return false;
+    }
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (String(targetName).toLowerCase() === "diagnoses") {
+      focusDiagnosisSearchInput();
+    }
+    return true;
+  }
+
+  function validationGroupMarkup(title, items, chipClass) {
+    if (!items.length) {
+      return "";
+    }
+    return `
+      <section style="display:grid;gap:8px;">
+        <h3 style="margin:0;font-size:.95rem;">${escapeHtml(title)}</h3>
+        ${items
+          .map((item) => {
+            const jumpTarget = item.action?.target || item.jump_target || item.affected_fields?.[0] || "";
+            const jumpButton = jumpTarget
+              ? `<button type="button" class="chip" data-jump-target="${escapeHtml(jumpTarget)}">Jump to ${escapeHtml(jumpTarget)}</button>`
+              : "";
+            const autoFixButton = item.allowAutoFix
+              ? `<button type="button" class="chip info" data-action="auto-fix-primary">Auto-fix primary</button>`
+              : "";
+            return `
+              <article style="border:1px solid #e5e7eb;border-radius:14px;padding:12px;display:grid;gap:7px;">
+                <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;">
+                  <strong>${escapeHtml(item.title || item.reason_code)}</strong>
+                  <span class="chip ${chipClass}">${escapeHtml(item.reason_code)}</span>
+                </div>
+                <p style="margin:0;color:#334155;">${escapeHtml(item.message)}</p>
+                <p style="margin:0;color:#64748b;font-size:.9rem;">${escapeHtml(item.remediation || item.remediation_hint || "")}</p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">${jumpButton}${autoFixButton}</div>
+              </article>
+            `;
+          })
+          .join("")}
+      </section>
+    `;
+  }
+
+  function pmbDecisionMarkup(summary, result) {
+    const pmbDecision = summary.pmb_decision || result.pmb_decision || null;
+    const routingDecision = summary.benefit_routing_decision || result.benefit_routing_decision || null;
+    const costingPreview = summary.costing_preview || result.costing_preview || null;
+    const legacyItems = summary.pmb || result.benefit_route_decisions || [];
+    if (!pmbDecision && !routingDecision && !costingPreview && !legacyItems.length) {
+      return "";
+    }
+    const reasonCode = pmbDecision?.reason_code || routingDecision?.reason_code || legacyItems[0]?.reason_code || "PMB";
+    const statusLabel = pmbDecision?.pmb_status || routingDecision?.route || legacyItems[0]?.route || "UNKNOWN";
+    const matchedCode = pmbDecision?.matched_icd10 || routingDecision?.trigger_icd10 || legacyItems[0]?.trigger_icd10 || "-";
+    const mappingId = pmbDecision?.mapping_id || routingDecision?.mapping_id || legacyItems[0]?.mapping_id || "-";
+    const conditionId = pmbDecision?.condition_id || routingDecision?.pmb_condition_id || legacyItems[0]?.pmb_condition_id || "-";
+    const pmbMessage =
+      pmbDecision?.message ||
+      routingDecision?.message ||
+      legacyItems[0]?.message ||
+      "No PMB decision returned.";
+    const routeLabel = routingDecision?.route || legacyItems[0]?.route || "-";
+    const routeReason = routingDecision?.reason_code || legacyItems[0]?.reason_code || "-";
+    const providerMarked = pmbDecision?.provider_marked_pmb ?? routingDecision?.provider_marked_pmb ?? legacyItems[0]?.provider_marked_pmb;
+    const schemeAllowed = costingPreview ? formatCurrency(costingPreview.allowed_total || 0) : "-";
+    const pmbAllowed =
+      costingPreview && costingPreview.pmb_allowed_total != null
+        ? formatCurrency(costingPreview.pmb_allowed_total)
+        : "-";
+    const liability = costingPreview ? formatCurrency(costingPreview.member_liability_estimate || 0) : "-";
+    const pendingReviewNote =
+      pmbDecision?.pmb_status === "UNKNOWN"
+        ? "PMB cannot be evaluated until primary diagnosis is captured."
+        : costingPreview?.pending_pmb_review
+          ? "Costing preview is provisional while PMB review is pending."
+          : "";
+    return `
+      <section style="display:grid;gap:8px;">
+        <h3 style="margin:0;font-size:.95rem;">PMB Detection and Benefit Routing</h3>
+        <article style="border:1px solid #dbeafe;background:#eff6ff;border-radius:14px;padding:12px;display:grid;gap:9px;">
+          <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;">
+            <strong>${escapeHtml(statusLabel)}</strong>
+            <span class="chip info">${escapeHtml(reasonCode)}</span>
+          </div>
+          <p style="margin:0;color:#334155;">${escapeHtml(pmbMessage)}</p>
+          <p style="margin:0;color:#64748b;font-size:.9rem;">
+            ICD-10: ${escapeHtml(matchedCode)} · Mapping: ${escapeHtml(mappingId)} · Condition: ${escapeHtml(conditionId)} ·
+            Provider marked PMB: ${escapeHtml(providerMarked ? "yes" : "no")}
+          </p>
+          <p style="margin:0;color:#64748b;font-size:.9rem;">
+            Route: ${escapeHtml(routeLabel)} · Route reason: ${escapeHtml(routeReason)} · Pricing basis:
+            ${escapeHtml(costingPreview?.pricing_basis || "-")}
+          </p>
+          <p style="margin:0;color:#64748b;font-size:.9rem;">
+            Scheme allowed: ${escapeHtml(schemeAllowed)} · PMB allowed: ${escapeHtml(pmbAllowed)} · Member liability estimate:
+            ${escapeHtml(liability)}
+          </p>
+          ${pendingReviewNote ? `<p style="margin:0;color:#0f567b;font-size:.9rem;">${escapeHtml(pendingReviewNote)}</p>` : ""}
+          <p style="margin:0;color:#64748b;font-size:.9rem;">${escapeHtml(
+            pmbDecision?.remediation_hint || routingDecision?.remediation_hint || legacyItems[0]?.remediation || legacyItems[0]?.remediation_hint || "",
+          )}</p>
+        </article>
+      </section>
+    `;
+  }
+
+  function buildFallbackValidationSummary(result) {
+    const hits = result.decision_bundle?.rule_hits || [];
+    const summary = {
+      outcome: result.outcome || result.status || result.validation_status || "PASS",
+      summary_message: result.error || "Validation completed.",
+      blockers: [],
+      warnings: [],
+      info: [],
+      pmb: result.benefit_route_decisions || [],
+      pmb_decision: result.pmb_decision || null,
+      benefit_routing_decision: result.benefit_routing_decision || null,
+      costing_preview: result.costing_preview || null,
+    };
+    hits.forEach((hit) => {
+      const item = {
+        severity: hit.severity,
+        reason_code: hit.reason_code,
+        title: hit.name,
+        message: hit.message,
+        remediation: hit.remediation_hint,
+        affected_fields: hit.affected_fields,
+        jump_target: hit.affected_fields?.[0],
+      };
+      if (hit.severity === "BLOCK") summary.blockers.push(item);
+      else if (hit.severity === "WARN") summary.warnings.push(item);
+      else summary.info.push(item);
+    });
+    if (!hits.length && result.error) {
+      summary.blockers.push({
+        severity: "BLOCK",
+        reason_code: "ACTION_BLOCKED",
+        title: "Action blocked",
+        message: result.error,
+        remediation: "Resolve the prerequisite step and retry.",
+      });
+    }
+    return summary;
+  }
+
   function showFormModal({ title, submitLabel, fields, onSubmit }) {
     const overlay = document.createElement("div");
     overlay.style.cssText =
@@ -1301,13 +1677,16 @@
   }
 
   function buildPayloadPreview(claim) {
+    const diagnosisCodes = (claim.diagnoses || [])
+      .map((item) => item.icd10 || item.icd10_code)
+      .filter(Boolean);
     return {
       header: {
         claim_id: claim.claim_number,
         scheme_id: claim.scheme || claim.scheme_id,
         member_number: claim.member_number || `PAT-${claim.patient_id}`,
       },
-      diagnoses: (claim.diagnoses || []).map((item) => item.icd10).filter(Boolean),
+      diagnoses: diagnosisCodes,
       lines: (claim.line_items || []).map((item) => ({
         line_id: item.line_id,
         code: item.service_code,
@@ -1323,13 +1702,15 @@
   }
 
   function buildEdiPreview(claim) {
+    const primaryDiagnosis =
+      (claim.diagnoses || []).find((item) => item.is_primary || item.diagnosis_type === "PRIMARY") || claim.diagnoses?.[0];
     return [
       `UNH+${claim.claim_number}+MEDCLM+0:912:13.4+ZA'`,
       `BGM+CLAIM+${claim.claim_number}'`,
       `DTM+137+${new Date().toISOString().slice(0, 10)}+102'`,
       `NAD+MSN+${claim.member_number || `PAT-${claim.patient_id}`}'`,
       `RFF+SCH+${claim.scheme}'`,
-      "RFF+ICD+J11.1'",
+      `RFF+ICD+${primaryDiagnosis?.icd10 || primaryDiagnosis?.icd10_code || "MISSING"}'`,
       "LIN+1+CONS001+Procedure'",
       "QTY+47+1'",
       `MOA+203+${claim.amount}'`,

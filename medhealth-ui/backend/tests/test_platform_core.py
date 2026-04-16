@@ -14,10 +14,136 @@ class PlatformCoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = PlatformStore()
 
-    def test_missing_icd_blocks_readiness(self) -> None:
+    def test_missing_primary_icd_blocks_readiness_with_navigation_action(self) -> None:
         result = self.store.run_readiness(2, "tester", "Billing Specialist")
         self.assertEqual(result["outcome"], "BLOCK")
         self.assertEqual(self.store.claims[2].status, "blocked")
+        self.assertIn("validation_summary", result)
+        blocker = result["validation_summary"]["blockers"][0]
+        self.assertEqual(blocker["reason_code"], "ICD_MISSING_PRIMARY")
+        self.assertEqual(blocker["action"]["target"], "diagnoses")
+        self.assertFalse(blocker["allowAutoFix"])
+        self.assertEqual(result["pmb_decision"]["pmb_status"], "UNKNOWN")
+
+    def test_invalid_icd_blocks_readiness(self) -> None:
+        claim = self.store.create_claim(
+            {
+                "claim_number": "CLM-ICD-BAD",
+                "patient_id": 1,
+                "provider_id": 1,
+                "member_number": "MEM201001",
+                "service_date": "2026-04-10",
+                "diagnoses": [{"seq": 1, "icd10": "X99", "diagnosis_type": "PRIMARY"}],
+                "line_items": [
+                    {
+                        "line_id": "1",
+                        "service_code": "CONS001",
+                        "service_description": "Consultation",
+                        "quantity": 1,
+                        "unit_price": 500,
+                        "claimed_amount": 500,
+                        "diagnosis_refs": [1],
+                    }
+                ],
+            },
+            actor="tester",
+            role="Billing Specialist",
+        )
+        result = self.store.run_readiness(claim.id, "tester", "Billing Specialist")
+        reason_codes = {item["reason_code"] for item in result["validation_summary"]["blockers"]}
+        self.assertEqual(result["outcome"], "BLOCK")
+        self.assertIn("ICD_INVALID", reason_codes)
+
+    def test_icd_to_pmb_auto_flags_even_without_provider_indicator(self) -> None:
+        result = self.store.run_readiness(1, "tester", "Billing Specialist")
+        self.assertEqual(result["pmb_decision"]["matched_icd10"], "I10")
+        self.assertFalse(result["pmb_decision"]["provider_marked_pmb"])
+        self.assertEqual(result["pmb_decision"]["pmb_status"], "CONFIRMED")
+        self.assertEqual(result["benefit_routing_decision"]["route"], "PMB_BENEFIT_BUCKET")
+        self.assertEqual(self.store.claims[1].pmb_status, "confirmed")
+
+    def test_pmb_missing_evidence_routes_to_review(self) -> None:
+        result = self.store.run_readiness(7, "tester", "Billing Specialist")
+        pmb_items = result["validation_summary"]["pmb"]
+        warning_codes = {item["reason_code"] for item in result["validation_summary"]["warnings"]}
+        self.assertIn("PMB_EVIDENCE_REQUIRED", warning_codes)
+        self.assertEqual(result["pmb_decision"]["pmb_status"], "REVIEW_REQUIRED")
+        self.assertEqual(pmb_items[0]["route"], "PMB_REVIEW_QUEUE")
+        self.assertEqual(pmb_items[0]["evidence_missing"], ["MOTIVATION"])
+
+    def test_auto_fix_primary_only_when_safe(self) -> None:
+        safe_claim = self.store.create_claim(
+            {
+                "claim_number": "CLM-AUTOFIX-SAFE",
+                "patient_id": 1,
+                "provider_id": 1,
+                "member_number": "MEM240001",
+                "service_date": "2026-04-10",
+                "diagnoses": [{"seq": 1, "icd10": "I10", "diagnosis_type": "SECONDARY"}],
+                "line_items": [{"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", "quantity": 1, "unit_price": 500, "claimed_amount": 500}],
+            },
+            actor="tester",
+            role="Billing Specialist",
+        )
+        fixed = self.store.auto_fix_primary_diagnosis(safe_claim.id, "tester", "Billing Specialist")
+        self.assertTrue(fixed["fixed"])
+        self.assertTrue(fixed["diagnoses"][0]["is_primary"])
+
+        ambiguous_claim = self.store.create_claim(
+            {
+                "claim_number": "CLM-AUTOFIX-AMB",
+                "patient_id": 1,
+                "provider_id": 1,
+                "member_number": "MEM240002",
+                "service_date": "2026-04-10",
+                "diagnoses": [
+                    {"seq": 1, "icd10": "I10", "diagnosis_type": "SECONDARY"},
+                    {"seq": 2, "icd10": "M54.5", "diagnosis_type": "SECONDARY"},
+                ],
+                "line_items": [{"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", "quantity": 1, "unit_price": 500, "claimed_amount": 500}],
+            },
+            actor="tester",
+            role="Billing Specialist",
+        )
+        ambiguous = self.store.auto_fix_primary_diagnosis(ambiguous_claim.id, "tester", "Billing Specialist")
+        self.assertFalse(ambiguous["fixed"])
+        self.assertEqual(ambiguous["reason"], "ambiguous_primary")
+
+    def test_pmb_review_and_costing_preview_after_primary_capture(self) -> None:
+        self.store.add_claim_diagnosis(2, {"icd10_code": "I10", "is_primary": True, "source": "UserEntry"}, "tester", "Billing Specialist")
+        result = self.store.run_readiness(2, "tester", "Billing Specialist")
+        self.assertEqual(result["pmb_decision"]["pmb_status"], "REVIEW_REQUIRED")
+        self.assertEqual(result["benefit_routing_decision"]["route"], "PMB_REVIEW_QUEUE")
+        self.assertEqual(result["costing_preview"]["pricing_basis"], "NON_DSP_VOLUNTARY")
+        self.assertTrue(result["costing_preview"]["pending_pmb_review"])
+
+    def test_costing_preview_respects_dsp_rules_configuration(self) -> None:
+        confirmed_dsp = self.store.run_readiness(1, "tester", "Billing Specialist")
+        self.assertEqual(confirmed_dsp["costing_preview"]["pricing_basis"], "DSP")
+        self.assertEqual(confirmed_dsp["costing_preview"]["member_liability_estimate"], 0.0)
+        self.assertEqual(confirmed_dsp["costing_preview"]["pmb_allowed_total"], 900.0)
+
+        non_dsp_claim = self.store.create_claim(
+            {
+                "claim_number": "CLM-NONDSP-PMB",
+                "patient_id": 1,
+                "provider_id": 2,
+                "provider_is_dsp": False,
+                "non_dsp_access_type": "VOLUNTARY",
+                "member_number": "MEM240003",
+                "service_date": "2026-04-10",
+                "diagnoses": [{"seq": 1, "icd10": "I10", "diagnosis_type": "PRIMARY"}],
+                "attachments": [{"attachment_type": "MOTIVATION", "file_name": "motivation.pdf", "storage_ref": "motivation.pdf", "file_hash": "demo", "uploaded_by": "tester"}],
+                "line_items": [{"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", "quantity": 1, "unit_price": 1200, "claimed_amount": 1200}],
+            },
+            actor="tester",
+            role="Billing Specialist",
+        )
+        non_dsp = self.store.run_readiness(non_dsp_claim.id, "tester", "Billing Specialist")
+        self.assertEqual(non_dsp["pmb_decision"]["pmb_status"], "CONFIRMED")
+        self.assertEqual(non_dsp["costing_preview"]["pricing_basis"], "NON_DSP_VOLUNTARY")
+        self.assertEqual(non_dsp["costing_preview"]["pmb_allowed_total"], 900.0)
+        self.assertEqual(non_dsp["costing_preview"]["member_liability_estimate"], 300.0)
 
     def test_clean_success_reconciles(self) -> None:
         claim = self.store.claims[1]
@@ -25,6 +151,9 @@ class PlatformCoreTests(unittest.TestCase):
         evidence = self.store.get_evidence_packet(1)
         self.assertIsNotNone(evidence["snapshot"])
         self.assertGreaterEqual(len(evidence["decision_bundles"]), 2)
+        self.assertGreaterEqual(len(evidence["benefit_route_decisions"]), 1)
+        self.assertGreaterEqual(len(evidence["pmb_decisions"]), 1)
+        self.assertGreaterEqual(len(evidence["costing_previews"]), 1)
         self.assertGreaterEqual(len(evidence["remittances"]), 1)
 
     def test_idempotent_submission_reuses_original_record(self) -> None:
@@ -59,6 +188,15 @@ class PlatformCoreTests(unittest.TestCase):
                 "member_number": "MEM200001",
                 "service_date": "2026-04-10",
                 "diagnoses": [{"seq": 1, "icd10": "I10", "diagnosis_type": "PRIMARY"}],
+                "attachments": [
+                    {
+                        "attachment_type": "MOTIVATION",
+                        "file_name": "motivation.pdf",
+                        "storage_ref": "motivation.pdf",
+                        "file_hash": "demo",
+                        "uploaded_by": "tester",
+                    }
+                ],
                 "line_items": [
                     {
                         "line_id": "1",

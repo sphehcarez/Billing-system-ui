@@ -2,7 +2,7 @@ import os
 from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from jose import ExpiredSignatureError, JWTError, jwt
@@ -251,11 +251,43 @@ def update_claim(claim_id: int, payload: Dict[str, Any], current_user: Dict[str,
     return db.update_claim(claim_id, payload, actor, role)
 
 
+@app.get("/api/claims/{claim_id}/diagnoses")
+def get_claim_diagnoses(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    require_permission(current_user, "claims", "read")
+    return [item.model_dump() for item in db.get_claim_diagnoses(claim_id)]
+
+
+@app.post("/api/claims/{claim_id}/diagnoses")
+def add_claim_diagnosis(claim_id: int, payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "write")
+    actor, role = current_identity(current_user)
+    return db.add_claim_diagnosis(claim_id, payload, actor, role)
+
+
+@app.put("/api/claims/{claim_id}/diagnoses/{diagnosis_id}/make-primary")
+def make_primary_diagnosis(claim_id: int, diagnosis_id: str, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "write")
+    actor, role = current_identity(current_user)
+    return db.make_primary_diagnosis(claim_id, diagnosis_id, actor, role)
+
+
+@app.post("/api/claims/{claim_id}/diagnoses/auto-fix-primary")
+def auto_fix_primary_diagnosis(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "write")
+    actor, role = current_identity(current_user)
+    return db.auto_fix_primary_diagnosis(claim_id, actor, role)
+
+
 @app.post("/api/claims/{claim_id}/readiness")
 def run_readiness(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "process")
     actor, role = current_identity(current_user)
     return db.run_readiness(claim_id, actor, role)
+
+
+@app.post("/api/claims/{claim_id}/readiness/run")
+def run_readiness_alias(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    return run_readiness(claim_id, current_user)
 
 
 @app.post("/api/claims/{claim_id}/close")
@@ -265,11 +297,21 @@ def close_claim(claim_id: int, request: ClaimClosureRequest | None = None, curre
     return db.close_claim(claim_id, request or ClaimClosureRequest(), actor, role)
 
 
+@app.post("/api/claims/{claim_id}/closure/confirm")
+def close_claim_alias(claim_id: int, request: ClaimClosureRequest | None = None, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    return close_claim(claim_id, request, current_user)
+
+
 @app.post("/api/claims/{claim_id}/validate")
 def post_closure_validate(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "process")
     actor, role = current_identity(current_user)
     return db.run_post_closure_validation(claim_id, actor, role)
+
+
+@app.post("/api/claims/{claim_id}/validation/post-closure")
+def post_closure_validate_alias(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    return post_closure_validate(claim_id, current_user)
 
 
 @app.post("/api/claims/{claim_id}/payload")
@@ -279,11 +321,33 @@ def build_payload(claim_id: int, current_user: Dict[str, Any] = Depends(get_curr
     return db.build_payload(claim_id, actor, role)
 
 
+@app.get("/api/claims/{claim_id}/payloads/{version}")
+def get_claim_payload(claim_id: int, version: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "read")
+    return db.get_payload_for_claim_version(claim_id, version)
+
+
 @app.post("/api/claims/{claim_id}/submit")
 def submit_claim(claim_id: int, request: ClaimSubmissionRequest, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "submit")
     actor, role = current_identity(current_user)
     return db.submit_claim(claim_id, request, actor, role)
+
+
+@app.post("/api/submissions/claims/{claim_id}")
+def submit_claim_alias(
+    claim_id: int,
+    channel: str = Query("DIRECT"),
+    idempotency_key: str | None = Query(None),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    return submit_claim(claim_id, ClaimSubmissionRequest(channel=channel, idempotency_key=idempotency_key), current_user)
+
+
+@app.get("/api/submissions/{submission_id}/logs")
+def submission_logs(submission_id: str, current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    require_permission(current_user, "claims", "read")
+    return [item.model_dump() for item in db.get_transport_logs_for_submission(submission_id)]
 
 
 @app.get("/api/claims/{claim_id}/remittance")
@@ -292,10 +356,33 @@ def claim_remittance(claim_id: int, current_user: Dict[str, Any] = Depends(get_c
     return db.get_claim_remittance(claim_id)
 
 
+@app.get("/api/payments/claims/{claim_id}/remittance")
+def claim_remittance_alias(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    return claim_remittance(claim_id, current_user)
+
+
+@app.get("/api/payments/claims/{claim_id}/reconciliation")
+def claim_reconciliation(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "payments", "read")
+    return db.get_claim_reconciliation(claim_id)
+
+
 @app.get("/api/claims/{claim_id}/evidence")
 def claim_evidence(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "read")
     return db.get_evidence_packet(claim_id)
+
+
+@app.get("/api/audit/claims/{claim_id}/evidence-packet")
+def claim_evidence_alias(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "audit", "read")
+    return db.get_evidence_packet(claim_id)
+
+
+@app.get("/api/claims/{claim_id}/pmb")
+def claim_pmb_decisions(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    require_permission(current_user, "claims", "read")
+    return db.get_pmb_decisions_for_claim(claim_id)
 
 
 @app.get("/api/payments")
@@ -381,6 +468,27 @@ def audit_logs(current_user: Dict[str, Any] = Depends(get_current_user)) -> List
     return db.list_audit_events()
 
 
+@app.get("/api/audit")
+def audit_logs_alias(
+    entity_type: str | None = Query(None),
+    entity_id: str | None = Query(None),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    require_permission(current_user, "audit", "read")
+    rows = db.list_audit_events()
+    if entity_type:
+        rows = [item for item in rows if str(item["resource"]).startswith(f"{entity_type}:")]
+    if entity_id:
+        rows = [item for item in rows if str(item["resource"]).endswith(f":{entity_id}")]
+    return rows
+
+
+@app.get("/api/audit/{audit_event_id}")
+def audit_event_detail(audit_event_id: str, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "audit", "read")
+    return db.get_audit_event(audit_event_id)
+
+
 @app.get("/api/settings")
 def get_settings(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "settings", "read")
@@ -427,6 +535,18 @@ def list_rules(current_user: Dict[str, Any] = Depends(get_current_user)) -> List
     return db.list_rules()
 
 
+@app.get("/api/reference/icd10")
+def icd10_reference(current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    require_permission(current_user, "rules", "read")
+    return db.list_icd10_reference()
+
+
+@app.get("/api/reference/pmb-mappings")
+def pmb_mapping_reference(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "rules", "read")
+    return db.list_pmb_mapping_reference()
+
+
 @app.patch("/api/rules/{rule_id}")
 def update_rule(rule_id: str, patch: RulePatch, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "rules", "write")
@@ -452,5 +572,21 @@ def api_docs() -> Dict[str, Any]:
             "reconciliation",
             "audit_evidence",
             "policy_rule_management",
+            "icd10_validation",
+            "claim_diagnosis_capture",
+            "pmb_auto_flagging",
+            "benefit_routing",
+            "costing_preview",
+            "validation_summary_popups",
         ],
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        app,
+        host=os.getenv("MEDHEALTH_HOST", "0.0.0.0"),
+        port=int(os.getenv("MEDHEALTH_PORT", "8001")),
+    )

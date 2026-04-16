@@ -174,6 +174,22 @@ class BillingAPI {
     return this._request(`/claims/${id}`, "PUT", claim);
   }
 
+  async getClaimDiagnoses(claimId) {
+    return this._request(`/claims/${claimId}/diagnoses`, "GET");
+  }
+
+  async addClaimDiagnosis(claimId, diagnosis) {
+    return this._request(`/claims/${claimId}/diagnoses`, "POST", diagnosis);
+  }
+
+  async makePrimaryDiagnosis(claimId, diagnosisId) {
+    return this._request(`/claims/${claimId}/diagnoses/${encodeURIComponent(diagnosisId)}/make-primary`, "PUT");
+  }
+
+  async autoFixPrimaryDiagnosis(claimId) {
+    return this._request(`/claims/${claimId}/diagnoses/auto-fix-primary`, "POST");
+  }
+
   async runReadinessCheck(claimId) {
     return this._request(`/claims/${claimId}/readiness`, "POST");
   }
@@ -307,6 +323,14 @@ class BillingAPI {
 
   async getRules() {
     return this._request("/rules", "GET");
+  }
+
+  async getIcd10Reference() {
+    return this._request("/reference/icd10", "GET");
+  }
+
+  async getPmbMappingReference() {
+    return this._request("/reference/pmb-mappings", "GET");
   }
 
   async updateRule(ruleId, patch) {

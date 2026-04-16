@@ -74,6 +74,7 @@ class Provider(BaseModel):
     practice_number: str
     specialty: str
     discipline: str = "SPECIALIST"
+    is_dsp_provider: bool = True
     email: str
     phone: str
     status: str = "active"
@@ -138,6 +139,165 @@ class ReferenceVersion(BaseModel):
     reference_key: str
     version: str
     effective_from: str
+
+
+class ICD10Code(BaseModel):
+    code: str
+    description: str
+    version: str
+    active: bool = True
+    effective_from: Optional[str] = None
+    effective_to: Optional[str] = None
+    source: str = "development_placeholder_reference_data"
+    status: Literal["ACTIVE", "RETIRED"] = "ACTIVE"
+
+
+class PMBCondition(BaseModel):
+    condition_id: str
+    name: str
+    type: Literal["DTP", "CDL", "EMERGENCY", "UNSPECIFIED"] = "UNSPECIFIED"
+    descriptor: str = ""
+    category: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    evidence_requirements: List[str] = Field(default_factory=list)
+    confirmation_flags: List[str] = Field(default_factory=list)
+    active: bool = True
+    effective_from: str = "2026-01-01"
+    effective_to: Optional[str] = None
+    source: str = "development_placeholder_business_owned_required"
+    status: Literal["ACTIVE", "RETIRED"] = "ACTIVE"
+
+
+class PMBMappingRule(BaseModel):
+    mapping_id: str
+    icd10_code: str
+    pmb_condition_id: str
+    match_type: Literal["EXACT", "PREFIX"] = "EXACT"
+    version: int
+    effective_from: str
+    effective_to: Optional[str] = None
+    confidence: Literal["HIGH", "MEDIUM", "LOW"] = "LOW"
+    auto_route_allowed: bool = False
+    required_evidence_types: List[str] = Field(default_factory=list)
+    active: bool = True
+    status: Literal["DRAFT", "ACTIVE", "RETIRED"] = "ACTIVE"
+    source: str = "business_owned_reference_data"
+
+
+class BenefitRouteRule(BaseModel):
+    rule_id: str
+    scheme_id: str
+    plan_option_id: str
+    route_when_confirmed: Literal["PMB_BENEFIT_BUCKET", "PMB_REVIEW_QUEUE", "NORMAL_BENEFIT"] = "PMB_BENEFIT_BUCKET"
+    route_when_possible: Literal["PMB_BENEFIT_BUCKET", "PMB_REVIEW_QUEUE", "NORMAL_BENEFIT"] = "PMB_REVIEW_QUEUE"
+    route_when_missing_evidence: Literal["PMB_BENEFIT_BUCKET", "PMB_REVIEW_QUEUE", "NORMAL_BENEFIT"] = "PMB_REVIEW_QUEUE"
+    auto_route_possible_matches: bool = False
+    active: bool = True
+    effective_from: str
+    effective_to: Optional[str] = None
+    source: str = "development_placeholder_business_owned_required"
+
+
+class TariffRate(BaseModel):
+    rate_id: str
+    scheme_id: str
+    plan_option_id: str
+    tariff_code: str
+    dsp_flag: bool = True
+    rate_amount: float
+    unit: str = "PER_SERVICE"
+    active: bool = True
+    effective_from: str
+    effective_to: Optional[str] = None
+    source: str = "development_placeholder_business_owned_required"
+
+
+class PMBPaymentPolicy(BaseModel):
+    policy_id: str
+    scheme_id: str
+    plan_option_id: str
+    pay_in_full_requires_dsp: bool = True
+    voluntary_non_dsp_rate_mode: Literal["DSP_RATE", "SCHEME_RATE", "CLAIMED_LIMITED"] = "DSP_RATE"
+    involuntary_non_dsp_no_copay: bool = True
+    active: bool = True
+    effective_from: str
+    effective_to: Optional[str] = None
+    source: str = "development_placeholder_business_owned_required"
+
+
+class ClaimDiagnosis(BaseModel):
+    diagnosis_id: str
+    claim_id: int
+    seq: int
+    icd10_code: str
+    is_primary: bool = False
+    source: str = "UserEntry"
+    captured_by: str
+    captured_at: str
+
+
+class PMBDecision(BaseModel):
+    decision_id: str
+    claim_id: int
+    claim_version: int
+    stage: StageName
+    pmb_status: Literal["UNKNOWN", "NOT_DETECTED", "POSSIBLE", "REVIEW_REQUIRED", "CONFIRMED"] = "UNKNOWN"
+    matched_icd10: Optional[str] = None
+    mapping_id: Optional[str] = None
+    condition_id: Optional[str] = None
+    condition_type: Optional[str] = None
+    provider_marked_pmb: bool = False
+    reason_code: str
+    message: str
+    remediation_hint: str
+    explainability: str
+    descriptor: Optional[str] = None
+    confidence: Literal["HIGH", "MEDIUM", "LOW", "NONE"] = "NONE"
+    evidence_required: List[str] = Field(default_factory=list)
+    evidence_missing: List[str] = Field(default_factory=list)
+    created_at: str
+
+
+class BenefitRouteDecision(BaseModel):
+    decision_id: str
+    claim_id: int
+    claim_version: int
+    stage: StageName
+    pmb_decision_id: Optional[str] = None
+    pmb_status: Literal["UNKNOWN", "NOT_DETECTED", "POSSIBLE", "REVIEW_REQUIRED", "CONFIRMED"] = "UNKNOWN"
+    trigger_icd10: Optional[str] = None
+    mapping_id: Optional[str] = None
+    pmb_condition_id: Optional[str] = None
+    provider_marked_pmb: bool = False
+    pmb_detected: bool = False
+    route: Literal["NORMAL_BENEFIT", "PMB_BENEFIT_BUCKET", "PMB_REVIEW_QUEUE"] = "NORMAL_BENEFIT"
+    action: Literal["NO_PMB_MATCH", "SYSTEM_FLAGGED", "ROUTED_TO_PMB_BUCKET", "ROUTED_TO_PMB_REVIEW"] = "NO_PMB_MATCH"
+    confidence: Literal["HIGH", "MEDIUM", "LOW", "NONE"] = "NONE"
+    reason_code: str
+    message: str
+    remediation_hint: str
+    evidence_required: List[str] = Field(default_factory=list)
+    evidence_missing: List[str] = Field(default_factory=list)
+    created_at: str
+
+
+class CostingPreview(BaseModel):
+    preview_id: str
+    claim_id: int
+    claim_version: int
+    stage: StageName
+    pmb_decision_id: Optional[str] = None
+    routing_decision_id: Optional[str] = None
+    claimed_total: float
+    allowed_total: float
+    pmb_allowed_total: Optional[float] = None
+    member_liability_estimate: float
+    pricing_basis: Literal["DSP", "NON_DSP_VOLUNTARY", "NON_DSP_INVOLUNTARY", "SCHEME_STANDARD"] = "SCHEME_STANDARD"
+    pending_pmb_review: bool = False
+    provisional: bool = False
+    reason_code: str
+    explanation: str
+    created_at: str
 
 
 class RuleHit(BaseModel):
@@ -390,6 +550,10 @@ class ClaimRecord(BaseModel):
     attachments: List[AttachmentRecord] = Field(default_factory=list)
     clinical_summary: Optional[str] = None
     source_system: str = "UserEntry"
+    provider_pmb_indicator: Optional[bool] = None
+    provider_is_dsp: Optional[bool] = None
+    non_dsp_access_type: Literal["NOT_APPLICABLE", "VOLUNTARY", "INVOLUNTARY"] = "NOT_APPLICABLE"
+    pmb_status: str = "not_evaluated"
     readiness_status: str = "pending"
     validation_status: str = "pending"
     payload_status: str = "not_built"
@@ -404,6 +568,9 @@ class ClaimRecord(BaseModel):
     latest_financial_bundle_id: Optional[str] = None
     latest_remittance_id: Optional[str] = None
     latest_reconciliation_id: Optional[str] = None
+    latest_pmb_decision_id: Optional[str] = None
+    latest_benefit_route_decision_id: Optional[str] = None
+    latest_costing_preview_id: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -443,6 +610,305 @@ class RulePatch(BaseModel):
     decision_table: Optional[Dict[str, Any]] = None
 
 
+class ICD10ValidationService:
+    def __init__(self, store: PlatformStore) -> None:
+        self.store = store
+
+    def validate_code(self, code: str, as_of: Optional[str] = None) -> Optional[str]:
+        normalized = code.strip().upper()
+        reference = self.store._active_icd10_reference(normalized, as_of)
+        if not normalized:
+            return "ICD_EMPTY"
+        if not self.store._icd10_format_valid(normalized):
+            return "ICD_INVALID_FORMAT"
+        if not reference:
+            return "ICD_NOT_IN_REFERENCE"
+        return None
+
+    def evaluate_claim(self, claim: ClaimRecord) -> Dict[str, Any]:
+        diagnoses = self.store.get_claim_diagnoses(claim.id)
+        primary = next((item for item in diagnoses if item.is_primary), None)
+        issues: List[Dict[str, Any]] = []
+        invalid_codes: List[str] = []
+
+        if primary is None:
+            issues.append(
+                {
+                    "severity": "BLOCK",
+                    "reason_code": "ICD_MISSING_PRIMARY",
+                    "message": "Primary ICD-10 required",
+                    "remediation": "Capture a valid primary ICD-10 and mark it primary before continuing.",
+                }
+            )
+
+        for diagnosis in diagnoses:
+            error = self.validate_code(diagnosis.icd10_code, claim.service_date)
+            if error:
+                invalid_codes.append(diagnosis.icd10_code.strip().upper())
+
+        if invalid_codes:
+            issues.append(
+                {
+                    "severity": "BLOCK",
+                    "reason_code": "ICD_INVALID",
+                    "message": "One or more ICD-10 codes are invalid or inactive in the configured reference.",
+                    "remediation": "Select a valid ICD-10 from the configured reference data before continuing.",
+                    "invalid_codes": invalid_codes,
+                }
+            )
+
+        return {
+            "diagnoses": diagnoses,
+            "primary_diagnosis": primary,
+            "invalid_codes": invalid_codes,
+            "issues": issues,
+        }
+
+
+class PMBDetectionService:
+    def __init__(self, store: PlatformStore) -> None:
+        self.store = store
+
+    def evaluate(self, claim: ClaimRecord, stage: StageName) -> PMBDecision:
+        validation = self.store.icd10_validation_service.evaluate_claim(claim)
+        provider_marked_pmb = bool(claim.provider_pmb_indicator)
+        primary = validation["primary_diagnosis"]
+
+        if primary is None:
+            return PMBDecision(
+                decision_id=new_ref("pmb"),
+                claim_id=claim.id,
+                claim_version=claim.version,
+                stage=stage,
+                pmb_status="UNKNOWN",
+                provider_marked_pmb=provider_marked_pmb,
+                reason_code="ICD_MISSING_PRIMARY",
+                message="PMB cannot be evaluated until primary diagnosis is captured.",
+                remediation_hint="Jump to diagnoses, capture a valid primary ICD-10, and rerun readiness.",
+                explainability="No primary diagnosis is present, so PMB identification cannot run safely.",
+                created_at=utc_now(),
+            )
+
+        mapping = self.store._best_pmb_mapping_for_claim(claim)
+        if not mapping:
+            return PMBDecision(
+                decision_id=new_ref("pmb"),
+                claim_id=claim.id,
+                claim_version=claim.version,
+                stage=stage,
+                pmb_status="NOT_DETECTED",
+                provider_marked_pmb=provider_marked_pmb,
+                matched_icd10=primary.icd10_code,
+                reason_code="PMB_NOT_DETECTED",
+                message="No configured ICD-10 to PMB mapping matched the claim diagnoses.",
+                remediation_hint="Continue normal benefit routing unless reference data changes.",
+                explainability=f"Primary ICD-10 {primary.icd10_code} did not match any active PMB mapping.",
+                created_at=utc_now(),
+            )
+
+        condition = self.store.pmb_conditions.get(mapping.pmb_condition_id)
+        evidence_required = list(mapping.required_evidence_types or (condition.evidence_requirements if condition else []))
+        evidence_missing = self.store._missing_pmb_evidence(claim, mapping)
+        status: Literal["UNKNOWN", "NOT_DETECTED", "POSSIBLE", "REVIEW_REQUIRED", "CONFIRMED"] = "POSSIBLE"
+        reason_code = "PMB_POSSIBLE_MATCH"
+        message = "ICD-10 matched a configured PMB mapping. Confirmation evidence is still required."
+        remediation_hint = "Review the PMB mapping and add the configured evidence before treating the claim as confirmed PMB."
+
+        if evidence_required and not evidence_missing:
+            status = "CONFIRMED"
+            reason_code = "PMB_CONFIRMED"
+            message = "ICD-10 matched a configured PMB mapping and all configured evidence is present."
+            remediation_hint = "No remediation required unless a reviewer overrides the PMB assessment."
+        elif evidence_required and evidence_missing:
+            status = "REVIEW_REQUIRED"
+            reason_code = "PMB_REVIEW_REQUIRED"
+            message = "ICD-10 matched a configured PMB mapping, but confirmation evidence is still missing."
+            remediation_hint = "Capture the missing PMB descriptor evidence or route the claim to PMB review."
+
+        explainability = (
+            f"ICD-10 {primary.icd10_code} matched mapping {mapping.mapping_id} for condition {mapping.pmb_condition_id}. "
+            f"Provider marked PMB: {'yes' if provider_marked_pmb else 'no'}. "
+            f"Evidence missing: {', '.join(evidence_missing) if evidence_missing else 'none'}."
+        )
+
+        return PMBDecision(
+            decision_id=new_ref("pmb"),
+            claim_id=claim.id,
+            claim_version=claim.version,
+            stage=stage,
+            pmb_status=status,
+            matched_icd10=primary.icd10_code,
+            mapping_id=mapping.mapping_id,
+            condition_id=mapping.pmb_condition_id,
+            condition_type=condition.type if condition else None,
+            provider_marked_pmb=provider_marked_pmb,
+            reason_code=reason_code,
+            message=message,
+            remediation_hint=remediation_hint,
+            explainability=explainability,
+            descriptor=condition.descriptor if condition else None,
+            confidence=mapping.confidence,
+            evidence_required=evidence_required,
+            evidence_missing=evidence_missing,
+            created_at=utc_now(),
+        )
+
+
+class BenefitRoutingService:
+    def __init__(self, store: PlatformStore) -> None:
+        self.store = store
+
+    def evaluate(self, claim: ClaimRecord, stage: StageName, pmb_decision: PMBDecision) -> BenefitRouteDecision:
+        provider_marked_pmb = bool(claim.provider_pmb_indicator)
+        rule = self.store._resolve_benefit_route_rule(claim.scheme_id, claim.plan_option_id, claim.service_date)
+        route: Literal["NORMAL_BENEFIT", "PMB_BENEFIT_BUCKET", "PMB_REVIEW_QUEUE"] = "NORMAL_BENEFIT"
+        action: Literal["NO_PMB_MATCH", "SYSTEM_FLAGGED", "ROUTED_TO_PMB_BUCKET", "ROUTED_TO_PMB_REVIEW"] = "NO_PMB_MATCH"
+        reason_code = "ROUTE_NORMAL"
+        message = "Claim remains in the normal benefit path."
+        remediation_hint = "No PMB routing action is required."
+
+        if pmb_decision.pmb_status == "CONFIRMED":
+            route = rule.route_when_confirmed if rule else "PMB_BENEFIT_BUCKET"
+            action = "ROUTED_TO_PMB_BUCKET" if route == "PMB_BENEFIT_BUCKET" else "ROUTED_TO_PMB_REVIEW"
+            reason_code = "ROUTE_PMB_CONFIRMED"
+            message = "Confirmed PMB claim routed according to the active benefit routing rule."
+            remediation_hint = "Verify the PMB benefit bucket or review queue assignment if needed."
+        elif pmb_decision.pmb_status == "POSSIBLE":
+            route = (
+                rule.route_when_confirmed
+                if rule and rule.auto_route_possible_matches
+                else (rule.route_when_possible if rule else "PMB_REVIEW_QUEUE")
+            )
+            action = "ROUTED_TO_PMB_BUCKET" if route == "PMB_BENEFIT_BUCKET" else "ROUTED_TO_PMB_REVIEW"
+            reason_code = "ROUTE_PMB_REVIEW"
+            message = "Possible PMB claim routed conservatively pending confirmation."
+            remediation_hint = "Review PMB confirmation evidence before finalising payment treatment."
+        elif pmb_decision.pmb_status in {"REVIEW_REQUIRED", "UNKNOWN"}:
+            route = rule.route_when_missing_evidence if rule else "PMB_REVIEW_QUEUE"
+            action = "ROUTED_TO_PMB_REVIEW" if route == "PMB_REVIEW_QUEUE" else "ROUTED_TO_PMB_BUCKET"
+            reason_code = "ROUTE_PMB_REVIEW"
+            message = "PMB review is required before the claim can be treated as confirmed PMB."
+            remediation_hint = "Capture the missing PMB evidence or resolve the diagnosis blocker."
+
+        if pmb_decision.pmb_status in {"POSSIBLE", "REVIEW_REQUIRED", "CONFIRMED"} and not provider_marked_pmb:
+            message = (
+                "Provider did not mark PMB, but the system identified a PMB mapping and applied configured routing."
+            )
+
+        return BenefitRouteDecision(
+            decision_id=new_ref("brd"),
+            claim_id=claim.id,
+            claim_version=claim.version,
+            stage=stage,
+            pmb_decision_id=pmb_decision.decision_id,
+            pmb_status=pmb_decision.pmb_status,
+            trigger_icd10=pmb_decision.matched_icd10,
+            mapping_id=pmb_decision.mapping_id,
+            pmb_condition_id=pmb_decision.condition_id,
+            provider_marked_pmb=provider_marked_pmb,
+            pmb_detected=pmb_decision.pmb_status in {"POSSIBLE", "REVIEW_REQUIRED", "CONFIRMED"},
+            route=route,
+            action=action,
+            confidence=pmb_decision.confidence,
+            reason_code=reason_code,
+            message=message,
+            remediation_hint=remediation_hint,
+            evidence_required=pmb_decision.evidence_required,
+            evidence_missing=pmb_decision.evidence_missing,
+            created_at=utc_now(),
+        )
+
+
+class CostingPreviewService:
+    def __init__(self, store: PlatformStore) -> None:
+        self.store = store
+
+    def evaluate(
+        self,
+        claim: ClaimRecord,
+        stage: StageName,
+        pmb_decision: PMBDecision,
+        routing_decision: BenefitRouteDecision,
+    ) -> CostingPreview:
+        policy = self.store._resolve_pmb_payment_policy(claim.scheme_id, claim.plan_option_id, claim.service_date)
+        claimed_total = round(sum(item.claimed_amount for item in claim.line_items), 2)
+        allowed_total = round(sum(self._line_allowed(item, claim, False) for item in claim.line_items), 2)
+        provider_is_dsp = self.store._claim_provider_is_dsp(claim)
+        access_type = claim.non_dsp_access_type
+        pricing_basis: Literal["DSP", "NON_DSP_VOLUNTARY", "NON_DSP_INVOLUNTARY", "SCHEME_STANDARD"] = "DSP" if provider_is_dsp else (
+            "NON_DSP_VOLUNTARY" if access_type == "VOLUNTARY" else ("NON_DSP_INVOLUNTARY" if access_type == "INVOLUNTARY" else "SCHEME_STANDARD")
+        )
+        provisional = pmb_decision.pmb_status in {"POSSIBLE", "REVIEW_REQUIRED"}
+        pending_pmb_review = provisional
+        pmb_allowed_total: Optional[float] = None
+        member_liability = max(0.0, round(claimed_total - allowed_total, 2))
+        reason_code = "COSTING_SCHEME_STANDARD"
+        explanation = "Standard scheme tariff preview applied."
+
+        if pmb_decision.pmb_status == "CONFIRMED":
+            pmb_allowed_total = round(self._confirmed_pmb_allowed(claim, claimed_total, allowed_total, policy, provider_is_dsp), 2)
+            member_liability = 0.0 if self._member_liability_waived(claim, policy, provider_is_dsp) else max(0.0, round(claimed_total - pmb_allowed_total, 2))
+            reason_code = "COSTING_PMB_CONFIRMED"
+            explanation = "Confirmed PMB costing preview computed using the active DSP payment policy."
+        elif provisional:
+            pmb_allowed_total = round(self._confirmed_pmb_allowed(claim, claimed_total, allowed_total, policy, provider_is_dsp), 2)
+            member_liability = 0.0 if self._member_liability_waived(claim, policy, provider_is_dsp) else max(0.0, round(claimed_total - pmb_allowed_total, 2))
+            reason_code = "COSTING_PMB_PROVISIONAL"
+            explanation = "Provisional PMB costing preview computed pending PMB review confirmation."
+
+        return CostingPreview(
+            preview_id=new_ref("cost"),
+            claim_id=claim.id,
+            claim_version=claim.version,
+            stage=stage,
+            pmb_decision_id=pmb_decision.decision_id,
+            routing_decision_id=routing_decision.decision_id,
+            claimed_total=claimed_total,
+            allowed_total=allowed_total,
+            pmb_allowed_total=pmb_allowed_total,
+            member_liability_estimate=round(member_liability, 2),
+            pricing_basis=pricing_basis,
+            pending_pmb_review=pending_pmb_review,
+            provisional=provisional,
+            reason_code=reason_code,
+            explanation=explanation,
+            created_at=utc_now(),
+        )
+
+    def _line_allowed(self, line_item: ClaimLineItem, claim: ClaimRecord, dsp_flag: bool) -> float:
+        rate = self.store._resolve_tariff_rate(claim.scheme_id, claim.plan_option_id, line_item.service_code, dsp_flag, claim.service_date)
+        if not rate:
+            return line_item.claimed_amount
+        if rate.unit == "PER_SERVICE":
+            return min(line_item.claimed_amount, rate.rate_amount * line_item.quantity)
+        return min(line_item.claimed_amount, rate.rate_amount)
+
+    def _member_liability_waived(self, claim: ClaimRecord, policy: Optional[PMBPaymentPolicy], provider_is_dsp: bool) -> bool:
+        if provider_is_dsp:
+            return True
+        return bool(policy and claim.non_dsp_access_type == "INVOLUNTARY" and policy.involuntary_non_dsp_no_copay)
+
+    def _confirmed_pmb_allowed(
+        self,
+        claim: ClaimRecord,
+        claimed_total: float,
+        allowed_total: float,
+        policy: Optional[PMBPaymentPolicy],
+        provider_is_dsp: bool,
+    ) -> float:
+        if provider_is_dsp:
+            return claimed_total
+        if claim.non_dsp_access_type == "INVOLUNTARY":
+            return claimed_total if policy and policy.involuntary_non_dsp_no_copay else allowed_total
+        if not policy:
+            return allowed_total
+        if policy.voluntary_non_dsp_rate_mode == "CLAIMED_LIMITED":
+            return min(claimed_total, allowed_total)
+        if policy.voluntary_non_dsp_rate_mode == "SCHEME_RATE":
+            return allowed_total
+        dsp_total = round(sum(self._line_allowed(item, claim, True) for item in claim.line_items), 2)
+        return dsp_total
+
 class PlatformStore:
     def __init__(self) -> None:
         self.patients: Dict[int, Patient] = {}
@@ -454,6 +920,16 @@ class PlatformStore:
         self.claim_history: Dict[str, Dict[str, Any]] = {}
         self.billing_snapshots: Dict[str, BillingSnapshot] = {}
         self.reference_versions: Dict[str, ReferenceVersion] = {}
+        self.icd10_codes: Dict[str, ICD10Code] = {}
+        self.claim_diagnoses: Dict[int, List[ClaimDiagnosis]] = {}
+        self.pmb_conditions: Dict[str, PMBCondition] = {}
+        self.pmb_mapping_rules: Dict[str, PMBMappingRule] = {}
+        self.benefit_route_rules: Dict[str, BenefitRouteRule] = {}
+        self.tariff_rates: Dict[str, TariffRate] = {}
+        self.pmb_payment_policies: Dict[str, PMBPaymentPolicy] = {}
+        self.pmb_decisions: Dict[str, PMBDecision] = {}
+        self.benefit_route_decisions: Dict[str, BenefitRouteDecision] = {}
+        self.costing_previews: Dict[str, CostingPreview] = {}
         self.rule_definitions: Dict[str, RuleDefinition] = {}
         self.policy_profiles: Dict[str, List[PolicyProfile]] = {}
         self.readiness_runs: Dict[str, ReadinessRun] = {}
@@ -491,6 +967,10 @@ class PlatformStore:
             "retention_matrix": self._default_retention_matrix(),
         }
         self.counters = {"patient": 1, "provider": 1, "user": 1, "claim": 1, "report": 1, "payment": 1}
+        self.icd10_validation_service = ICD10ValidationService(self)
+        self.pmb_detection_service = PMBDetectionService(self)
+        self.benefit_routing_service = BenefitRoutingService(self)
+        self.costing_preview_service = CostingPreviewService(self)
         self.seed()
 
     def next_numeric(self, key: str) -> int:
@@ -526,6 +1006,165 @@ class PlatformStore:
         self.audit_events[event.audit_event_id] = event
         return event
 
+    def _as_of_date(self, value: Optional[str]) -> str:
+        return (value or utc_now())[:10]
+
+    def _is_effective_record(
+        self,
+        *,
+        active: bool = True,
+        effective_from: Optional[str] = None,
+        effective_to: Optional[str] = None,
+        status: str = "ACTIVE",
+        as_of: Optional[str] = None,
+    ) -> bool:
+        check_date = self._as_of_date(as_of)
+        if not active or status.upper() == "RETIRED":
+            return False
+        if effective_from and self._as_of_date(effective_from) > check_date:
+            return False
+        if effective_to and self._as_of_date(effective_to) < check_date:
+            return False
+        return True
+
+    def _active_icd10_reference(self, code: str, as_of: Optional[str] = None) -> Optional[ICD10Code]:
+        item = self.icd10_codes.get(code.strip().upper())
+        if not item:
+            return None
+        if not self._is_effective_record(
+            active=item.active,
+            effective_from=item.effective_from,
+            effective_to=item.effective_to,
+            status=item.status,
+            as_of=as_of,
+        ):
+            return None
+        return item
+
+    def _resolve_benefit_route_rule(
+        self,
+        scheme_id: str,
+        plan_option_id: str,
+        as_of: Optional[str] = None,
+    ) -> Optional[BenefitRouteRule]:
+        rules = [
+            item
+            for item in self.benefit_route_rules.values()
+            if item.scheme_id == scheme_id
+            and item.plan_option_id == plan_option_id
+            and self._is_effective_record(
+                active=item.active,
+                effective_from=item.effective_from,
+                effective_to=item.effective_to,
+                as_of=as_of,
+            )
+        ]
+        return sorted(rules, key=lambda item: item.effective_from)[-1] if rules else None
+
+    def _resolve_tariff_rate(
+        self,
+        scheme_id: str,
+        plan_option_id: str,
+        tariff_code: str,
+        dsp_flag: bool,
+        as_of: Optional[str] = None,
+    ) -> Optional[TariffRate]:
+        matches = [
+            item
+            for item in self.tariff_rates.values()
+            if item.scheme_id == scheme_id
+            and item.plan_option_id == plan_option_id
+            and item.tariff_code.upper() == tariff_code.upper()
+            and item.dsp_flag == dsp_flag
+            and self._is_effective_record(
+                active=item.active,
+                effective_from=item.effective_from,
+                effective_to=item.effective_to,
+                as_of=as_of,
+            )
+        ]
+        return sorted(matches, key=lambda item: item.effective_from)[-1] if matches else None
+
+    def _resolve_pmb_payment_policy(
+        self,
+        scheme_id: str,
+        plan_option_id: str,
+        as_of: Optional[str] = None,
+    ) -> Optional[PMBPaymentPolicy]:
+        matches = [
+            item
+            for item in self.pmb_payment_policies.values()
+            if item.scheme_id == scheme_id
+            and item.plan_option_id == plan_option_id
+            and self._is_effective_record(
+                active=item.active,
+                effective_from=item.effective_from,
+                effective_to=item.effective_to,
+                as_of=as_of,
+            )
+        ]
+        return sorted(matches, key=lambda item: item.effective_from)[-1] if matches else None
+
+    def _claim_provider_is_dsp(self, claim: ClaimRecord) -> bool:
+        if claim.provider_is_dsp is not None:
+            return claim.provider_is_dsp
+        provider = self.providers.get(claim.provider_id)
+        return bool(provider.is_dsp_provider) if provider else True
+
+    def _sync_claim_diagnoses_from_claim(
+        self,
+        claim: ClaimRecord,
+        actor: str,
+        source: Optional[str] = None,
+    ) -> None:
+        existing = {
+            (item.seq, item.icd10_code.upper()): item
+            for item in self.claim_diagnoses.get(claim.id, [])
+        }
+        records: List[ClaimDiagnosis] = []
+        for index, item in enumerate(claim.diagnoses, start=1):
+            key = (index, item.icd10.strip().upper())
+            previous = existing.get(key)
+            records.append(
+                ClaimDiagnosis(
+                    diagnosis_id=previous.diagnosis_id if previous else new_ref("dx"),
+                    claim_id=claim.id,
+                    seq=index,
+                    icd10_code=item.icd10.strip().upper(),
+                    is_primary=item.diagnosis_type == "PRIMARY",
+                    source=source or (previous.source if previous else claim.source_system),
+                    captured_by=previous.captured_by if previous else actor,
+                    captured_at=previous.captured_at if previous else utc_now(),
+                )
+            )
+        self.claim_diagnoses[claim.id] = records
+
+    def _apply_claim_diagnosis_records_to_claim(self, claim: ClaimRecord) -> None:
+        records = sorted(
+            self.claim_diagnoses.get(claim.id, []),
+            key=lambda item: (0 if item.is_primary else 1, item.seq, item.captured_at),
+        )
+        claim.diagnoses = [
+            Diagnosis(
+                seq=index,
+                icd10=item.icd10_code,
+                diagnosis_type="PRIMARY" if index == 1 and item.is_primary else ("PRIMARY" if item.is_primary else "SECONDARY"),
+            )
+            for index, item in enumerate(records, start=1)
+        ]
+        for index, record in enumerate(records, start=1):
+            record.seq = index
+
+    def get_claim_diagnoses(self, claim_id: int) -> List[ClaimDiagnosis]:
+        claim = self.claims[claim_id]
+        if claim_id not in self.claim_diagnoses:
+            self._sync_claim_diagnoses_from_claim(claim, actor="system", source=claim.source_system)
+        return [item.model_copy(deep=True) for item in sorted(self.claim_diagnoses.get(claim_id, []), key=lambda item: item.seq)]
+
+    def _safe_primary_autofix_available(self, claim_id: int) -> bool:
+        diagnoses = self.get_claim_diagnoses(claim_id)
+        return len(diagnoses) == 1 and not any(item.is_primary for item in diagnoses)
+
     def register_user(self, username: str, password: str, role: str, email: str) -> User:
         user = User(
             id=self.next_numeric("user"),
@@ -560,6 +1199,26 @@ class PlatformStore:
                     "payload": True,
                     "required_stages": ["READINESS", "CLOSURE_GATE"],
                     "integrations": ["PMS", "EMR", "UserEntry"],
+                },
+                {
+                    "category": "pmb",
+                    "field": "pmb_mapping_rules[].icd10_code",
+                    "draft": False,
+                    "snapshot": False,
+                    "canonical_claim": True,
+                    "payload": True,
+                    "required_stages": ["READINESS", "CLOSURE_GATE", "POST_CLOSURE_VALIDATION"],
+                    "integrations": ["BusinessOwnedReferenceData"],
+                },
+                {
+                    "category": "benefit_routing",
+                    "field": "benefit_route_decision.route",
+                    "draft": False,
+                    "snapshot": True,
+                    "canonical_claim": True,
+                    "payload": True,
+                    "required_stages": ["CLOSURE_GATE", "SUBMISSION_CHECKS"],
+                    "integrations": ["RulesEngine", "SchemeConfiguration"],
                 },
                 {
                     "category": "authorisation",
@@ -614,6 +1273,13 @@ class PlatformStore:
                 "purge_behavior": "configurable anonymise or purge",
                 "audit_exceptions": "financial references retained",
             },
+            {
+                "artifact": "pmb_mapping_and_benefit_route_decisions",
+                "storage_type": "configuration_and_application_store",
+                "retention": "7 years",
+                "purge_behavior": "retain decision evidence; retire mapping versions rather than deleting",
+                "audit_exceptions": "mapping activation and manual overrides are audited",
+            },
         ]
 
     def _record_claim_version(self, claim: ClaimRecord, change_summary: str) -> None:
@@ -658,6 +1324,7 @@ class PlatformStore:
             version="PCNS-2026-04",
             effective_from="2026-04-01",
         )
+        self._seed_coding_and_pmb_reference()
 
         self.register_user("admin", "admin123", "Administrator", "admin@example.com")
         self.register_user("demo.user", "password123", "Billing Specialist", "demo.user@example.com")
@@ -692,14 +1359,14 @@ class PlatformStore:
             self.patients[patient.id] = patient
 
         provider_rows = [
-            ("Cardiology Provider 1", "Cardiology", "SPECIALIST"),
-            ("General Practice Provider 2", "General Practice", "GP"),
-            ("Orthopaedics Provider 3", "Orthopaedics", "SPECIALIST"),
-            ("Hospitalist Provider 4", "Hospital", "SPECIALIST"),
-            ("Pathology Provider 5", "Pathology", "SPECIALIST"),
-            ("Dental Surgery Provider 6", "Dental Surgery", "SPECIALIST"),
+            ("Cardiology Provider 1", "Cardiology", "SPECIALIST", True),
+            ("General Practice Provider 2", "General Practice", "GP", False),
+            ("Orthopaedics Provider 3", "Orthopaedics", "SPECIALIST", True),
+            ("Hospitalist Provider 4", "Hospital", "SPECIALIST", True),
+            ("Pathology Provider 5", "Pathology", "SPECIALIST", False),
+            ("Dental Surgery Provider 6", "Dental Surgery", "SPECIALIST", True),
         ]
-        for index, (name, specialty, discipline) in enumerate(provider_rows, start=1):
+        for index, (name, specialty, discipline, is_dsp_provider) in enumerate(provider_rows, start=1):
             provider = Provider(
                 id=self.next_numeric("provider"),
                 name=name,
@@ -707,6 +1374,7 @@ class PlatformStore:
                 practice_number=f"01234{index:02d}",
                 specialty=specialty,
                 discipline=discipline,
+                is_dsp_provider=is_dsp_provider,
                 email=f"provider{index}@example.com",
                 phone=f"+27-11-700-0{index:02d}",
                 created_at=utc_now(),
@@ -726,18 +1394,150 @@ class PlatformStore:
         self._seed_claims()
         self.generate_report("summary", "Seeded UAT")
 
+    def _seed_coding_and_pmb_reference(self) -> None:
+        mit_version = self.reference_versions["icd10_mit"].version
+        for code, description in {
+            "I10": "Configured ICD-10 development reference",
+            "S72.0": "Configured ICD-10 development reference",
+            "M54.5": "Configured ICD-10 development reference",
+            "J11.1": "Configured ICD-10 development reference",
+            "K02.1": "Configured ICD-10 development reference",
+            "C50.9": "Configured ICD-10 development reference",
+            "I11.0": "Configured ICD-10 development reference",
+            "E11.9": "Configured ICD-10 development reference",
+            "H52.4": "Configured ICD-10 development reference",
+            "Z00.0": "Configured ICD-10 development reference",
+        }.items():
+            self.icd10_codes[code] = ICD10Code(
+                code=code,
+                description=description,
+                version=mit_version,
+                effective_from="2026-01-01",
+                source="development_placeholder_business_owned_required",
+            )
+
+        self.pmb_conditions["PMB-CONFIG-001"] = PMBCondition(
+            condition_id="PMB-CONFIG-001",
+            name="Business-owned PMB placeholder hypertension condition",
+            type="CDL",
+            descriptor="Development placeholder PMB descriptor evidence required",
+            category="UNSPECIFIED_REFERENCE_DATA",
+            metadata={
+                "note": "Development seed only. Replace with CMS/scheme-owned PMB condition metadata.",
+            },
+            evidence_requirements=["MOTIVATION"],
+            confirmation_flags=["descriptor_motivation_present"],
+        )
+        self.pmb_conditions["PMB-CONFIG-002"] = PMBCondition(
+            condition_id="PMB-CONFIG-002",
+            name="Business-owned PMB placeholder condition B",
+            type="DTP",
+            descriptor="Development placeholder oncology evidence descriptor",
+            category="UNSPECIFIED_REFERENCE_DATA",
+            metadata={
+                "note": "Development seed only. Replace with CMS/scheme-owned PMB condition metadata.",
+            },
+            evidence_requirements=["MOTIVATION"],
+            confirmation_flags=["descriptor_motivation_present"],
+        )
+        for mapping in [
+            PMBMappingRule(
+                mapping_id="PMB-MAP-DEV-I10",
+                icd10_code="I10",
+                pmb_condition_id="PMB-CONFIG-001",
+                match_type="EXACT",
+                version=1,
+                effective_from="2026-01-01",
+                confidence="HIGH",
+                auto_route_allowed=False,
+                source="development_placeholder_business_owned_required",
+                required_evidence_types=["MOTIVATION"],
+            ),
+            PMBMappingRule(
+                mapping_id="PMB-MAP-DEV-C509",
+                icd10_code="C50.9",
+                pmb_condition_id="PMB-CONFIG-002",
+                match_type="EXACT",
+                version=1,
+                effective_from="2026-01-01",
+                confidence="MEDIUM",
+                auto_route_allowed=False,
+                required_evidence_types=["MOTIVATION"],
+                source="development_placeholder_business_owned_required",
+            ),
+        ]:
+            self.pmb_mapping_rules[mapping.mapping_id] = mapping
+
+        self.benefit_route_rules["BRR-SCHEME_A-OPTION_X"] = BenefitRouteRule(
+            rule_id="BRR-SCHEME_A-OPTION_X",
+            scheme_id="SCHEME_A",
+            plan_option_id="OPTION_X",
+            route_when_confirmed="PMB_BENEFIT_BUCKET",
+            route_when_possible="PMB_REVIEW_QUEUE",
+            route_when_missing_evidence="PMB_REVIEW_QUEUE",
+            auto_route_possible_matches=False,
+            effective_from="2026-01-01",
+        )
+        for rate in [
+            TariffRate(
+                rate_id="TAR-DEMO-DSP-CONS001",
+                scheme_id="SCHEME_A",
+                plan_option_id="OPTION_X",
+                tariff_code="CONS001",
+                dsp_flag=True,
+                rate_amount=900,
+                unit="PER_SERVICE",
+                effective_from="2026-01-01",
+            ),
+            TariffRate(
+                rate_id="TAR-DEMO-SCHEME-CONS001",
+                scheme_id="SCHEME_A",
+                plan_option_id="OPTION_X",
+                tariff_code="CONS001",
+                dsp_flag=False,
+                rate_amount=600,
+                unit="PER_SERVICE",
+                effective_from="2026-01-01",
+            ),
+        ]:
+            self.tariff_rates[rate.rate_id] = rate
+
+        self.pmb_payment_policies["PMP-SCHEME_A-OPTION_X"] = PMBPaymentPolicy(
+            policy_id="PMP-SCHEME_A-OPTION_X",
+            scheme_id="SCHEME_A",
+            plan_option_id="OPTION_X",
+            pay_in_full_requires_dsp=True,
+            voluntary_non_dsp_rate_mode="DSP_RATE",
+            involuntary_non_dsp_no_copay=True,
+            effective_from="2026-01-01",
+        )
+
     def _seed_rules(self) -> None:
         self.rule_definitions["ICD_PRIMARY_REQUIRED"] = RuleDefinition(
             rule_id="ICD_PRIMARY_REQUIRED",
             name="Primary ICD-10 required",
             category="ICD10_VALIDATION",
             severity="BLOCK",
-            reason_code="ICD_MISSING",
+            reason_code="ICD_MISSING_PRIMARY",
             message="Primary ICD-10 is required before closure.",
             remediation_hint="Capture a valid primary ICD-10 from the MIT and link it to the claim.",
             affected_fields=["diagnoses"],
-            stage_scope=["READINESS", "CLOSURE_GATE"],
+            stage_scope=["READINESS", "CLOSURE_GATE", "POST_CLOSURE_VALIDATION"],
             decision_table={"rows": [{"when": [{"path": "facts.primary_icd_missing", "op": "eq", "value": True}]}]},
+        )
+        self.rule_definitions["ICD_FORMAT_INVALID"] = RuleDefinition(
+            rule_id="ICD_FORMAT_INVALID",
+            name="ICD-10 code invalid or not in configured MIT",
+            category="ICD10_VALIDATION",
+            severity="BLOCK",
+            reason_code="ICD_INVALID",
+            message="One or more ICD-10 codes are invalid or unavailable in the configured MIT reference.",
+            remediation_hint="Select a valid ICD-10 from the configured MIT version before continuing.",
+            affected_fields=["diagnoses"],
+            stage_scope=["READINESS", "CLOSURE_GATE", "POST_CLOSURE_VALIDATION"],
+            decision_table={
+                "rows": [{"when": [{"path": "facts.invalid_icd_count", "op": "gt", "value": 0}]}]
+            },
         )
         self.rule_definitions["INPATIENT_DISCHARGE_REQUIRED"] = RuleDefinition(
             rule_id="INPATIENT_DISCHARGE_REQUIRED",
@@ -784,6 +1584,20 @@ class PlatformStore:
             stage_scope=["READINESS", "CLOSURE_GATE"],
             decision_table={
                 "rows": [{"when": [{"path": "facts.missing_attachment_count", "op": "gt", "value": 0}]}]
+            },
+        )
+        self.rule_definitions["PMB_EVIDENCE_REQUIRED"] = RuleDefinition(
+            rule_id="PMB_EVIDENCE_REQUIRED",
+            name="PMB evidence required before automatic routing",
+            category="PMB",
+            severity="WARN",
+            reason_code="PMB_EVIDENCE_REQUIRED",
+            message="A configured ICD-10 to PMB mapping was detected, but supporting PMB evidence is missing.",
+            remediation_hint="Upload the configured evidence or route the claim to PMB review before submission.",
+            affected_fields=["attachments", "diagnoses"],
+            stage_scope=["READINESS", "CLOSURE_GATE", "POST_CLOSURE_VALIDATION"],
+            decision_table={
+                "rows": [{"when": [{"path": "facts.missing_pmb_evidence_count", "op": "gt", "value": 0}]}]
             },
         )
         self.rule_definitions["MODIFIER_SEQUENCE_INVALID"] = RuleDefinition(
@@ -850,6 +1664,9 @@ class PlatformStore:
                     "requireSupervisorOverrideOnWarnings": False,
                     "defaultSubmissionChannel": "DIRECT",
                     "memberNumberRegex": r"^MEM\d{6}$",
+                    "autoFlagPMBFromICD10": True,
+                    "autoRoutePMBWhenMappingAllows": True,
+                    "pmbEvidenceMode": "WARN",
                 },
                 rule_ids=rule_ids,
             ),
@@ -870,6 +1687,9 @@ class PlatformStore:
                     "defaultSubmissionChannel": "SWITCH",
                     "memberNumberRegex": r"^MEM\d{6}$",
                     "reasonCodeMappings": {"ICD_MISSING": "Primary diagnosis missing"},
+                    "autoFlagPMBFromICD10": True,
+                    "autoRoutePMBWhenMappingAllows": True,
+                    "pmbEvidenceMode": "WARN",
                 },
                 rule_ids=rule_ids,
             ),
@@ -886,8 +1706,19 @@ class PlatformStore:
                 "member_number": "MEM100001",
                 "patient_id": 1,
                 "provider_id": 1,
+                "provider_is_dsp": True,
+                "non_dsp_access_type": "NOT_APPLICABLE",
                 "service_date": service_date,
                 "diagnoses": [{"seq": 1, "icd10": "I10", "diagnosis_type": "PRIMARY"}],
+                "attachments": [
+                    {
+                        "attachment_type": "MOTIVATION",
+                        "file_name": "demo-pmb-motivation.pdf",
+                        "storage_ref": "seed/demo-pmb-motivation.pdf",
+                        "file_hash": stable_hash("demo-pmb-motivation"),
+                        "uploaded_by": "system",
+                    }
+                ],
                 "line_items": [{"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", "quantity": 1, "unit_price": 900, "claimed_amount": 900, "diagnosis_refs": [1]}],
                 "actions": ["readiness", "close", "validate", "payload", "submit:direct:seed-clean-success"],
             },
@@ -899,6 +1730,8 @@ class PlatformStore:
                 "member_number": "MEM100002",
                 "patient_id": 2,
                 "provider_id": 2,
+                "provider_is_dsp": False,
+                "non_dsp_access_type": "VOLUNTARY",
                 "service_date": service_date,
                 "diagnoses": [],
                 "line_items": [{"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", "quantity": 1, "unit_price": 450, "claimed_amount": 450}],
@@ -1146,6 +1979,9 @@ class PlatformStore:
             attachments=attachments,
             clinical_summary=data.get("clinical_summary"),
             source_system=str(data.get("source_system") or "UserEntry"),
+            provider_pmb_indicator=data.get("provider_pmb_indicator"),
+            provider_is_dsp=data.get("provider_is_dsp"),
+            non_dsp_access_type=str(data.get("non_dsp_access_type") or "NOT_APPLICABLE").upper(),
             created_at=now,
             updated_at=now,
         )
@@ -1158,6 +1994,33 @@ class PlatformStore:
         payload["amount"] = self._claim_amount(claim)
         payload["scheme"] = claim.scheme_id
         payload["option"] = claim.plan_option_id
+        return payload
+
+    def _claim_decision_input(self, claim: ClaimRecord) -> Dict[str, Any]:
+        payload = self._claim_payload(claim)
+        for key in [
+            "status",
+            "readiness_status",
+            "validation_status",
+            "payload_status",
+            "submission_status",
+            "pmb_status",
+            "remittance_status",
+            "reconciliation_status",
+            "latest_snapshot_id",
+            "latest_payload_id",
+            "latest_submission_id",
+            "latest_response_id",
+            "latest_financial_bundle_id",
+            "latest_remittance_id",
+            "latest_reconciliation_id",
+            "latest_pmb_decision_id",
+            "latest_benefit_route_decision_id",
+            "latest_costing_preview_id",
+            "created_at",
+            "updated_at",
+        ]:
+            payload.pop(key, None)
         return payload
 
     def _resolve_policy(self, scheme_id: str, plan_option_id: str) -> PolicyProfile:
@@ -1216,13 +2079,96 @@ class PlatformStore:
             mode = str(policy.runtime_toggles.get("icdEnforcementMode", rule.severity)).upper()
             if mode in {"WARN", "BLOCK"}:
                 return mode  # type: ignore[return-value]
+        if rule.rule_id == "PMB_EVIDENCE_REQUIRED":
+            mode = str(policy.runtime_toggles.get("pmbEvidenceMode", rule.severity)).upper()
+            if mode in {"INFO", "WARN", "BLOCK"}:
+                return mode  # type: ignore[return-value]
         return rule.severity
 
+    def _icd10_codes_for_claim(self, claim: ClaimRecord) -> List[str]:
+        codes = []
+        diagnoses = self.get_claim_diagnoses(claim.id) if claim.id in self.claims else []
+        if not diagnoses:
+            diagnoses = [
+                ClaimDiagnosis(
+                    diagnosis_id=f"tmp-{item.seq}",
+                    claim_id=claim.id or 0,
+                    seq=item.seq,
+                    icd10_code=item.icd10.strip().upper(),
+                    is_primary=item.diagnosis_type == "PRIMARY",
+                    source=claim.source_system,
+                    captured_by="system",
+                    captured_at=utc_now(),
+                )
+                for item in claim.diagnoses
+            ]
+        for item in diagnoses:
+            code = item.icd10_code.strip().upper()
+            if code:
+                codes.append(code)
+        return codes
+
+    def _icd10_format_valid(self, code: str) -> bool:
+        return bool(re.match(r"^[A-Z][0-9]{2}(?:\.[0-9A-Z]{1,4})?$", code))
+
+    def _invalid_icd10_codes(self, claim: ClaimRecord) -> List[str]:
+        invalid = []
+        for code in self._icd10_codes_for_claim(claim):
+            if not self._icd10_format_valid(code) or not self._active_icd10_reference(code, claim.service_date):
+                invalid.append(code)
+        return invalid
+
+    def _mapping_matches_code(self, code: str, mapping: PMBMappingRule) -> bool:
+        normalized_code = code.strip().upper()
+        mapping_code = mapping.icd10_code.strip().upper()
+        if mapping.match_type == "PREFIX":
+            return normalized_code.startswith(mapping_code)
+        return normalized_code == mapping_code
+
+    def _active_pmb_mappings_for_claim(self, claim: ClaimRecord) -> List[PMBMappingRule]:
+        codes = self._icd10_codes_for_claim(claim)
+        return [
+            item
+            for item in self.pmb_mapping_rules.values()
+            if self._is_effective_record(
+                active=item.active,
+                effective_from=item.effective_from,
+                effective_to=item.effective_to,
+                status=item.status,
+                as_of=claim.service_date,
+            )
+            and any(self._mapping_matches_code(code, item) for code in codes)
+        ]
+
+    def _best_pmb_mapping_for_claim(self, claim: ClaimRecord) -> Optional[PMBMappingRule]:
+        diagnoses = self.get_claim_diagnoses(claim.id)
+        primary = next((item for item in diagnoses if item.is_primary), None)
+        mappings = self._active_pmb_mappings_for_claim(claim)
+        if not mappings:
+            return None
+
+        def sort_key(item: PMBMappingRule) -> tuple[int, int, int]:
+            primary_match = 0
+            if primary and self._mapping_matches_code(primary.icd10_code, item):
+                primary_match = 1
+            confidence = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}.get(item.confidence, 0)
+            exact = 1 if item.match_type == "EXACT" else 0
+            return (primary_match, exact, confidence)
+
+        return sorted(mappings, key=sort_key, reverse=True)[0]
+
+    def _missing_pmb_evidence(self, claim: ClaimRecord, mapping: PMBMappingRule) -> List[str]:
+        available_types = {item.attachment_type.upper() for item in claim.attachments if item.virus_scan_status == "CLEAN"}
+        condition = self.pmb_conditions.get(mapping.pmb_condition_id)
+        required = set(mapping.required_evidence_types or (condition.evidence_requirements if condition else []))
+        return sorted(item for item in required if item.upper() not in available_types)
+
+    def _pmb_evidence_gap_count(self, claim: ClaimRecord) -> int:
+        return sum(len(self._missing_pmb_evidence(claim, mapping)) for mapping in self._active_pmb_mappings_for_claim(claim))
+
     def _facts_for_claim(self, claim: ClaimRecord, policy: PolicyProfile) -> Dict[str, Any]:
-        primary = next(
-            (item for item in claim.diagnoses if item.diagnosis_type == "PRIMARY" and item.icd10),
-            None,
-        )
+        diagnosis_records = self.get_claim_diagnoses(claim.id)
+        primary = next((item for item in diagnosis_records if item.is_primary and item.icd10_code), None)
         required_preauth_codes = set(policy.runtime_toggles.get("requirePreauthForCodes", []))
         amount_mismatch_count = 0
         diagnosis_link_missing_count = 0
@@ -1254,6 +2200,10 @@ class PlatformStore:
             "diagnosis_link_missing_count": diagnosis_link_missing_count,
             "modifier_sequence_invalid": modifier_sequence_invalid,
             "member_format_valid": bool(re.match(regex_value, claim.member_number or "")),
+            "invalid_icd_count": len(self._invalid_icd10_codes(claim)),
+            "invalid_icd_codes": self._invalid_icd10_codes(claim),
+            "pmb_mapping_count": len(self._active_pmb_mappings_for_claim(claim)),
+            "missing_pmb_evidence_count": self._pmb_evidence_gap_count(claim),
         }
 
     def _evaluate_rule(self, rule: RuleDefinition, claim: ClaimRecord, policy: PolicyProfile) -> List[RuleHit]:
@@ -1313,7 +2263,7 @@ class PlatformStore:
             if stage not in rule.stage_scope or not rule.enabled:
                 continue
             rule_hits.extend(self._evaluate_rule(rule, claim, policy))
-        evaluated_payload = self.billing_snapshots[snapshot_id].data if snapshot_id else self._claim_payload(claim)
+        evaluated_payload = self.billing_snapshots[snapshot_id].data if snapshot_id else self._claim_decision_input(claim)
         bundle = DecisionBundle(
             decision_bundle_id=new_ref("db"),
             claim_id=claim.id,
@@ -1333,6 +2283,258 @@ class PlatformStore:
         )
         self.decision_bundles[bundle.decision_bundle_id] = bundle
         return bundle
+
+    def _detect_pmb_and_route(
+        self,
+        claim: ClaimRecord,
+        stage: StageName,
+        actor: str,
+        role: str,
+    ) -> Dict[str, Any]:
+        policy = self._resolve_policy(claim.scheme_id, claim.plan_option_id)
+        pmb_decision = self.pmb_detection_service.evaluate(claim, stage)
+        route_decision = self.benefit_routing_service.evaluate(claim, stage, pmb_decision)
+        costing_preview = self.costing_preview_service.evaluate(claim, stage, pmb_decision, route_decision)
+
+        self.pmb_decisions[pmb_decision.decision_id] = pmb_decision
+        self.benefit_route_decisions[route_decision.decision_id] = route_decision
+        self.costing_previews[costing_preview.preview_id] = costing_preview
+
+        claim.latest_pmb_decision_id = pmb_decision.decision_id
+        claim.latest_benefit_route_decision_id = route_decision.decision_id
+        claim.latest_costing_preview_id = costing_preview.preview_id
+        claim.pmb_status = pmb_decision.pmb_status.lower()
+
+        pmb_event_type = {
+            "NOT_DETECTED": "PMB_NOT_DETECTED",
+            "REVIEW_REQUIRED": "PMB_REVIEW_REQUIRED",
+            "CONFIRMED": "PMB_DETECTED",
+            "POSSIBLE": "PMB_DETECTED",
+            "UNKNOWN": "PMB_EVALUATION_BLOCKED",
+        }[pmb_decision.pmb_status]
+        self.add_audit_event(
+            actor,
+            role,
+            pmb_event_type,
+            "claim",
+            str(claim.id),
+            {
+                "stage": stage,
+                "pmb_decision_id": pmb_decision.decision_id,
+                "pmb_status": pmb_decision.pmb_status,
+                "matched_icd10": pmb_decision.matched_icd10,
+                "mapping_id": pmb_decision.mapping_id,
+                "condition_id": pmb_decision.condition_id,
+                "reason_code": pmb_decision.reason_code,
+                "evidence_missing": pmb_decision.evidence_missing,
+            },
+            policy.policy_profile_id,
+            policy.version,
+        )
+        if pmb_decision.pmb_status in {"POSSIBLE", "REVIEW_REQUIRED", "CONFIRMED"} and not pmb_decision.provider_marked_pmb:
+            self.add_audit_event(
+                actor,
+                role,
+                "PMB_PROVIDER_NOT_MARKED",
+                "claim",
+                str(claim.id),
+                {
+                    "stage": stage,
+                    "pmb_decision_id": pmb_decision.decision_id,
+                    "matched_icd10": pmb_decision.matched_icd10,
+                    "mapping_id": pmb_decision.mapping_id,
+                },
+                policy.policy_profile_id,
+                policy.version,
+            )
+        self.add_audit_event(
+            actor,
+            role,
+            f"BENEFIT_ROUTED_{route_decision.route}",
+            "claim",
+            str(claim.id),
+            {
+                "stage": stage,
+                "routing_decision_id": route_decision.decision_id,
+                "pmb_decision_id": pmb_decision.decision_id,
+                "route": route_decision.route,
+                "reason_code": route_decision.reason_code,
+            },
+            policy.policy_profile_id,
+            policy.version,
+        )
+        self.add_audit_event(
+            actor,
+            role,
+            "COSTING_PREVIEW_COMPUTED",
+            "claim",
+            str(claim.id),
+            {
+                "stage": stage,
+                "costing_preview_id": costing_preview.preview_id,
+                "pricing_basis": costing_preview.pricing_basis,
+                "allowed_total": costing_preview.allowed_total,
+                "pmb_allowed_total": costing_preview.pmb_allowed_total,
+                "member_liability_estimate": costing_preview.member_liability_estimate,
+            },
+            policy.policy_profile_id,
+            policy.version,
+        )
+        self.add_audit_event(
+            actor,
+            role,
+            "PMB_DETECTION_AND_BENEFIT_ROUTING",
+            "claim",
+            str(claim.id),
+            {
+                "stage": stage,
+                "pmb_decision": pmb_decision.model_dump(),
+                "benefit_routing_decision": route_decision.model_dump(),
+                "costing_preview": costing_preview.model_dump(),
+            },
+            policy.policy_profile_id,
+            policy.version,
+        )
+        return {
+            "pmb_decision": pmb_decision,
+            "benefit_routing_decision": route_decision,
+            "benefit_route_decisions": [route_decision],
+            "costing_preview": costing_preview,
+        }
+
+    def _summary_item_from_hit(self, hit: RuleHit, claim_id: Optional[int] = None) -> Dict[str, Any]:
+        item = {
+            "severity": hit.severity,
+            "reason_code": hit.reason_code,
+            "title": hit.name,
+            "message": hit.message,
+            "remediation": hit.remediation_hint,
+            "affected_fields": hit.affected_fields,
+            "jump_target": hit.affected_fields[0] if hit.affected_fields else None,
+        }
+        if claim_id and hit.reason_code == "ICD_MISSING_PRIMARY":
+            item["action"] = {"type": "NAVIGATE", "target": "diagnoses", "claimId": claim_id}
+            item["allowAutoFix"] = self._safe_primary_autofix_available(claim_id)
+        return item
+
+    def _validation_summary(
+        self,
+        bundle: Optional[DecisionBundle],
+        claim_id: Optional[int] = None,
+        pmb_decision: Optional[PMBDecision] = None,
+        route_decision: Optional[BenefitRouteDecision] = None,
+        costing_preview: Optional[CostingPreview] = None,
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        blockers: List[Dict[str, Any]] = []
+        warnings: List[Dict[str, Any]] = []
+        info: List[Dict[str, Any]] = []
+        if bundle:
+            for hit in bundle.rule_hits:
+                target = blockers if hit.severity == "BLOCK" else (warnings if hit.severity == "WARN" else info)
+                target.append(self._summary_item_from_hit(hit, claim_id))
+        if error:
+            blockers.append(
+                {
+                    "severity": "BLOCK",
+                    "reason_code": "ACTION_BLOCKED",
+                    "title": "Action blocked",
+                    "message": error,
+                    "remediation": "Resolve the prerequisite workflow step and retry the action.",
+                    "affected_fields": [],
+                    "jump_target": None,
+                }
+            )
+        pmb_items = []
+        if route_decision:
+            pmb_items.append(
+                {
+                    "reason_code": route_decision.reason_code,
+                    "trigger_icd10": route_decision.trigger_icd10,
+                    "mapping_id": route_decision.mapping_id,
+                    "pmb_condition_id": route_decision.pmb_condition_id,
+                    "provider_marked_pmb": route_decision.provider_marked_pmb,
+                    "route": route_decision.route,
+                    "action": route_decision.action,
+                    "message": route_decision.message,
+                    "remediation": route_decision.remediation_hint,
+                    "evidence_required": route_decision.evidence_required,
+                    "evidence_missing": route_decision.evidence_missing,
+                }
+            )
+        if blockers:
+            summary_message = f"{len(blockers)} blocker(s) must be resolved before continuing."
+        elif warnings:
+            summary_message = f"{len(warnings)} warning(s) require review before continuing."
+        else:
+            summary_message = "No blockers detected."
+        return {
+            "outcome": bundle.outcome if bundle else ("BLOCK" if blockers else "PASS"),
+            "summary_message": summary_message,
+            "blockers": blockers,
+            "warnings": warnings,
+            "info": info,
+            "pmb": pmb_items,
+            "pmb_decision": pmb_decision.model_dump() if pmb_decision else None,
+            "benefit_routing_decision": route_decision.model_dump() if route_decision else None,
+            "costing_preview": costing_preview.model_dump() if costing_preview else None,
+            "can_continue": not blockers,
+        }
+
+    def get_pmb_decisions_for_claim(self, claim_id: int) -> List[Dict[str, Any]]:
+        return [
+            item.model_dump()
+            for item in sorted(
+                [value for value in self.pmb_decisions.values() if value.claim_id == claim_id],
+                key=lambda value: value.created_at,
+            )
+        ]
+
+    def get_benefit_route_decisions_for_claim(self, claim_id: int) -> List[Dict[str, Any]]:
+        return [
+            item.model_dump()
+            for item in sorted(
+                [value for value in self.benefit_route_decisions.values() if value.claim_id == claim_id],
+                key=lambda value: value.created_at,
+            )
+        ]
+
+    def get_costing_previews_for_claim(self, claim_id: int) -> List[Dict[str, Any]]:
+        return [
+            item.model_dump()
+            for item in sorted(
+                [value for value in self.costing_previews.values() if value.claim_id == claim_id],
+                key=lambda value: value.created_at,
+            )
+        ]
+
+    def list_icd10_reference(self) -> List[Dict[str, Any]]:
+        return [
+            item.model_dump()
+            for item in sorted(
+                [value for value in self.icd10_codes.values() if value.active],
+                key=lambda value: value.code,
+            )
+        ]
+
+    def list_pmb_mapping_reference(self) -> Dict[str, Any]:
+        return {
+            "conditions": [item.model_dump() for item in sorted(self.pmb_conditions.values(), key=lambda value: value.condition_id)],
+            "mappings": [item.model_dump() for item in sorted(self.pmb_mapping_rules.values(), key=lambda value: value.mapping_id)],
+            "benefit_route_rules": [item.model_dump() for item in sorted(self.benefit_route_rules.values(), key=lambda value: value.rule_id)],
+            "tariff_rates": [item.model_dump() for item in sorted(self.tariff_rates.values(), key=lambda value: value.rate_id)],
+            "pmb_payment_policies": [
+                item.model_dump() for item in sorted(self.pmb_payment_policies.values(), key=lambda value: value.policy_id)
+            ],
+            "business_data_required": [
+                "Official ICD-10 MIT version and valid code set",
+                "Business-owned ICD-10 to PMB condition mapping with effective dates",
+                "Scheme/plan PMB benefit bucket and evidence requirements",
+                "Scheme tariff standards with DSP and non-DSP rates",
+                "PMB payment policies for DSP, voluntary non-DSP, and involuntary non-DSP",
+                "Approval and rollback governance for mapping activation",
+            ],
+        }
 
     def list_patients(self) -> List[Dict[str, Any]]:
         return [item.model_dump() for item in self.patients.values()]
@@ -1436,6 +2638,7 @@ class PlatformStore:
     def create_claim(self, data: Dict[str, Any], actor: str, role: str) -> ClaimRecord:
         claim = self._normalize_claim(data)
         self.claims[claim.id] = claim
+        self._sync_claim_diagnoses_from_claim(claim, actor, source=claim.source_system)
         self._record_claim_version(claim, "Initial version")
         self.add_audit_event(actor, role, "CLAIM_DRAFT_UPDATED", "claim", str(claim.id), self._claim_payload(claim))
         return claim
@@ -1446,6 +2649,7 @@ class PlatformStore:
     def get_claim(self, claim_id: int) -> Dict[str, Any]:
         claim = self.claims[claim_id]
         payload = self._claim_payload(claim)
+        payload["diagnoses"] = [item.model_dump() for item in self.get_claim_diagnoses(claim_id)]
         payload["version_chain"] = [item.model_dump() for item in self.claim_versions.get(claim_id, [])]
         payload["current_policy"] = self._resolve_policy(claim.scheme_id, claim.plan_option_id).model_dump()
         payload["latest_snapshot"] = self.billing_snapshots[claim.latest_snapshot_id].model_dump() if claim.latest_snapshot_id else None
@@ -1453,6 +2657,24 @@ class PlatformStore:
         payload["latest_response"] = self.responses[claim.latest_response_id].model_dump() if claim.latest_response_id else None
         payload["latest_remittance"] = self.remittances[claim.latest_remittance_id].model_dump() if claim.latest_remittance_id else None
         payload["latest_reconciliation"] = self.reconciliations[claim.latest_reconciliation_id].model_dump() if claim.latest_reconciliation_id else None
+        payload["latest_pmb_decision"] = (
+            self.pmb_decisions[claim.latest_pmb_decision_id].model_dump()
+            if claim.latest_pmb_decision_id
+            else None
+        )
+        payload["latest_benefit_route_decision"] = (
+            self.benefit_route_decisions[claim.latest_benefit_route_decision_id].model_dump()
+            if claim.latest_benefit_route_decision_id
+            else None
+        )
+        payload["latest_costing_preview"] = (
+            self.costing_previews[claim.latest_costing_preview_id].model_dump()
+            if claim.latest_costing_preview_id
+            else None
+        )
+        payload["pmb_decisions"] = self.get_pmb_decisions_for_claim(claim_id)
+        payload["benefit_route_decisions"] = self.get_benefit_route_decisions_for_claim(claim_id)
+        payload["costing_previews"] = self.get_costing_previews_for_claim(claim_id)
         return payload
 
     def update_claim(
@@ -1484,11 +2706,17 @@ class PlatformStore:
             next_claim.latest_financial_bundle_id = None
             next_claim.latest_remittance_id = None
             next_claim.latest_reconciliation_id = None
+            next_claim.latest_pmb_decision_id = None
+            next_claim.latest_benefit_route_decision_id = None
+            next_claim.latest_costing_preview_id = None
+            next_claim.pmb_status = "not_evaluated"
             for key, value in data.items():
                 if hasattr(next_claim, key):
                     setattr(next_claim, key, value)
             next_claim.updated_at = utc_now()
             self.claims[claim_id] = next_claim
+            if "diagnoses" in data:
+                self._sync_claim_diagnoses_from_claim(next_claim, actor, source=next_claim.source_system)
             self._record_claim_version(next_claim, change_summary)
             self.add_audit_event(actor, role, "CLAIM_VERSION_CREATED", "claim", str(claim_id), {"version": next_claim.version, "previous_version": claim.version, "change_summary": change_summary})
             return self.get_claim(claim_id)
@@ -1507,9 +2735,110 @@ class PlatformStore:
             payload["attachments"] = [AttachmentRecord(**item) for item in data["attachments"]]
         updated = ClaimRecord(**payload)
         self.claims[claim_id] = updated
+        if "diagnoses" in data:
+            self._sync_claim_diagnoses_from_claim(updated, actor, source=updated.source_system)
         self._record_claim_version(updated, change_summary)
         self.add_audit_event(actor, role, "CLAIM_DRAFT_UPDATED", "claim", str(claim_id), self._claim_payload(updated))
         return self.get_claim(claim_id)
+
+    def _persist_claim_diagnosis_records(
+        self,
+        claim_id: int,
+        records: List[ClaimDiagnosis],
+        actor: str,
+        role: str,
+        change_summary: str,
+    ) -> Dict[str, Any]:
+        normalized_records: List[ClaimDiagnosis] = []
+        primary_seen = False
+        for index, item in enumerate(records, start=1):
+            is_primary = bool(item.is_primary and not primary_seen)
+            if is_primary:
+                primary_seen = True
+            normalized_records.append(
+                item.model_copy(
+                    update={
+                        "claim_id": claim_id,
+                        "seq": index,
+                        "icd10_code": item.icd10_code.strip().upper(),
+                        "is_primary": is_primary,
+                    }
+                )
+            )
+        diagnosis_payload = [
+            {
+                "seq": index,
+                "icd10": item.icd10_code,
+                "diagnosis_type": "PRIMARY" if item.is_primary else "SECONDARY",
+            }
+            for index, item in enumerate(normalized_records, start=1)
+        ]
+        self.update_claim(claim_id, {"diagnoses": diagnosis_payload}, actor, role, change_summary)
+        self.claim_diagnoses[claim_id] = normalized_records
+        self._apply_claim_diagnosis_records_to_claim(self.claims[claim_id])
+        return {
+            "claim_id": claim_id,
+            "claim_version": self.claims[claim_id].version,
+            "diagnoses": [item.model_dump() for item in self.get_claim_diagnoses(claim_id)],
+        }
+
+    def add_claim_diagnosis(self, claim_id: int, data: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:
+        claim = self.claims[claim_id]
+        icd10_code = str(data.get("icd10_code") or data.get("icd10") or "").strip().upper()
+        validation_error = self.icd10_validation_service.validate_code(icd10_code, claim.service_date)
+        if validation_error:
+            raise ValueError(f"ICD-10 code is not valid for capture: {validation_error}")
+
+        records = self.get_claim_diagnoses(claim_id)
+        is_primary = to_bool(data.get("is_primary", False)) or (not records and str(data.get("diagnosis_type") or "PRIMARY").upper() == "PRIMARY")
+        if is_primary:
+            records = [item.model_copy(update={"is_primary": False}) for item in records]
+        records.append(
+            ClaimDiagnosis(
+                diagnosis_id=new_ref("dx"),
+                claim_id=claim_id,
+                seq=len(records) + 1,
+                icd10_code=icd10_code,
+                is_primary=is_primary,
+                source=str(data.get("source") or claim.source_system),
+                captured_by=actor,
+                captured_at=utc_now(),
+            )
+        )
+        result = self._persist_claim_diagnosis_records(claim_id, records, actor, role, "Diagnosis captured")
+        self.add_audit_event(actor, role, "CLAIM_DIAGNOSIS_CAPTURED", "claim", str(claim_id), {"icd10_code": icd10_code, "is_primary": is_primary})
+        return result
+
+    def make_primary_diagnosis(self, claim_id: int, diagnosis_id: str, actor: str, role: str) -> Dict[str, Any]:
+        records = self.get_claim_diagnoses(claim_id)
+        found = False
+        updated_records: List[ClaimDiagnosis] = []
+        for item in records:
+            make_primary = item.diagnosis_id == diagnosis_id
+            if make_primary:
+                found = True
+            updated_records.append(item.model_copy(update={"is_primary": make_primary}))
+        if not found:
+            raise KeyError(f"Diagnosis {diagnosis_id} not found for claim {claim_id}")
+        result = self._persist_claim_diagnosis_records(claim_id, updated_records, actor, role, "Primary diagnosis updated")
+        self.add_audit_event(actor, role, "CLAIM_PRIMARY_DIAGNOSIS_SET", "claim", str(claim_id), {"diagnosis_id": diagnosis_id})
+        return result
+
+    def auto_fix_primary_diagnosis(self, claim_id: int, actor: str, role: str) -> Dict[str, Any]:
+        records = self.get_claim_diagnoses(claim_id)
+        if len(records) == 1 and not any(item.is_primary for item in records):
+            fixed_record = records[0].model_copy(update={"is_primary": True})
+            result = self._persist_claim_diagnosis_records(claim_id, [fixed_record], actor, role, "Primary diagnosis auto-fixed")
+            self.add_audit_event(actor, role, "CLAIM_PRIMARY_DIAGNOSIS_AUTO_FIXED", "claim", str(claim_id), {"diagnosis_id": fixed_record.diagnosis_id})
+            result["fixed"] = True
+            return result
+        return {
+            "claim_id": claim_id,
+            "fixed": False,
+            "reason": "ambiguous_primary",
+            "message": "Automatic primary ICD-10 fix is only safe when exactly one diagnosis exists and none is primary.",
+            "diagnoses": [item.model_dump() for item in records],
+        }
 
     def get_decision_bundles_for_claim(self, claim_id: int) -> List[DecisionBundle]:
         return sorted(
@@ -1519,6 +2848,7 @@ class PlatformStore:
 
     def run_readiness(self, claim_id: int, actor: str, role: str) -> Dict[str, Any]:
         claim = self.claims[claim_id]
+        pmb_context = self._detect_pmb_and_route(claim, "READINESS", actor, role)
         bundle = self._build_decision_bundle(claim, "READINESS", actor)
         claim.readiness_status = self._compat_status(bundle.outcome, "READINESS")
         claim.status = "ready_to_close" if bundle.outcome in {"PASS", "WARN"} else "blocked"
@@ -1559,18 +2889,64 @@ class PlatformStore:
             "outcome": bundle.outcome,
             "decision_bundle": bundle.model_dump(),
             "readiness_run": run.model_dump(),
+            "pmb_decision": pmb_context["pmb_decision"].model_dump(),
+            "benefit_routing_decision": pmb_context["benefit_routing_decision"].model_dump(),
+            "benefit_route_decisions": [item.model_dump() for item in pmb_context["benefit_route_decisions"]],
+            "costing_preview": pmb_context["costing_preview"].model_dump(),
+            "validation_summary": self._validation_summary(
+                bundle,
+                claim.id,
+                pmb_context["pmb_decision"],
+                pmb_context["benefit_routing_decision"],
+                pmb_context["costing_preview"],
+            ),
         }
 
     def close_claim(self, claim_id: int, request: ClaimClosureRequest, actor: str, role: str) -> Dict[str, Any]:
         claim = self.claims[claim_id]
+        pmb_context = self._detect_pmb_and_route(claim, "CLOSURE_GATE", actor, role)
         bundle = self._build_decision_bundle(claim, "CLOSURE_GATE", actor)
         policy = self._resolve_policy(claim.scheme_id, claim.plan_option_id)
         if bundle.outcome == "BLOCK":
             self.add_audit_event(actor, role, "CLOSURE_BLOCKED", "claim", str(claim_id), {"decision_bundle_id": bundle.decision_bundle_id, "reasons": [item.reason_code for item in bundle.rule_hits]}, policy.policy_profile_id, policy.version, {"input_hash": bundle.input_hash})
-            return {"claim_id": claim.id, "claim_number": claim.claim_number, "status": "blocked", "outcome": bundle.outcome, "decision_bundle": bundle.model_dump()}
+            return {
+                "claim_id": claim.id,
+                "claim_number": claim.claim_number,
+                "status": "blocked",
+                "outcome": bundle.outcome,
+                "decision_bundle": bundle.model_dump(),
+                "pmb_decision": pmb_context["pmb_decision"].model_dump(),
+                "benefit_routing_decision": pmb_context["benefit_routing_decision"].model_dump(),
+                "benefit_route_decisions": [item.model_dump() for item in pmb_context["benefit_route_decisions"]],
+                "costing_preview": pmb_context["costing_preview"].model_dump(),
+                "validation_summary": self._validation_summary(
+                    bundle,
+                    claim.id,
+                    pmb_context["pmb_decision"],
+                    pmb_context["benefit_routing_decision"],
+                    pmb_context["costing_preview"],
+                ),
+            }
         if bundle.outcome == "WARN" and to_bool(policy.runtime_toggles.get("requireSupervisorOverrideOnWarnings")) and not request.supervisor_override:
             self.add_audit_event(actor, role, "CLOSURE_OVERRIDE_REQUIRED", "claim", str(claim_id), {"decision_bundle_id": bundle.decision_bundle_id}, policy.policy_profile_id, policy.version)
-            return {"claim_id": claim.id, "claim_number": claim.claim_number, "status": "override_required", "outcome": bundle.outcome, "decision_bundle": bundle.model_dump()}
+            return {
+                "claim_id": claim.id,
+                "claim_number": claim.claim_number,
+                "status": "override_required",
+                "outcome": bundle.outcome,
+                "decision_bundle": bundle.model_dump(),
+                "pmb_decision": pmb_context["pmb_decision"].model_dump(),
+                "benefit_routing_decision": pmb_context["benefit_routing_decision"].model_dump(),
+                "benefit_route_decisions": [item.model_dump() for item in pmb_context["benefit_route_decisions"]],
+                "costing_preview": pmb_context["costing_preview"].model_dump(),
+                "validation_summary": self._validation_summary(
+                    bundle,
+                    claim.id,
+                    pmb_context["pmb_decision"],
+                    pmb_context["benefit_routing_decision"],
+                    pmb_context["costing_preview"],
+                ),
+            }
 
         snapshot = BillingSnapshot(
             snapshot_id=new_ref("snap"),
@@ -1594,12 +2970,31 @@ class PlatformStore:
             "status": claim.status,
             "snapshot_id": snapshot.snapshot_id,
             "decision_bundle": bundle.model_dump(),
+            "pmb_decision": pmb_context["pmb_decision"].model_dump(),
+            "benefit_routing_decision": pmb_context["benefit_routing_decision"].model_dump(),
+            "benefit_route_decisions": [item.model_dump() for item in pmb_context["benefit_route_decisions"]],
+            "costing_preview": pmb_context["costing_preview"].model_dump(),
+            "validation_summary": self._validation_summary(
+                bundle,
+                claim.id,
+                pmb_context["pmb_decision"],
+                pmb_context["benefit_routing_decision"],
+                pmb_context["costing_preview"],
+            ),
         }
 
     def run_post_closure_validation(self, claim_id: int, actor: str, role: str) -> Dict[str, Any]:
         claim = self.claims[claim_id]
         if not claim.latest_snapshot_id:
-            return {"claim_id": claim.id, "claim_number": claim.claim_number, "validation_status": "pending", "error": "Claim must be closed before validation."}
+            error = "Claim must be closed before validation."
+            return {
+                "claim_id": claim.id,
+                "claim_number": claim.claim_number,
+                "validation_status": "pending",
+                "error": error,
+                "validation_summary": self._validation_summary(None, claim.id, error=error),
+            }
+        pmb_context = self._detect_pmb_and_route(claim, "POST_CLOSURE_VALIDATION", actor, role)
         bundle = self._build_decision_bundle(claim, "POST_CLOSURE_VALIDATION", actor, claim.latest_snapshot_id)
         claim.validation_status = self._compat_status(bundle.outcome, "POST_CLOSURE_VALIDATION")
         claim.status = "validation_exception" if bundle.outcome == "BLOCK" else "ready_to_submit"
@@ -1612,6 +3007,17 @@ class PlatformStore:
             "validation_status": claim.validation_status,
             "outcome": bundle.outcome,
             "decision_bundle": bundle.model_dump(),
+            "pmb_decision": pmb_context["pmb_decision"].model_dump(),
+            "benefit_routing_decision": pmb_context["benefit_routing_decision"].model_dump(),
+            "benefit_route_decisions": [item.model_dump() for item in pmb_context["benefit_route_decisions"]],
+            "costing_preview": pmb_context["costing_preview"].model_dump(),
+            "validation_summary": self._validation_summary(
+                bundle,
+                claim.id,
+                pmb_context["pmb_decision"],
+                pmb_context["benefit_routing_decision"],
+                pmb_context["costing_preview"],
+            ),
         }
 
     def _canonical_claim(self, claim: ClaimRecord, snapshot_id: str) -> Dict[str, Any]:
@@ -1626,8 +3032,39 @@ class PlatformStore:
             "member": {"member_number": claim.member_number, "dependant_code": claim.dependant_code, "membership_status": claim.membership_status},
             "provider": {"practice_number": provider.practice_number, "name": provider.name, "discipline": provider.discipline},
             "encounter": {"care_setting": claim.care_setting, "service_date": claim.service_date, "admission_date_time": claim.admission_date_time, "discharge_date_time": claim.discharge_date_time},
-            "diagnoses": [{"seq": item.seq, "icd10": item.icd10, "type": item.diagnosis_type} for item in claim.diagnoses],
+            "diagnoses": [
+                {
+                    "diagnosis_id": item.diagnosis_id,
+                    "seq": item.seq,
+                    "icd10": item.icd10_code,
+                    "icd10_code": item.icd10_code,
+                    "type": "PRIMARY" if item.is_primary else "SECONDARY",
+                    "is_primary": item.is_primary,
+                    "source": item.source,
+                    "captured_at": item.captured_at,
+                }
+                for item in self.get_claim_diagnoses(claim.id)
+            ],
             "line_items": [{"line_id": item.line_id, "service_code": item.service_code, "quantity": item.quantity, "unit_price": item.unit_price, "claimed_amount": item.claimed_amount, "diagnosis_refs": item.diagnosis_refs, "modifiers": item.modifiers, "nappi_code": item.nappi_code} for item in claim.line_items],
+            "pmb": {
+                "provider_pmb_indicator": claim.provider_pmb_indicator,
+                "status": claim.pmb_status,
+                "pmb_decision": (
+                    self.pmb_decisions[claim.latest_pmb_decision_id].model_dump()
+                    if claim.latest_pmb_decision_id
+                    else None
+                ),
+                "benefit_route_decision": (
+                    self.benefit_route_decisions[claim.latest_benefit_route_decision_id].model_dump()
+                    if claim.latest_benefit_route_decision_id
+                    else None
+                ),
+                "costing_preview": (
+                    self.costing_previews[claim.latest_costing_preview_id].model_dump()
+                    if claim.latest_costing_preview_id
+                    else None
+                ),
+            },
             "attachments": [item.model_dump() for item in claim.attachments],
             "totals": {"claimed": self._claim_amount(claim)},
         }
@@ -1642,14 +3079,17 @@ class PlatformStore:
             f"RFF+MB:{claim.member_number}'",
         ]
         for diagnosis in canonical["diagnoses"]:
-            lines.append(f"RFF+ICD:{diagnosis['icd10']}:{diagnosis['seq']}'")
+            lines.append(f"RFF+ICD:{diagnosis.get('icd10') or diagnosis.get('icd10_code')}:{diagnosis['seq']}'")
         for index, line in enumerate(canonical["line_items"], start=1):
             lines.extend([f"LIN+{index}++{line['service_code']}:SA'", f"QTY+47:{line['quantity']}'", f"MOA+203:{line['claimed_amount']:.2f}'"])
         lines.append(f"UNT+{len(lines) + 1}+{claim.claim_number}'")
         return "\n".join(lines)
 
     def _phisc_xml(self, claim: ClaimRecord, canonical: Dict[str, Any]) -> str:
-        diagnoses_xml = "".join(f"<Diagnosis seq=\"{item['seq']}\" type=\"{item['type']}\">{item['icd10']}</Diagnosis>" for item in canonical["diagnoses"])
+        diagnoses_xml = "".join(
+            f"<Diagnosis seq=\"{item['seq']}\" type=\"{item['type']}\">{item.get('icd10') or item.get('icd10_code')}</Diagnosis>"
+            for item in canonical["diagnoses"]
+        )
         lines_xml = "".join(f"<Line id=\"{item['line_id']}\"><Code>{item['service_code']}</Code><Quantity>{item['quantity']}</Quantity><ClaimedAmount>{item['claimed_amount']:.2f}</ClaimedAmount></Line>" for item in canonical["line_items"])
         return (
             f"<Claim id=\"{claim.claim_number}\" scheme=\"{claim.scheme_id}\" option=\"{claim.plan_option_id}\">"
@@ -1662,9 +3102,23 @@ class PlatformStore:
     def build_payload(self, claim_id: int, actor: str, role: str) -> Dict[str, Any]:
         claim = self.claims[claim_id]
         if not claim.latest_snapshot_id:
-            return {"claim_id": claim.id, "claim_number": claim.claim_number, "status": "blocked", "error": "Claim must be closed before payload generation."}
+            error = "Claim must be closed before payload generation."
+            return {
+                "claim_id": claim.id,
+                "claim_number": claim.claim_number,
+                "status": "blocked",
+                "error": error,
+                "validation_summary": self._validation_summary(None, error=error),
+            }
         if claim.validation_status not in {"valid", "warning"}:
-            return {"claim_id": claim.id, "claim_number": claim.claim_number, "status": "blocked", "error": "Claim must pass post-closure validation before payload generation."}
+            error = "Claim must pass post-closure validation before payload generation."
+            return {
+                "claim_id": claim.id,
+                "claim_number": claim.claim_number,
+                "status": "blocked",
+                "error": error,
+                "validation_summary": self._validation_summary(None, error=error),
+            }
         canonical = self._canonical_claim(claim, claim.latest_snapshot_id)
         payload = PayloadArtifact(
             payload_id=new_ref("payload"),
@@ -1931,6 +3385,13 @@ class PlatformStore:
         remittance = self.remittances[claim.latest_remittance_id]
         return {"claim_id": claim.id, "status": claim.remittance_status, "reference": remittance.payment_batch_ref, "remittance": remittance.model_dump()}
 
+    def get_claim_reconciliation(self, claim_id: int) -> Dict[str, Any]:
+        claim = self.claims[claim_id]
+        if not claim.latest_reconciliation_id:
+            return {"claim_id": claim.id, "status": claim.reconciliation_status, "reconciliation": None}
+        record = self.reconciliations[claim.latest_reconciliation_id]
+        return {"claim_id": claim.id, "status": claim.reconciliation_status, "reconciliation": record.model_dump()}
+
     def list_payments(self) -> List[Dict[str, Any]]:
         return [item.model_dump() for item in sorted(self.payments.values(), key=lambda item: item.id or 0)]
 
@@ -1973,9 +3434,12 @@ class PlatformStore:
         claim = self.claims[claim_id]
         return {
             "claim": self.get_claim(claim_id),
-            "documents": ["snapshot.json", "decision_bundles.json", "payloads.json", "submissions.json", "responses.json", "remittance.json", "reconciliation.json"],
+            "documents": ["snapshot.json", "decision_bundles.json", "pmb_decision.json", "pmb_routing.json", "costing_preview.json", "payloads.json", "submissions.json", "responses.json", "remittance.json", "reconciliation.json"],
             "snapshot": self.billing_snapshots[claim.latest_snapshot_id].model_dump() if claim.latest_snapshot_id else None,
             "decision_bundles": [item.model_dump() for item in self.get_decision_bundles_for_claim(claim_id)],
+            "pmb_decisions": self.get_pmb_decisions_for_claim(claim_id),
+            "benefit_route_decisions": self.get_benefit_route_decisions_for_claim(claim_id),
+            "costing_previews": self.get_costing_previews_for_claim(claim_id),
             "payloads": [item.model_dump() for item in self.payloads.values() if item.claim_id == claim_id],
             "submissions": [item.model_dump() for item in self.submissions.values() if item.claim_id == claim_id],
             "transport_logs": [item.model_dump() for item in self.transport_logs.values() if self.submissions[item.submission_id].claim_id == claim_id],
@@ -1987,9 +3451,22 @@ class PlatformStore:
             "version_diff": self.get_claim_diff(claim_id),
         }
 
+    def get_payload_for_claim_version(self, claim_id: int, version: int) -> Dict[str, Any]:
+        payloads = [
+            item
+            for item in self.payloads.values()
+            if item.claim_id == claim_id and item.claim_version == version
+        ]
+        if not payloads:
+            raise KeyError(f"No payload found for claim {claim_id} version {version}")
+        return sorted(payloads, key=lambda item: item.created_at)[-1].model_dump()
+
     def list_audit_events(self) -> List[Dict[str, Any]]:
         events = sorted(self.audit_events.values(), key=lambda item: item.timestamp, reverse=True)
         return [{"id": item.audit_event_id, "action": item.event_type, "resource": f"{item.entity_type}:{item.entity_id}", "username": item.actor, "user_id": item.actor, "timestamp": item.timestamp, "details": json.dumps(item.detail, default=str), "policy_profile_id": item.policy_profile_id, "policy_version": item.policy_version} for item in events]
+
+    def get_audit_event(self, audit_event_id: str) -> Dict[str, Any]:
+        return self.audit_events[audit_event_id].model_dump()
 
     def list_policy_profiles(self) -> List[Dict[str, Any]]:
         rows = []

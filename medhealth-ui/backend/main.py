@@ -1,4 +1,6 @@
-from app_server import app
+"""Compatibility entrypoint for the current claims-platform API."""
+
+from platform_api import app
 
 
 if __name__ == "__main__":
