@@ -14,7 +14,6 @@
         <h1>Billing and Rules Engine Platform</h1>
         <p>Role-based operational cockpit for readiness, closure, validation, submission, remittance and audit evidence.</p>
         <div style="margin-top:14px" class="panel">
-          <div class="kv"><span>Demo mode</span><strong>Enabled</strong></div>
           <div class="kv"><span>Security</span><strong>RBAC enforced server-side</strong></div>
         </div>
       </div>
@@ -34,13 +33,14 @@
         </div>
         <div class="field">
           <div class="label">Username</div>
-          <input id="user" class="input" placeholder="e.g., demo.user" />
+          <input id="user" class="input" placeholder="e.g., admin" />
         </div>
         <div class="field">
           <div class="label">Password</div>
           <input type="password" id="pass" class="input" placeholder="••••••••" />
         </div>
         <button class="btn" id="login">Continue</button>
+        <div id="login-error" style="color:#dc2626;font-size:0.85rem;margin-top:0.5rem;display:none"></div>
         <div style="display:flex;gap:10px;margin-top:12px;">
           <a class="btn secondary" href="manual.html">Open User Manual</a>
         </div>
@@ -51,14 +51,27 @@
 
   <script src="js/api-client.js"></script>
   <script>
+    function showLoginError(msg) {
+      const el = document.getElementById("login-error");
+      if (el) { el.textContent = msg; el.style.display = "block"; }
+      else { console.error(msg); }
+    }
+
+    function clearLoginError() {
+      const el = document.getElementById("login-error");
+      if (el) { el.style.display = "none"; el.textContent = ""; }
+    }
+
     document.getElementById("login").addEventListener("click", async () => {
       const username = document.getElementById("user").value.trim();
       const password = document.getElementById("pass").value;
       const role = document.getElementById("role").value;
       const loginBtn = document.getElementById("login");
 
+      clearLoginError();
+
       if (!username || !password) {
-        alert("Please enter username and password");
+        showLoginError("Please enter username and password");
         return;
       }
 
@@ -68,14 +81,14 @@
       try {
         // Authenticate against the API
         const response = await window.api.login(username, password, role);
-        
+
         // Store the role resolved by the backend.
         localStorage.setItem("role", response.role);
-        
+
         // Navigate to dashboard
         location.href = "dashboard.html";
       } catch (error) {
-        alert("Authentication failed: " + error.message);
+        showLoginError("Authentication failed: " + error.message);
         loginBtn.disabled = false;
         loginBtn.textContent = "Continue";
       }
@@ -87,7 +100,7 @@
       tip.className = "small";
       tip.style.marginTop = "12px";
       tip.style.color = "#666";
-      tip.innerHTML = `Demo Credentials: <strong>demo.user</strong> / password123 or <strong>admin</strong> / admin123`;
+      tip.innerHTML = `Default credentials: <strong>admin</strong> / admin123 &nbsp;|&nbsp; <strong>billing</strong> / billing123`;
       document.querySelector(".form").appendChild(tip);
     });
   </script>

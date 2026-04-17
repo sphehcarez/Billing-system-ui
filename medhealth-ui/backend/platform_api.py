@@ -11,10 +11,17 @@ from db_runtime import database_healthcheck
 from postgres_store import PersistentPlatformStore
 from platform_core import (
     ClaimClosureRequest,
+    ClaimReadinessService,
+    ClaimReadyProfile,
     ClaimSubmissionRequest,
+    CopayItem,
+    Invoice,
     LoginRequest,
+    OutboxEvent,
+    PatientBalance,
     PolicyProfilePatch,
     RulePatch,
+    cents_to_str,
 )
 
 
@@ -717,6 +724,76 @@ def update_rule(rule_id: str, patch: RulePatch, current_user: Dict[str, Any] = D
     require_permission(current_user, "rules", "write")
     actor, role = current_identity(current_user)
     return db.update_rule(rule_id, patch, actor, role)
+
+
+@app.get("/api/patients/{patient_id}/claim-ready-profile")
+def get_claim_ready_profile(
+    patient_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    require_permission(current_user, "patients", "read")
+    profile = db.claim_readiness_service.evaluate(patient_id)
+    return profile.model_dump()
+
+
+@app.get("/api/patients/{patient_id}/balances")
+def get_patient_balance(
+    patient_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    require_permission(current_user, "patients", "read")
+    balance = db.patient_balances.get(patient_id, {"balance_cents": 0, "credit_cents": 0})
+    balance_cents = (
+        balance.get("balance_cents", 0)
+        if isinstance(balance, dict)
+        else getattr(balance, "balance_cents", 0)
+    )
+    credit_cents = (
+        balance.get("credit_cents", 0)
+        if isinstance(balance, dict)
+        else getattr(balance, "credit_cents", 0)
+    )
+    return {
+        "patient_id": patient_id,
+        "balance_cents": balance_cents,
+        "credit_cents": credit_cents,
+        "balance_display": cents_to_str(balance_cents),
+    }
+
+
+@app.get("/api/patients/{patient_id}/invoices")
+def get_patient_invoices(
+    patient_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    require_permission(current_user, "patients", "read")
+    all_invoices = db.invoices
+    invoices_list = [
+        inv for inv in all_invoices.values()
+        if (inv.patient_id if hasattr(inv, "patient_id") else inv.get("patient_id")) == patient_id
+    ]
+    return [
+        inv.model_dump() if hasattr(inv, "model_dump") else inv
+        for inv in invoices_list
+    ]
+
+
+@app.post("/api/patients/{patient_id}/payments")
+def record_patient_payment(
+    patient_id: int,
+    body: Dict[str, Any],
+    idempotency_key: str = Header(default=None, alias="Idempotency-Key"),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    require_permission(current_user, "payments", "write")
+    if not idempotency_key:
+        raise HTTPException(status_code=422, detail="Idempotency-Key header is required")
+    amount_cents = body.get("amount_cents")
+    method = body.get("method", "EFT")
+    if not isinstance(amount_cents, int) or amount_cents <= 0:
+        raise HTTPException(status_code=422, detail="amount_cents must be a positive integer")
+    result = db.record_patient_payment(patient_id, amount_cents, method, idempotency_key, body)
+    return result
 
 
 @app.get("/api/docs")

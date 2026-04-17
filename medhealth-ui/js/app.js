@@ -1,4 +1,34 @@
 (() => {
+  // ===== TOAST NOTIFICATION SYSTEM =====
+  function showToast(message, type = "info", duration = 4000) {
+    let host = document.getElementById("toast-host");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "toast-host";
+      document.body.appendChild(host);
+    }
+    const toast = document.createElement("div");
+    toast.className = `toast ${type}`;
+    const role = type === "error" ? "alert" : "status";
+    const live = type === "error" ? "assertive" : "polite";
+    toast.setAttribute("role", role);
+    toast.setAttribute("aria-live", live);
+    toast.innerHTML = `<span class="toast-msg">${message}</span><button class="toast-close" aria-label="Dismiss">&times;</button>`;
+    toast.querySelector(".toast-close").addEventListener("click", () => dismissToast(toast));
+    host.appendChild(toast);
+    if (duration > 0) setTimeout(() => dismissToast(toast), duration);
+    return toast;
+  }
+  function dismissToast(toast) {
+    toast.style.animation = "toast-out 0.2s ease forwards";
+    setTimeout(() => toast.remove(), 200);
+  }
+  function toastSuccess(msg) { return showToast(msg, "success"); }
+  function toastError(msg)   { return showToast(msg, "error"); }
+  function toastInfo(msg)    { return showToast(msg, "info"); }
+  function toastWarning(msg) { return showToast(msg, "warning"); }
+  // ===== END TOAST SYSTEM =====
+
   const ROLE_MODULES = {
     Administrator: [
       "dashboard",
@@ -774,17 +804,28 @@
     state.patients = patients;
     renderTable(
       patients,
-      6,
-      (patient) => `
-        <tr>
-          <td class="code">${escapeHtml(patient.mrn)}</td>
-          <td>${escapeHtml(patient.name)}</td>
-          <td>${escapeHtml(patient.email)}</td>
-          <td>${escapeHtml(patient.phone)}</td>
-          <td><span class="chip ${statusClass(patient.status)}">${escapeHtml(patient.status)}</span></td>
-          <td class="row-actions">${renderPatientActions(patient.id)}</td>
-        </tr>
-      `,
+      8,
+      (patient) => {
+        const isReady = !!(patient.email && patient.phone);
+        const readinessLabel = isReady ? "READY" : "INCOMPLETE";
+        const readinessStyle = isReady
+          ? "background:#ecfdf5;color:#065f46;border:1px solid #10b981;"
+          : "background:#fffbeb;color:#92400e;border:1px solid #f59e0b;";
+        return `
+          <tr style="cursor:pointer" tabindex="0"
+              onclick="openPatientProfile(${patient.id})"
+              onkeydown="if(event.key==='Enter'||event.key===' ')openPatientProfile(${patient.id})">
+            <td class="code">${escapeHtml(patient.mrn)}</td>
+            <td>${escapeHtml(patient.name)}</td>
+            <td>${escapeHtml(patient.email)}</td>
+            <td>${escapeHtml(patient.phone)}</td>
+            <td><span class="chip ${statusClass(patient.status)}">${escapeHtml(patient.status)}</span></td>
+            <td><span style="padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600;${readinessStyle}">${readinessLabel}</span></td>
+            <td data-balance-id="${patient.id}">R0.00</td>
+            <td class="row-actions" onclick="event.stopPropagation()">${renderPatientActions(patient.id)}</td>
+          </tr>
+        `;
+      },
       "No patients found.",
     );
     if (patients.length) {
@@ -1036,18 +1077,28 @@
         : '<tr><td colspan="6" style="text-align:center;color:#999;">No PMB mappings found.</td></tr>';
     }
 
-    setPreById(
-      "settings-retention",
-      JSON.stringify(
-        {
-          retention: settings.retention,
-          retention_matrix: settings.retention_matrix,
-          schema_registry: settings.schema_registry,
-        },
-        null,
-        2,
-      ),
-    );
+    const retentionEl = document.getElementById("settings-retention");
+    const retentionJsonEl = document.getElementById("settings-retention-json");
+    const retentionRaw = { retention: settings.retention, retention_matrix: settings.retention_matrix, schema_registry: settings.schema_registry };
+    if (retentionJsonEl) {
+      retentionJsonEl.textContent = JSON.stringify(retentionRaw, null, 2);
+    }
+    if (retentionEl) {
+      const matrix = settings.retention_matrix || [];
+      if (matrix.length) {
+        retentionEl.className = "retention-grid";
+        retentionEl.innerHTML = matrix.map((row) => `
+          <div class="retention-card">
+            <div class="artifact">${escapeHtml(row.artifact || "-")}</div>
+            <div class="rc-row"><span>Retention</span><span>${escapeHtml(row.retention || "-")}</span></div>
+            <div class="rc-row"><span>Storage</span><span>${escapeHtml(row.storage_type || "-")}</span></div>
+            <div class="rc-row"><span>Purge</span><span>${escapeHtml(row.purge_behavior || "-")}</span></div>
+            ${row.audit_exceptions ? `<div class="rc-row"><span>Audit</span><span>${escapeHtml(row.audit_exceptions)}</span></div>` : ""}
+          </div>`).join("");
+      } else {
+        retentionEl.textContent = "No retention matrix configured.";
+      }
+    }
   }
 
   async function loadClaimDetail() {
@@ -2685,7 +2736,7 @@
         const values = Object.fromEntries(formData.entries());
         await onSubmit(values, close);
       } catch (error) {
-        alert(error.message || "Unable to save your changes.");
+        toastError(error.message || "Unable to save your changes.");
       } finally {
         submitButton.disabled = false;
       }
@@ -2886,4 +2937,407 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
   }
+
+  // ===== PATIENT PROFILE DRAWER =====
+  async function openPatientProfile(patientId) {
+    try {
+      const [profile, balance] = await Promise.all([
+        window.api.get(`/patients/${patientId}/claim-ready-profile`),
+        window.api.get(`/patients/${patientId}/balances`),
+      ]);
+      renderPatientProfileDrawer(patientId, profile, balance);
+    } catch (e) {
+      toastError("Could not load patient profile.");
+    }
+  }
+
+  function renderPatientProfileDrawer(patientId, profile, balance) {
+    let drawer = document.getElementById("patient-profile-drawer");
+    if (!drawer) {
+      drawer = document.createElement("div");
+      drawer.id = "patient-profile-drawer";
+      drawer.style.cssText = "position:fixed;top:0;right:0;height:100vh;width:420px;background:#fff;box-shadow:-4px 0 20px rgba(0,0,0,0.15);z-index:1000;overflow-y:auto;padding:1.5rem;transform:translateX(100%);transition:transform 0.25s ease;";
+      document.body.appendChild(drawer);
+    }
+
+    const readinessColor = profile.readiness === "READY" ? "#10b981" : "#f59e0b";
+    const missingHtml = (profile.missing_items || []).slice(0, 3).map(item =>
+      `<li style="font-size:0.8rem;color:#6b7280">${item.label}</li>`
+    ).join("");
+
+    const balanceCents = balance?.balance_cents ?? 0;
+
+    const billingHtml = profile.billing_summary ? `
+      <div style="background:#f9fafb;border-radius:8px;padding:1rem;margin-top:1rem">
+        <div style="font-weight:600;margin-bottom:0.5rem">Billing Summary</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem;font-size:0.875rem">
+          <span style="color:#6b7280">Claimed:</span><span>R${Math.round((profile.billing_summary.claimed_cents||0)/100).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+          <span style="color:#6b7280">Allowed:</span><span>R${Math.round((profile.billing_summary.scheme_allowed_cents||0)/100).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+          <span style="color:#6b7280">Liability:</span><span style="color:#ef4444;font-weight:600">R${Math.round((profile.billing_summary.member_liability_cents||0)/100).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        </div>
+      </div>` : "";
+
+    drawer.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
+        <h3 style="margin:0">Patient Profile</h3>
+        <button onclick="closePatientProfile()" style="background:none;border:none;font-size:1.25rem;cursor:pointer;color:#6b7280">&times;</button>
+      </div>
+      <div style="margin-bottom:1rem">
+        <span style="background:${readinessColor};color:#fff;padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600">${profile.readiness || "UNKNOWN"}</span>
+        ${balanceCents > 0 ? `<span style="background:#fef2f2;color:#991b1b;padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600;margin-left:0.5rem">Outstanding: R${(balanceCents/100).toFixed(2)}</span>` : ""}
+      </div>
+      ${missingHtml ? `<div style="background:#fffbeb;border-radius:8px;padding:0.75rem;margin-bottom:1rem"><div style="font-size:0.8rem;font-weight:600;color:#92400e;margin-bottom:0.25rem">Missing items:</div><ul style="margin:0;padding-left:1rem">${missingHtml}</ul></div>` : ""}
+      ${billingHtml}
+      <div style="margin-top:1.5rem;display:flex;flex-direction:column;gap:0.5rem">
+        ${profile.active_claim_id ? `<a href="claim_detail.html?id=${profile.active_claim_id}" class="btn primary" style="text-align:center">Open Active Claim</a>` : ""}
+        ${profile.active_claim_id ? `<a href="claim_detail.html?id=${profile.active_claim_id}#diagnoses" class="btn secondary" style="text-align:center">Jump to Diagnoses</a>` : ""}
+        ${profile.active_claim_id ? `<a href="claim_detail.html?id=${profile.active_claim_id}#attachments" class="btn secondary" style="text-align:center">Jump to Attachments</a>` : ""}
+      </div>
+    `;
+
+    requestAnimationFrame(() => { drawer.style.transform = "translateX(0)"; });
+  }
+
+  function closePatientProfile() {
+    const drawer = document.getElementById("patient-profile-drawer");
+    if (drawer) { drawer.style.transform = "translateX(100%)"; }
+  }
+
+  // Expose drawer functions on window so inline onclick handlers work
+  window.openPatientProfile = openPatientProfile;
+  window.closePatientProfile = closePatientProfile;
+  // ===== END PATIENT PROFILE DRAWER =====
+
+  // ===== EVIDENCE PACK =====
+  function buildEvidencePackMarkup(evidence) {
+    const claim = evidence.claim || {};
+    const docs = evidence.documents || [];
+    const pmbDecisions = evidence.pmb_decisions || [];
+    const routeDecisions = evidence.benefit_route_decisions || [];
+    const costingPreviews = evidence.costing_previews || [];
+    const bundles = evidence.decision_bundles || [];
+    const submissions = evidence.submissions || [];
+    const transportLogs = evidence.transport_logs || [];
+    const remittances = evidence.remittances || [];
+    const payloads = evidence.payloads || [];
+    const ediArtifacts = evidence.edi_artifacts || [];
+
+    const latestPmb = pmbDecisions[pmbDecisions.length - 1] || {};
+    const latestRoute = routeDecisions[routeDecisions.length - 1] || {};
+    const latestCosting = costingPreviews[costingPreviews.length - 1] || {};
+    const latestPayload = payloads[payloads.length - 1] || {};
+    const latestEdi = ediArtifacts[ediArtifacts.length - 1] || {};
+    const latestRemittance = remittances[remittances.length - 1] || {};
+
+    const tabs = ["Snapshot", "Decisions", "Documents", "Submission", "Remittance", "Payloads"];
+
+    const tabBar = `<div class="ep-tabs">${tabs.map((t, i) =>
+      `<button class="ep-tab${i === 0 ? " active" : ""}" data-ep-tab="${i}" type="button">${escapeHtml(t)}</button>`
+    ).join("")}</div>`;
+
+    // Tab 0 — Snapshot
+    const lineItems = (claim.line_items || []);
+    const diagnoses = (claim.diagnoses || []);
+    const snapshotPane = `
+      <div class="ep-pane active" data-ep-pane="0">
+        <div class="ep-section">
+          <h4>Claim</h4>
+          <dl class="ep-dl">
+            <dt>Claim #</dt><dd>${escapeHtml(claim.claim_number || String(claim.id || "-"))}</dd>
+            <dt>Service date</dt><dd>${escapeHtml(claim.service_date || "-")}</dd>
+            <dt>Status</dt><dd><span class="chip ${claimStatusClass(claim)}">${escapeHtml(claim.status || "-")}</span></dd>
+            <dt>Member</dt><dd>${escapeHtml(claim.member_number || "-")}</dd>
+            <dt>Scheme</dt><dd>${escapeHtml(claim.scheme_code || claim.scheme || "-")} · ${escapeHtml(claim.scheme_option || "-")}</dd>
+            <dt>Provider</dt><dd>${escapeHtml(claim.provider_name || String(claim.provider_id || "-"))}</dd>
+          </dl>
+        </div>
+        ${lineItems.length ? `
+          <div class="ep-section">
+            <h4>Line items</h4>
+            <table class="table">
+              <thead><tr><th>Code</th><th>Description</th><th>Amount</th></tr></thead>
+              <tbody>${lineItems.map(l => `
+                <tr>
+                  <td class="code">${escapeHtml(l.service_code || l.line_id || "-")}</td>
+                  <td>${escapeHtml(l.description || "-")}</td>
+                  <td>${formatCurrency(l.amount_cents != null ? l.amount_cents / 100 : l.amount_rand || 0)}</td>
+                </tr>`).join("")}
+              </tbody>
+            </table>
+          </div>` : ""}
+        ${diagnoses.length ? `
+          <div class="ep-section">
+            <h4>Diagnoses</h4>
+            <table class="table">
+              <thead><tr><th>ICD-10</th><th>Description</th><th>Type</th></tr></thead>
+              <tbody>${diagnoses.map(d => `
+                <tr>
+                  <td class="code">${escapeHtml(d.icd10_code || d.code || "-")}</td>
+                  <td>${escapeHtml(d.description || "-")}</td>
+                  <td><span class="chip ${d.diagnosis_type === "PRIMARY" ? "pass" : "info"}">${escapeHtml(d.diagnosis_type || "-")}</span></td>
+                </tr>`).join("")}
+              </tbody>
+            </table>
+          </div>` : ""}
+      </div>`;
+
+    // Tab 1 — Decisions
+    const decisionsPane = `
+      <div class="ep-pane" data-ep-pane="1">
+        <div class="ep-section">
+          <h4>PMB decision</h4>
+          <dl class="ep-dl">
+            <dt>Status</dt><dd><span class="chip ${latestPmb.pmb_status === "CONFIRMED" ? "pass" : latestPmb.pmb_status === "NOT_DETECTED" ? "warn" : "info"}">${escapeHtml(latestPmb.pmb_status || "NOT_EVALUATED")}</span></dd>
+            <dt>Condition</dt><dd>${escapeHtml(latestPmb.pmb_condition_id || latestPmb.condition_name || "-")}</dd>
+            <dt>Reason</dt><dd>${escapeHtml(latestPmb.reason || latestPmb.decision_reason || "-")}</dd>
+          </dl>
+        </div>
+        <div class="ep-section">
+          <h4>Benefit routing</h4>
+          <dl class="ep-dl">
+            <dt>Decision</dt><dd>${escapeHtml(latestRoute.routing_decision || "-")}</dd>
+            <dt>Coverage %</dt><dd>${escapeHtml(String(latestRoute.coverage_percentage != null ? latestRoute.coverage_percentage + "%" : "-"))}</dd>
+            <dt>Co-payment</dt><dd>${latestRoute.copay_amount_cents != null ? formatCurrency(latestRoute.copay_amount_cents / 100) : escapeHtml(latestRoute.copay_amount || "-")}</dd>
+          </dl>
+        </div>
+        ${latestCosting.total_cents != null || latestCosting.total_rand != null ? `
+          <div class="ep-section">
+            <h4>Costing preview</h4>
+            <dl class="ep-dl">
+              <dt>Total</dt><dd>${formatCurrency(latestCosting.total_cents != null ? latestCosting.total_cents / 100 : latestCosting.total_rand || 0)}</dd>
+              <dt>Scheme portion</dt><dd>${formatCurrency(latestCosting.scheme_portion_cents != null ? latestCosting.scheme_portion_cents / 100 : latestCosting.scheme_portion || 0)}</dd>
+              <dt>Member portion</dt><dd>${formatCurrency(latestCosting.member_portion_cents != null ? latestCosting.member_portion_cents / 100 : latestCosting.member_portion || 0)}</dd>
+            </dl>
+          </div>` : ""}
+        ${bundles.length ? `
+          <div class="ep-section">
+            <h4>Decision bundles (${bundles.length})</h4>
+            <ul style="margin:0;padding-left:1rem;font-size:12px;display:flex;flex-direction:column;gap:3px;">
+              ${bundles.slice(0, 8).map(b => `<li>${escapeHtml(b.bundle_id || b.bundle_type || JSON.stringify(b).slice(0, 60))}</li>`).join("")}
+              ${bundles.length > 8 ? `<li style="color:var(--ink-500)">…and ${bundles.length - 8} more</li>` : ""}
+            </ul>
+          </div>` : ""}
+      </div>`;
+
+    // Tab 2 — Documents
+    const docsPane = `
+      <div class="ep-pane" data-ep-pane="2">
+        ${docs.length ? `
+          <div class="ep-section">
+            <h4>Claim documents (${docs.length})</h4>
+            <table class="table">
+              <thead><tr><th>Type</th><th>Filename</th><th>Status</th><th>Uploaded</th></tr></thead>
+              <tbody>${docs.map(d => `
+                <tr>
+                  <td><span class="chip info">${escapeHtml(d.doc_type || "-")}</span></td>
+                  <td class="code">${escapeHtml(d.filename || "-")}</td>
+                  <td>${escapeHtml(d.status || "-")}</td>
+                  <td>${escapeHtml(formatDateTime(d.uploaded_at || "-"))}</td>
+                </tr>`).join("")}
+              </tbody>
+            </table>
+          </div>` : `<div class="ep-section"><p class="muted">No documents attached to this claim.</p></div>`}
+      </div>`;
+
+    // Tab 3 — Submission
+    const submissionPane = `
+      <div class="ep-pane" data-ep-pane="3">
+        ${submissions.length ? `
+          <div class="ep-section">
+            <h4>Submission history (${submissions.length})</h4>
+            <table class="table">
+              <thead><tr><th>Channel</th><th>Status</th><th>Idempotency key</th><th>Submitted</th></tr></thead>
+              <tbody>${submissions.map(s => `
+                <tr>
+                  <td>${escapeHtml(s.submission_channel || s.channel || "-")}</td>
+                  <td><span class="chip ${s.submission_status === "ACCEPTED" || s.submission_status === "SUCCESS" ? "pass" : "info"}">${escapeHtml(s.submission_status || s.status || "-")}</span></td>
+                  <td class="code">${escapeHtml(s.idempotency_key || "-")}</td>
+                  <td>${escapeHtml(formatDateTime(s.submitted_at || s.created_at || "-"))}</td>
+                </tr>`).join("")}
+              </tbody>
+            </table>
+          </div>` : `<div class="ep-section"><p class="muted">No submissions recorded.</p></div>`}
+        ${transportLogs.length ? `
+          <div class="ep-section">
+            <h4>Transport log</h4>
+            <div style="font-size:11px;font-family:var(--mono);background:#0b1220;color:#eaf2ff;border-radius:8px;padding:10px;overflow:auto;max-height:180px;">
+              ${transportLogs.map(l => escapeHtml(`[${l.timestamp || ""}] ${l.direction || ""} ${l.endpoint || l.event || ""} ${l.status_code ? "→ " + l.status_code : ""}`)).join("<br>")}
+            </div>
+          </div>` : ""}
+      </div>`;
+
+    // Tab 4 — Remittance
+    const remittancePane = `
+      <div class="ep-pane" data-ep-pane="4">
+        ${latestRemittance.remittance_id || latestRemittance.id ? `
+          <div class="ep-section">
+            <h4>Remittance summary</h4>
+            <dl class="ep-dl">
+              <dt>Remittance ID</dt><dd class="code">${escapeHtml(latestRemittance.remittance_id || latestRemittance.id || "-")}</dd>
+              <dt>Approved</dt><dd>${formatCurrency((latestRemittance.totals?.approved || latestRemittance.approved_amount_cents || 0) / 100)}</dd>
+              <dt>Paid</dt><dd>${formatCurrency((latestRemittance.totals?.paid || latestRemittance.paid_amount_cents || 0) / 100)}</dd>
+              <dt>Status</dt><dd>${escapeHtml(latestRemittance.status || "-")}</dd>
+            </dl>
+          </div>` : `<div class="ep-section"><p class="muted">No remittance recorded for this claim.</p></div>`}
+      </div>`;
+
+    // Tab 5 — Payloads
+    const canonicalJson = latestPayload.canonical_claim ? JSON.stringify(latestPayload.canonical_claim, null, 2) : null;
+    const ediContent = latestEdi.content || latestPayload.pseudo_edi || null;
+    const payloadsPane = `
+      <div class="ep-pane" data-ep-pane="5">
+        ${canonicalJson ? `
+          <div class="ep-section">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <h4 style="margin:0">Canonical payload</h4>
+              <button class="chip info" type="button" onclick="navigator.clipboard.writeText(this.closest('.ep-section').querySelector('pre').textContent)">Copy</button>
+            </div>
+            <pre style="max-height:220px;overflow:auto;font-size:11px;">${escapeHtml(canonicalJson)}</pre>
+          </div>` : ""}
+        ${ediContent ? `
+          <div class="ep-section">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <h4 style="margin:0">EDI format</h4>
+              <button class="chip info" type="button" onclick="navigator.clipboard.writeText(this.closest('.ep-section').querySelector('pre').textContent)">Copy</button>
+            </div>
+            <pre style="max-height:180px;overflow:auto;font-size:11px;">${escapeHtml(ediContent)}</pre>
+          </div>` : ""}
+        ${!canonicalJson && !ediContent ? `<div class="ep-section"><p class="muted">No payload generated yet. Run Build Payload to generate.</p></div>` : ""}
+      </div>`;
+
+    const markup = `
+      ${tabBar}
+      ${snapshotPane}
+      ${decisionsPane}
+      ${docsPane}
+      ${submissionPane}
+      ${remittancePane}
+      ${payloadsPane}
+    `;
+
+    // Wire up tab switching after a tick (content injected into DOM by showDrawer)
+    setTimeout(() => {
+      document.querySelectorAll(".ep-tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          const idx = tab.getAttribute("data-ep-tab");
+          document.querySelectorAll(".ep-tab").forEach((t) => t.classList.remove("active"));
+          document.querySelectorAll(".ep-pane").forEach((p) => p.classList.remove("active"));
+          tab.classList.add("active");
+          const pane = document.querySelector(`.ep-pane[data-ep-pane="${idx}"]`);
+          if (pane) pane.classList.add("active");
+        });
+      });
+    }, 0);
+
+    return markup;
+  }
+  // ===== END EVIDENCE PACK =====
+
+  // ===== AUDIT TRAIL =====
+  function _auditBadgeClass(action) {
+    if (!action) return "system";
+    const a = action.toUpperCase();
+    if (a.includes("CREAT") || a.includes("ADD")) return "create";
+    if (a.includes("DELET") || a.includes("REMOV") || a.includes("VOID")) return "delete";
+    if (a.includes("SUBMIT")) return "submit";
+    if (a.includes("VALID") || a.includes("READINESS") || a.includes("CLOSURE")) return "validate";
+    if (a.includes("UPDAT") || a.includes("EDIT") || a.includes("PATCH") || a.includes("ACTIV")) return "update";
+    return "system";
+  }
+
+  function renderAuditTrail() {
+    const tbody = document.querySelector(".table tbody");
+    if (!tbody) return;
+    const logs = state.auditLogs || [];
+    if (!logs.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">No audit events found.</td></tr>';
+      return;
+    }
+
+    // Inject filter bar above the table if not already present
+    const tableCard = tbody.closest(".card");
+    if (tableCard && !tableCard.querySelector(".audit-filter-bar")) {
+      const filterBar = document.createElement("div");
+      filterBar.className = "audit-filter-bar";
+      const actionTypes = [...new Set(logs.map((l) => l.action).filter(Boolean))].sort();
+      filterBar.innerHTML = `
+        <span style="font-size:12px;color:var(--ink-500)">Filter:</span>
+        <select id="audit-filter-action">
+          <option value="">All actions</option>
+          ${actionTypes.map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join("")}
+        </select>
+        <select id="audit-filter-resource">
+          <option value="">All resources</option>
+          ${[...new Set(logs.map((l) => (l.resource || "").split(":")[0]).filter(Boolean))].sort()
+            .map((r) => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("")}
+        </select>
+      `;
+      tableCard.insertBefore(filterBar, tableCard.querySelector("table"));
+      filterBar.querySelector("#audit-filter-action").addEventListener("change", renderAuditTrail);
+      filterBar.querySelector("#audit-filter-resource").addEventListener("change", renderAuditTrail);
+    }
+
+    const actionFilter = document.getElementById("audit-filter-action")?.value || "";
+    const resourceFilter = document.getElementById("audit-filter-resource")?.value || "";
+
+    const filtered = logs.filter((l) => {
+      if (actionFilter && l.action !== actionFilter) return false;
+      if (resourceFilter && !(l.resource || "").startsWith(resourceFilter)) return false;
+      return true;
+    });
+
+    tbody.innerHTML = filtered.length
+      ? filtered.map((log) => `
+          <tr>
+            <td><span class="audit-badge ${_auditBadgeClass(log.action)}">${escapeHtml(log.action || "-")}</span></td>
+            <td class="code">${escapeHtml(log.resource || "-")}</td>
+            <td>${escapeHtml(log.username || log.user_id || "-")}</td>
+            <td>${escapeHtml(formatDateTime(log.timestamp || "-"))}</td>
+            <td class="row-actions">
+              <button class="chip info" data-action="view-audit-detail" data-id="${escapeHtml(log.id || "")}">Details</button>
+            </td>
+          </tr>`).join("")
+      : '<tr><td colspan="5" style="text-align:center;color:#999;">No events match the current filter.</td></tr>';
+  }
+
+  async function handleViewAuditDetail(auditEventId) {
+    if (!auditEventId) {
+      toastError("No audit event ID provided.");
+      return;
+    }
+    const event = await window.api.getAuditEvent(auditEventId);
+    const detail = event.detail || {};
+    const detailJson = JSON.stringify(detail, null, 2);
+
+    showDrawer({
+      title: `Audit event · ${escapeHtml(event.event_type || auditEventId)}`,
+      subtitle: `${escapeHtml(event.entity_type || "-")} · ${escapeHtml(event.entity_id || "-")} · ${escapeHtml(formatDateTime(event.timestamp || "-"))}`,
+      content: `
+        <div class="drawer-grid">
+          <div class="mini-card">
+            <strong>Actor</strong>
+            ${escapeHtml(event.actor || "-")}
+            <div class="muted">${escapeHtml(event.role || "-")}</div>
+          </div>
+          <div class="mini-card">
+            <strong>Policy</strong>
+            ${escapeHtml(event.policy_profile_id || "-")}
+            <div class="muted">v${escapeHtml(String(event.policy_version || "-"))}</div>
+          </div>
+        </div>
+        ${Object.keys(event.hashes || {}).length ? `
+          <div class="mini-card" style="margin-top:2px;">
+            <strong>Snapshot hashes</strong>
+            ${Object.entries(event.hashes).map(([k, v]) =>
+              `<div class="muted" style="font-family:var(--mono);font-size:11px;margin-top:3px;">${escapeHtml(k)}: ${escapeHtml(String(v).slice(0, 20))}…</div>`
+            ).join("")}
+          </div>` : ""}
+        <div class="mini-card" style="margin-top:2px;">
+          <strong>Detail</strong>
+          <pre style="margin-top:6px;max-height:300px;overflow:auto;font-size:11px;">${escapeHtml(detailJson)}</pre>
+        </div>
+      `,
+    });
+  }
+  // ===== END AUDIT TRAIL =====
 })();

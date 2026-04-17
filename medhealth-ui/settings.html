@@ -90,8 +90,15 @@
 </div>
 
 <div class="card">
-  <h3>Retention and schema</h3>
-  <pre id="settings-retention">Loading retention matrix...</pre>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <h3 style="margin:0">Retention and schema</h3>
+    <button class="chip info" type="button" onclick="navigator.clipboard.writeText(document.getElementById('settings-retention-json')?.textContent || '').then(()=>window.api && window.showToast && window.showToast('Copied','success'))">Copy JSON</button>
+  </div>
+  <div id="settings-retention" class="muted">Loading retention matrix...</div>
+  <details style="margin-top:10px;">
+    <summary class="chip" style="cursor:pointer;font-size:12px;">Raw JSON</summary>
+    <pre id="settings-retention-json" style="margin-top:8px;font-size:11px;"></pre>
+  </details>
 </div>
 
 <div class="card" id="pmb-mapping-admin" data-field="PMB_MAPPING_ADMIN">

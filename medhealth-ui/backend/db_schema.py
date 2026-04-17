@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     ForeignKey,
@@ -641,6 +642,52 @@ reports = Table(
     Column("summary_json", JSONB, nullable=False),
 )
 
+patient_balances = Table(
+    "patient_balances", metadata,
+    Column("patient_id", Integer, ForeignKey("patients.id"), primary_key=True),
+    Column("balance_cents", BigInteger, nullable=False, server_default="0"),
+    Column("credit_cents", BigInteger, nullable=False, server_default="0"),
+    Column("updated_at", String(40), nullable=False),
+)
+
+invoices = Table(
+    "invoices", metadata,
+    Column("id", String(32), primary_key=True),
+    Column("patient_id", Integer, ForeignKey("patients.id"), nullable=False),
+    Column("claim_id", Integer, ForeignKey("claims.id"), nullable=False),
+    Column("total_cents", BigInteger, nullable=False),
+    Column("paid_cents", BigInteger, nullable=False, server_default="0"),
+    Column("status", String(16), nullable=False, server_default="OPEN"),
+    Column("created_at", String(40), nullable=False),
+    UniqueConstraint("claim_id", name="uq_invoices_claim_id"),
+)
+
+copay_items = Table(
+    "copay_items", metadata,
+    Column("id", String(32), primary_key=True),
+    Column("invoice_id", String(32), ForeignKey("invoices.id"), nullable=False),
+    Column("reason_code", String(32), nullable=False),
+    Column("amount_cents", BigInteger, nullable=False),
+)
+
+outbox_events = Table(
+    "outbox_events", metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("event_type", String(64), nullable=False),
+    Column("payload", String, nullable=False),  # JSON stored as text
+    Column("created_at", String(40), nullable=False),
+    Column("emitted_at", String(40), nullable=True),
+)
+
+idempotency_keys = Table(
+    "idempotency_keys", metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("idempotency_key", String(64), nullable=False, unique=True),
+    Column("body_hash", String(64), nullable=False),
+    Column("response_json", String, nullable=False),
+    Column("created_at", String(40), nullable=False),
+)
+
 ALL_TABLES = [
     reference_versions,
     app_settings,
@@ -681,6 +728,11 @@ ALL_TABLES = [
     payments,
     audit_events,
     reports,
+    patient_balances,
+    invoices,
+    copay_items,
+    outbox_events,
+    idempotency_keys,
 ]
 
 TRUNCATE_TABLES = [

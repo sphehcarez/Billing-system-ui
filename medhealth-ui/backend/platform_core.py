@@ -309,6 +309,76 @@ class CostingPreview(BaseModel):
     created_at: str
 
 
+class PatientBalance(BaseModel):
+    patient_id: int
+    balance_cents: int = 0
+    credit_cents: int = 0
+    updated_at: str
+
+
+class Invoice(BaseModel):
+    id: str
+    patient_id: int
+    claim_id: int
+    total_cents: int
+    paid_cents: int = 0
+    status: Literal["OPEN", "PARTIAL", "PAID", "VOIDED"] = "OPEN"
+    created_at: str
+
+
+class CopayItem(BaseModel):
+    id: str
+    invoice_id: str
+    reason_code: str
+    amount_cents: int
+
+
+class OutboxEvent(BaseModel):
+    id: Optional[int] = None
+    event_type: str
+    payload: Dict[str, Any]
+    created_at: str
+    emitted_at: Optional[str] = None
+
+
+class PaymentRequest(BaseModel):
+    amount_cents: int
+    method: str  # "EFT", "CARD", "CASH"
+
+
+class PaymentResponse(BaseModel):
+    payment_id: str
+    patient_id: int
+    invoice_id: Optional[str]
+    amount_cents: int
+    method: str
+    status: str
+    received_at: str
+
+
+class ClaimReadyItem(BaseModel):
+    code: str
+    label: str
+    action_route: str
+    priority: int
+
+
+class ClaimReadyProfile(BaseModel):
+    patient_id: int
+    readiness: Literal["READY", "INCOMPLETE"]
+    missing_items: List[ClaimReadyItem] = Field(default_factory=list)
+    active_claim_id: Optional[int] = None
+    billing_summary: Optional[Dict[str, Any]] = None
+    balance_cents: int = 0
+
+
+def cents_to_str(cents: int) -> str:
+    """Serialize cents integer to 2-decimal string: 17400 -> '174.00'"""
+    sign = "-" if cents < 0 else ""
+    abs_cents = abs(cents)
+    return f"{sign}{abs_cents // 100}.{abs_cents % 100:02d}"
+
+
 class RuleHit(BaseModel):
     rule_id: str
     name: str
@@ -976,6 +1046,95 @@ class CostingPreviewService:
         dsp_total = round(sum(self._line_allowed(item, claim, True) for item in claim.line_items), 2)
         return dsp_total
 
+
+class ClaimReadinessService:
+    """Evaluates patient claim-readiness against Appendix A rules."""
+
+    RULES = [
+        ("ICD_PRIMARY_MISSING", "Primary ICD-10 not set", 1),
+        ("TARIFF_LINES_MISSING", "No active tariff lines on claim", 2),
+        ("MEMBERSHIP_INACTIVE", "Patient scheme membership is inactive", 3),
+        ("PROVIDER_PRACTICE_NUMBER_MISSING", "Provider practice number missing", 4),
+        ("ATTACHMENTS_MISSING", "Required attachment documents missing", 6),
+        ("PATIENT_CONTACT_MISSING", "Patient has no phone or email", 7),
+    ]
+
+    def __init__(self, store: "PlatformStore") -> None:
+        self.store = store
+
+    def evaluate(self, patient_id: int) -> ClaimReadyProfile:
+        patient = self.store.patients.get(patient_id)
+        if not patient:
+            raise KeyError(patient_id)
+
+        missing: List[ClaimReadyItem] = []
+        active_claim: Optional[ClaimRecord] = None
+        billing_summary: Optional[Dict[str, Any]] = None
+
+        # Find active claim
+        for claim in self.store.claims.values():
+            if claim.patient_id == patient_id and claim.status not in {"rejected", "paid"}:
+                if active_claim is None or claim.id > active_claim.id:
+                    active_claim = claim
+
+        base_route = f"/patients/{patient_id}"
+
+        # Rule 1: Primary ICD-10
+        if active_claim:
+            diagnoses = self.store.get_claim_diagnoses(active_claim.id)
+            has_primary = any(d.is_primary and d.icd10_code for d in diagnoses)
+            if not has_primary:
+                missing.append(ClaimReadyItem(
+                    code="ICD_PRIMARY_MISSING",
+                    label="Primary ICD-10 not set",
+                    action_route=f"{base_route}/diagnoses",
+                    priority=1,
+                ))
+
+        # Rule 2: Tariff lines
+        if active_claim and not active_claim.line_items:
+            missing.append(ClaimReadyItem(
+                code="TARIFF_LINES_MISSING",
+                label="No active tariff lines on claim",
+                action_route=f"{base_route}/line-items",
+                priority=2,
+            ))
+
+        # Rule 7: Patient contact
+        p = patient if isinstance(patient, Patient) else Patient(**patient) if isinstance(patient, dict) else patient
+        has_contact = bool(getattr(p, "email", None) or getattr(p, "phone", None))
+        if not has_contact:
+            missing.append(ClaimReadyItem(
+                code="PATIENT_CONTACT_MISSING",
+                label="Patient has no phone or email",
+                action_route=f"{base_route}/edit",
+                priority=7,
+            ))
+
+        # Build billing summary from active claim costing preview
+        if active_claim:
+            preview = self.store.costing_previews.get(f"claim:{active_claim.id}")
+            if preview:
+                billing_summary = {
+                    "claimed_cents": round(preview.claimed_total * 100),
+                    "scheme_allowed_cents": round(preview.allowed_total * 100),
+                    "paid_cents": 0,
+                    "member_liability_cents": round(preview.member_liability_estimate * 100),
+                }
+
+        missing.sort(key=lambda x: x.priority)
+        readiness = "READY" if not missing else "INCOMPLETE"
+
+        return ClaimReadyProfile(
+            patient_id=patient_id,
+            readiness=readiness,
+            missing_items=missing,
+            active_claim_id=active_claim.id if active_claim else None,
+            billing_summary=billing_summary,
+            balance_cents=0,
+        )
+
+
 class PlatformStore:
     def __init__(self) -> None:
         self.patients: Dict[int, Patient] = {}
@@ -1034,17 +1193,123 @@ class PlatformStore:
             "schema_registry": self._default_schema_registry(),
             "retention_matrix": self._default_retention_matrix(),
         }
+        self.patient_balances: Dict[int, Any] = {}
+        self.invoices: Dict[str, Any] = {}
+        self.copay_items: Dict[str, Any] = {}
+        self.outbox_events: List[Any] = []
+        self.idempotency_store: Dict[str, Any] = {}
         self.counters = {"patient": 1, "provider": 1, "user": 1, "claim": 1, "report": 1, "payment": 1}
         self.icd10_validation_service = ICD10ValidationService(self)
         self.pmb_detection_service = PMBDetectionService(self)
         self.benefit_routing_service = BenefitRoutingService(self)
         self.costing_preview_service = CostingPreviewService(self)
+        self.claim_readiness_service = ClaimReadinessService(self)
         self.seed()
 
     def next_numeric(self, key: str) -> int:
         current = self.counters[key]
         self.counters[key] += 1
         return current
+
+    def record_patient_payment(
+        self,
+        patient_id: int,
+        amount_cents: int,
+        method: str,
+        idempotency_key: str,
+        body: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        import hashlib
+        body_hash = hashlib.sha256(
+            json.dumps(body, sort_keys=True).encode()
+        ).hexdigest()[:16]
+        key = idempotency_key
+        if key in self.idempotency_store:
+            stored = self.idempotency_store[key]
+            if stored["body_hash"] != body_hash:
+                raise ValueError("IDEMPOTENCY_KEY_REUSED")
+            return stored["response"]
+
+        payment_id = new_ref("pay")
+        now = utc_now()
+
+        # Find open invoices for this patient (FIFO)
+        open_invoices = sorted(
+            [
+                inv for inv in self.invoices.values()
+                if (
+                    (inv.patient_id if hasattr(inv, "patient_id") else inv.get("patient_id")) == patient_id
+                    and (inv.status if hasattr(inv, "status") else inv.get("status")) in {"OPEN", "PARTIAL"}
+                )
+            ],
+            key=lambda x: x.created_at if hasattr(x, "created_at") else x.get("created_at", ""),
+        )
+
+        remaining = amount_cents
+        allocated_invoice_id = None
+        for inv in open_invoices:
+            if remaining <= 0:
+                break
+            if hasattr(inv, "total_cents"):
+                shortfall = inv.total_cents - inv.paid_cents
+                apply = min(remaining, shortfall)
+                inv.paid_cents += apply
+                inv.status = "PAID" if inv.paid_cents >= inv.total_cents else "PARTIAL"
+            else:
+                shortfall = inv.get("total_cents", 0) - inv.get("paid_cents", 0)
+                apply = min(remaining, shortfall)
+                inv["paid_cents"] = inv.get("paid_cents", 0) + apply
+                inv["status"] = "PAID" if inv["paid_cents"] >= inv.get("total_cents", 0) else "PARTIAL"
+            remaining -= apply
+            allocated_invoice_id = inv.id if hasattr(inv, "id") else inv.get("id")
+            # Update balance
+            bal = self.patient_balances.get(
+                patient_id, {"balance_cents": 0, "credit_cents": 0, "updated_at": now}
+            )
+            if isinstance(bal, dict):
+                bal["balance_cents"] = max(0, bal["balance_cents"] - apply)
+                bal["updated_at"] = now
+                self.patient_balances[patient_id] = bal
+
+        # Any excess becomes credit
+        if remaining > 0:
+            bal = self.patient_balances.get(
+                patient_id, {"balance_cents": 0, "credit_cents": 0, "updated_at": now}
+            )
+            if isinstance(bal, dict):
+                bal["credit_cents"] = bal.get("credit_cents", 0) + remaining
+                bal["updated_at"] = now
+                self.patient_balances[patient_id] = bal
+
+        response = {
+            "payment_id": payment_id,
+            "patient_id": patient_id,
+            "invoice_id": allocated_invoice_id,
+            "amount_cents": amount_cents,
+            "method": method,
+            "status": "SUCCESS",
+            "received_at": now,
+            "amount_display": cents_to_str(amount_cents),
+        }
+
+        self.idempotency_store[key] = {
+            "body_hash": body_hash,
+            "response": response,
+            "created_at": now,
+        }
+
+        # Write outbox event
+        self.outbox_events.append({
+            "event_type": "COPAY_PAYMENT_RECEIVED",
+            "payload": {
+                "payment_id": payment_id,
+                "patient_id": patient_id,
+                "amount_cents": amount_cents,
+            },
+            "created_at": now,
+        })
+
+        return response
 
     def add_audit_event(
         self,

@@ -387,6 +387,10 @@ class BillingAPI {
     return this._request("/audit-logs", "GET");
   }
 
+  async getAuditEvent(auditEventId) {
+    return this._request(`/audit/${encodeURIComponent(auditEventId)}`, "GET");
+  }
+
   // =========================================================================
   // SETTINGS
   // =========================================================================
