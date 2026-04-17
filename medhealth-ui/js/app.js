@@ -1142,15 +1142,18 @@
 
   async function loadClaimDetail() {
     const claimId = state.claimId || 1;
-    const [claim, diagnoses, lineItems, attachments, transportLogs, icd10Reference, auditLogs] = await Promise.all([
-      window.api.getClaim(claimId),
-      window.api.getClaimDiagnoses(claimId),
-      window.api.getClaimLineItems(claimId),
-      window.api.getClaimAttachments(claimId),
-      window.api.getClaimTransportLogs(claimId),
-      state.icd10Reference.length ? Promise.resolve(state.icd10Reference) : window.api.getIcd10Reference(),
-      state.auditLogs.length ? Promise.resolve(state.auditLogs) : window.api.getAuditLogs().catch(() => []),
-    ]);
+    // Fire all requests in parallel — including structuredPayload — to avoid sequential round-trips
+    const [claim, diagnoses, lineItems, attachments, transportLogs, icd10Reference, auditLogs, structuredPayload] =
+      await Promise.all([
+        window.api.getClaim(claimId),
+        window.api.getClaimDiagnoses(claimId),
+        window.api.getClaimLineItems(claimId),
+        window.api.getClaimAttachments(claimId),
+        window.api.getClaimTransportLogs(claimId),
+        state.icd10Reference.length ? Promise.resolve(state.icd10Reference) : window.api.getIcd10Reference(),
+        state.auditLogs.length ? Promise.resolve(state.auditLogs) : window.api.getAuditLogs().catch(() => []),
+        window.api.getStructuredClaimPayload(claimId, null).catch(() => null),
+      ]);
     state.claimId = claim.id;
     state.claimDetail = claim;
     state.claimDiagnoses = diagnoses || [];
@@ -1160,6 +1163,7 @@
     state.latestEdiArtifact = claim.latest_edi_artifact || null;
     state.icd10Reference = icd10Reference || [];
     state.auditLogs = auditLogs || [];
+    state.structuredPayload = structuredPayload || null;
     // Reflect transport log history in stepper without resetting in-progress state
     if (state.ediStepperState.generate === "idle" && transportLogs?.length) {
       const events = new Set((transportLogs || []).map((l) => l.event));
@@ -1169,11 +1173,6 @@
         submit: events.has("SENT") ? "complete" : "idle",
         response: events.has("RESPONSE") ? "complete" : "idle",
       };
-    }
-    try {
-      state.structuredPayload = await window.api.getStructuredClaimPayload(claim.id, claim.version);
-    } catch (_) {
-      state.structuredPayload = null;
     }
 
     const memberLabel = claim.member_number || `Patient ${claim.patient_id}`;
