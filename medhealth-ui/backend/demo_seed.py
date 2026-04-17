@@ -31,6 +31,7 @@ def seed_reference_data(store: PersistentPlatformStore) -> Dict[str, Any]:
     _ensure_demo_users(store)
     _ensure_demo_patients(store)
     _ensure_demo_providers(store)
+    _ensure_demo_schemes(store)
     _ensure_demo_rules(store)
     _ensure_demo_policy_profile(store)
     _ensure_demo_settings(store)
@@ -232,6 +233,230 @@ def seed_uat_scenarios(store: PersistentPlatformStore) -> Dict[str, int]:
     return scenario_ids
 
 
+def seed_realistic_scenarios(store: PersistentPlatformStore) -> Dict[str, int]:
+    """Seed realistic claim scenarios across SA schemes and providers"""
+    scenario_ids: Dict[str, int] = {}
+    
+    # Scenario 6: Multiple diagnoses claim
+    scenario_ids["MULTIPLE_DIAGNOSES"] = _seed_claim(
+        store, "MULTIPLE_DIAGNOSES", {
+            "claim_number": "REAL-CLM-MULTI-DIA-001",
+            "patient_id": _patient_id_by_mrn(store, "DH-MRN-001"),
+            "provider_id": _provider_id_by_practice(store, "NPI-ZA-001"),
+            "provider_is_dsp": True,
+            "member_number": "DH-MEM-001",
+            "scheme_id": "DH",
+            "plan_option_id": "OPT2",
+            "service_date": "2026-04-14",
+            "diagnoses": [
+                {"seq": 1, "icd10": "I10", "diagnosis_type": "PRIMARY"},
+                {"seq": 2, "icd10": "E11.9", "diagnosis_type": "SECONDARY"},
+                {"seq": 3, "icd10": "E78.5", "diagnosis_type": "TERTIARY"},
+            ],
+            "line_items": [
+                {"line_id": "1", "service_code": "CONS002", "service_description": "Extended consultation", 
+                 "quantity": 1, "unit_price": 1200, "claimed_amount": 1200, "diagnosis_refs": [1, 2, 3]}
+            ],
+        },
+        actions=["readiness", "close", "validate", "payload"],
+    )
+    
+    # Scenario 7: High-value surgical claim
+    scenario_ids["HIGH_VALUE_CLAIM"] = _seed_claim(
+        store, "HIGH_VALUE_CLAIM", {
+            "claim_number": "REAL-CLM-SURGERY-001",
+            "patient_id": _patient_id_by_mrn(store, "GEMS-MRN-001"),
+            "provider_id": _provider_id_by_practice(store, "NPI-ZA-002"),
+            "provider_is_dsp": True,
+            "member_number": "GEMS-MEM-001",
+            "scheme_id": "GEMS",
+            "plan_option_id": "OPT2",
+            "service_date": "2026-04-13",
+            "diagnoses": [{"seq": 1, "icd10": "I21.9", "diagnosis_type": "PRIMARY"}],
+            "line_items": [
+                {"line_id": "1", "service_code": "SURG001", "service_description": "Cardiac surgery", 
+                 "quantity": 1, "unit_price": 45000, "claimed_amount": 45000, "diagnosis_refs": [1], "requires_attachment": True}
+            ],
+        },
+        actions=["readiness"],
+    )
+    
+    # Scenario 8: Non-DSP voluntary claim
+    scenario_ids["NON_DSP_VOLUNTARY"] = _seed_claim(
+        store, "NON_DSP_VOLUNTARY", {
+            "claim_number": "REAL-CLM-NONDSP-VOL-001",
+            "patient_id": _patient_id_by_mrn(store, "BON-MRN-001"),
+            "provider_id": _provider_id_by_practice(store, "NPI-ZA-008"),
+            "provider_is_dsp": False,
+            "non_dsp_access_type": "VOLUNTARY",
+            "member_number": "BON-MEM-001",
+            "scheme_id": "BON",
+            "plan_option_id": "OPT2",
+            "service_date": "2026-04-12",
+            "diagnoses": [{"seq": 1, "icd10": "J44.9", "diagnosis_type": "PRIMARY"}],
+            "line_items": [
+                {"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", 
+                 "quantity": 1, "unit_price": 400, "claimed_amount": 400, "diagnosis_refs": [1]}
+            ],
+        },
+        actions=["readiness", "close"],
+    )
+    
+    # Scenario 9: Non-DSP involuntary claim
+    scenario_ids["NON_DSP_INVOLUNTARY"] = _seed_claim(
+        store, "NON_DSP_INVOLUNTARY", {
+            "claim_number": "REAL-CLM-NONDSP-INV-001",
+            "patient_id": _patient_id_by_mrn(store, "MOM-MRN-001"),
+            "provider_id": _provider_id_by_practice(store, "NPI-ZA-009"),
+            "provider_is_dsp": False,
+            "non_dsp_access_type": "INVOLUNTARY",
+            "member_number": "MOM-MEM-001",
+            "scheme_id": "MOM",
+            "plan_option_id": "OPT2",
+            "service_date": "2026-04-11",
+            "diagnoses": [{"seq": 1, "icd10": "B34.1", "diagnosis_type": "PRIMARY"}],
+            "line_items": [
+                {"line_id": "1", "service_code": "CONS001", "service_description": "Emergency consultation", 
+                 "quantity": 1, "unit_price": 600, "claimed_amount": 600, "diagnosis_refs": [1]}
+            ],
+        },
+        actions=["readiness"],
+    )
+    
+    # Scenario 10: Attachment required for high-value claim
+    scenario_ids["ATTACHMENT_REQUIRED"] = _seed_claim(
+        store, "ATTACHMENT_REQUIRED", {
+            "claim_number": "REAL-CLM-ATTACH-001",
+            "patient_id": _patient_id_by_mrn(store, "FED-MRN-001"),
+            "provider_id": _provider_id_by_practice(store, "NPI-ZA-003"),
+            "provider_is_dsp": True,
+            "member_number": "FED-MEM-001",
+            "scheme_id": "FED",
+            "plan_option_id": "OPT1",
+            "service_date": "2026-04-10",
+            "diagnoses": [{"seq": 1, "icd10": "I50.9", "diagnosis_type": "PRIMARY"}],
+            "line_items": [
+                {"line_id": "1", "service_code": "MED002", "service_description": "Specialist cardiology review", 
+                 "quantity": 1, "unit_price": 2500, "claimed_amount": 2500, "diagnosis_refs": [1], "requires_attachment": True}
+            ],
+            "attachments": [
+                {"attachment_type": "REPORT", "file_name": "cardiology-report.pdf", 
+                 "storage_ref": "seed/cardiology-report.pdf", "file_hash": stable_hash("cardiology"), "uploaded_by": "system"}
+            ],
+        },
+        actions=["readiness", "close"],
+    )
+    
+    # Scenario 11: Invalid ICD format
+    scenario_ids["INVALID_ICD_FORMAT"] = _seed_claim(
+        store, "INVALID_ICD_FORMAT", {
+            "claim_number": "REAL-CLM-INVALID-ICD-001",
+            "patient_id": _patient_id_by_mrn(store, "POL-MRN-001"),
+            "provider_id": _provider_id_by_practice(store, "NPI-ZA-004"),
+            "provider_is_dsp": True,
+            "member_number": "POL-MEM-001",
+            "scheme_id": "POL",
+            "plan_option_id": "OPT1",
+            "service_date": "2026-04-09",
+            "diagnoses": [{"seq": 1, "icd10": "INVALID999", "diagnosis_type": "PRIMARY"}],
+            "line_items": [
+                {"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", 
+                 "quantity": 1, "unit_price": 450, "claimed_amount": 450}
+            ],
+        },
+        actions=["readiness"],
+    )
+    
+    # Scenario 12: Member not found (invalid membership)
+    scenario_ids["MEMBER_NOT_FOUND"] = _seed_claim(
+        store, "MEMBER_NOT_FOUND", {
+            "claim_number": "REAL-CLM-MEMBER-NOT-FOUND-001",
+            "patient_id": _patient_id_by_mrn(store, "DH-MRN-002"),
+            "provider_id": _provider_id_by_practice(store, "NPI-ZA-005"),
+            "provider_is_dsp": True,
+            "member_number": "INVALID-MEM-999999",  # Invalid format
+            "scheme_id": "DH",
+            "plan_option_id": "OPT1",
+            "service_date": "2026-04-08",
+            "diagnoses": [{"seq": 1, "icd10": "M54.5", "diagnosis_type": "PRIMARY"}],
+            "line_items": [
+                {"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", 
+                 "quantity": 1, "unit_price": 450, "claimed_amount": 450, "diagnosis_refs": [1]}
+            ],
+        },
+        actions=["readiness"],
+    )
+    
+    # Scenario 13: Closed with warnings
+    scenario_ids["CLOSED_WITH_WARNINGS"] = _seed_claim(
+        store, "CLOSED_WITH_WARNINGS", {
+            "claim_number": "REAL-CLM-WARNINGS-001",
+            "patient_id": _patient_id_by_mrn(store, "GEMS-MRN-002"),
+            "provider_id": _provider_id_by_practice(store, "NPI-ZA-006"),
+            "provider_is_dsp": True,
+            "member_number": "GEMS-MEM-002",
+            "scheme_id": "GEMS",
+            "plan_option_id": "OPT1",
+            "service_date": "2026-04-07",
+            "diagnoses": [{"seq": 1, "icd10": "F41.1", "diagnosis_type": "PRIMARY"}],
+            "line_items": [
+                {"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", 
+                 "quantity": 1, "unit_price": 550, "claimed_amount": 550, "diagnosis_refs": [1]}
+            ],
+        },
+        actions=["readiness", "close"],
+    )
+    
+    # Scenario 14: Expedited processing
+    scenario_ids["EXPEDITED_PROCESSING"] = _seed_claim(
+        store, "EXPEDITED_PROCESSING", {
+            "claim_number": "REAL-CLM-EXPEDITED-001",
+            "patient_id": _patient_id_by_mrn(store, "BON-MRN-002"),
+            "provider_id": _provider_id_by_practice(store, "NPI-ZA-007"),
+            "provider_is_dsp": True,
+            "member_number": "BON-MEM-002",
+            "scheme_id": "BON",
+            "plan_option_id": "OPT2",
+            "service_date": "2026-04-06",
+            "diagnoses": [{"seq": 1, "icd10": "K21.0", "diagnosis_type": "PRIMARY"}],
+            "line_items": [
+                {"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", 
+                 "quantity": 1, "unit_price": 600, "claimed_amount": 600, "diagnosis_refs": [1]}
+            ],
+        },
+        actions=["readiness", "close", "validate", "payload"],
+    )
+    
+    # Scenario 15: Diagnosis link missing scenario
+    scenario_ids["DIAGNOSIS_LINK_MISSING"] = _seed_claim(
+        store, "DIAGNOSIS_LINK_MISSING", {
+            "claim_number": "REAL-CLM-DIAGNOSIS-LINK-001",
+            "patient_id": _patient_id_by_mrn(store, "MOM-MRN-002"),
+            "provider_id": _provider_id_by_practice(store, "NPI-ZA-010"),
+            "provider_is_dsp": False,
+            "non_dsp_access_type": "VOLUNTARY",
+            "member_number": "MOM-MEM-002",
+            "scheme_id": "MOM",
+            "plan_option_id": "OPT3",
+            "service_date": "2026-04-05",
+            "diagnoses": [
+                {"seq": 1, "icd10": "M79.3", "diagnosis_type": "PRIMARY"},
+                {"seq": 2, "icd10": "M54.5", "diagnosis_type": "SECONDARY"},
+            ],
+            "line_items": [
+                {"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", 
+                 "quantity": 1, "unit_price": 500, "claimed_amount": 500},  # No diagnosis_refs
+                {"line_id": "2", "service_code": "PHYS001", "service_description": "Physiotherapy", 
+                 "quantity": 3, "unit_price": 300, "claimed_amount": 900},  # No diagnosis_refs
+            ],
+        },
+        actions=["readiness"],
+    )
+    
+    store.save()
+    return scenario_ids
+
+
 def _ensure_demo_users(store: PersistentPlatformStore) -> None:
     demo_users = [
         ("admin", "admin123", "Administrator", "admin@example.com"),
@@ -251,6 +476,7 @@ def _ensure_demo_users(store: PersistentPlatformStore) -> None:
 
 
 def _ensure_demo_patients(store: PersistentPlatformStore) -> None:
+    # Original 5 demo patients (preserved for UAT scenarios)
     rows = [
         ("DEMO-MRN-001", "Anele Demo", "1986-01-10", "F"),
         ("DEMO-MRN-002", "Mpho Demo", "1984-02-10", "M"),
@@ -258,15 +484,54 @@ def _ensure_demo_patients(store: PersistentPlatformStore) -> None:
         ("DEMO-MRN-004", "Tumi Demo", "1988-04-10", "M"),
         ("DEMO-MRN-005", "Buhle Demo", "1992-05-10", "F"),
     ]
-    for index, (mrn, name, dob, sex) in enumerate(rows, start=1):
+    
+    # Extended realistic SA patients (30+)
+    realistic_patients = [
+        # Discovery Health members
+        ("DH-MRN-001", "Anele Tshabalala", "1975-03-22", "F"),
+        ("DH-MRN-002", "Sipho Nkomo", "1972-07-15", "M"),
+        ("DH-MRN-003", "Lindiwe Khumalo", "1980-11-08", "F"),
+        ("DH-MRN-004", "Thabo Mthembu", "1968-01-30", "M"),
+        ("DH-MRN-005", "Nokuthula Dlamini", "1985-06-17", "F"),
+        ("DH-MRN-006", "Lerato Molefe", "1990-09-04", "M"),
+        # GEMS members
+        ("GEMS-MRN-001", "Buhle Ngcobo", "1978-04-12", "F"),
+        ("GEMS-MRN-002", "Sandile Ndaba", "1973-08-26", "M"),
+        ("GEMS-MRN-003", "Nomvula Sithole", "1982-02-14", "F"),
+        ("GEMS-MRN-004", "Thulani Khoza", "1976-10-19", "M"),
+        ("GEMS-MRN-005", "Palesa Mokoena", "1988-05-03", "F"),
+        # Bonitas members
+        ("BON-MRN-001", "Amahle Nxumalo", "1981-12-07", "F"),
+        ("BON-MRN-002", "Mandla Mngomezulu", "1974-06-20", "M"),
+        ("BON-MRN-003", "Thandeka Nyathi", "1987-09-11", "F"),
+        ("BON-MRN-004", "Sizwe Mthiyane", "1979-03-28", "M"),
+        # Momentum members
+        ("MOM-MRN-001", "Zandile Mahlangu", "1983-07-13", "F"),
+        ("MOM-MRN-002", "Vusi Mavundla", "1970-11-25", "M"),
+        ("MOM-MRN-003", "Nandi Zwane", "1986-01-09", "F"),
+        ("MOM-MRN-004", "Mthunzi Xaba", "1977-04-22", "M"),
+        # Fedhealth members
+        ("FED-MRN-001", "Siphiwe Nkosi", "1982-08-16", "F"),
+        ("FED-MRN-002", "Piet Venter", "1969-12-03", "M"),
+        ("FED-MRN-003", "Grace Okafor", "1984-10-29", "F"),
+        ("FED-MRN-004", "Frank Steyn", "1975-02-11", "M"),
+        # Polmed members
+        ("POL-MRN-001", "Jennifer Wong", "1981-05-20", "F"),
+        ("POL-MRN-002", "Rajesh Patel", "1976-09-07", "M"),
+        ("POL-MRN-003", "Fatima Hassan", "1988-03-14", "F"),
+        ("POL-MRN-004", "Michael Chen", "1973-11-26", "M"),
+    ]
+    
+    all_rows = rows + realistic_patients
+    for index, (mrn, name, dob, sex) in enumerate(all_rows, start=1):
         existing = next((item for item in store.patients.values() if item.mrn == mrn), None)
         payload = {
             "name": name,
             "mrn": mrn,
             "dob": dob,
             "sex": sex,
-            "email": f"demo-patient-{index}@example.com",
-            "phone": f"+27-82-700-10{index}",
+            "email": f"{mrn.lower()}@patient.example.com",
+            "phone": f"+27-{index % 2 + 71}-{700 + index:03d}",
             "status": "active",
             "created_at": existing.created_at if existing else utc_now(),
         }
@@ -284,17 +549,33 @@ def _ensure_demo_providers(store: PersistentPlatformStore) -> None:
         ("DEMO-PRACTICE-001", "DEMO-NPI-001", "DSP Demo Provider", True),
         ("DEMO-PRACTICE-002", "DEMO-NPI-002", "Non-DSP Demo Provider", False),
     ]
-    for index, (practice_number, npi, name, is_dsp_provider) in enumerate(rows, start=1):
+    
+    # Extended realistic SA providers (10+)
+    realistic_providers = [
+        ("NPI-ZA-001", "NPI-ZA-001", "Dr. Thabo Mthembu", True),
+        ("NPI-ZA-002", "NPI-ZA-002", "Dr. Lindiwe Khumalo", True),
+        ("NPI-ZA-003", "NPI-ZA-003", "Prof. Sipho Nkomo", True),
+        ("NPI-ZA-004", "NPI-ZA-004", "Dr. Naledi Dlamini", True),
+        ("NPI-ZA-005", "NPI-ZA-005", "Dr. Thandeka Ngcobo", True),
+        ("NPI-ZA-006", "NPI-ZA-006", "Prof. Mandla Khoza", True),
+        ("NPI-ZA-007", "NPI-ZA-007", "Dr. Grace Okafor", True),
+        ("NPI-ZA-008", "NPI-ZA-008", "Dr. Piet Venter", False),
+        ("NPI-ZA-009", "NPI-ZA-009", "Clinic: Soweto Health Centre", False),
+        ("NPI-ZA-010", "NPI-ZA-010", "Clinic: Durban Community Medical", False),
+    ]
+    
+    all_rows = rows + realistic_providers
+    for index, (practice_number, npi, name, is_dsp_provider) in enumerate(all_rows, start=1):
         existing = next((item for item in store.providers.values() if item.practice_number == practice_number), None)
         payload = {
             "name": name,
             "npi": npi,
             "practice_number": practice_number,
-            "specialty": "General Practice",
-            "discipline": "GP",
+            "specialty": "General Practice" if "Dr." in name or "Prof." in name else "Primary Health Care",
+            "discipline": "GP" if "Dr." in name or "Prof." in name else "Clinic",
             "is_dsp_provider": is_dsp_provider,
-            "email": f"demo-provider-{index}@example.com",
-            "phone": f"+27-11-700-20{index}",
+            "email": f"{practice_number.lower()}@provider.example.com",
+            "phone": f"+27-11-555-{1000 + index}",
             "status": "active",
             "created_at": existing.created_at if existing else utc_now(),
         }
@@ -312,9 +593,65 @@ def _ensure_demo_rules(store: PersistentPlatformStore) -> None:
     store._seed_rules()
 
 
+def _ensure_demo_schemes(store: PersistentPlatformStore) -> None:
+    """Ensure realistic South African medical scheme options exist"""
+    schemes = [
+        ("DH", "Discovery Health", [
+            ("OPT1", "Classic", 80),
+            ("OPT2", "Comprehensive", 90),
+            ("OPT3", "Core", 70),
+        ]),
+        ("GEMS", "GEMS (Gees Everybody Medical Scheme)", [
+            ("OPT1", "Standard", 75),
+            ("OPT2", "Plus", 85),
+        ]),
+        ("BON", "Bonitas", [
+            ("OPT1", "Option 1", 75),
+            ("OPT2", "Option 2", 85),
+        ]),
+        ("MOM", "Momentum Health", [
+            ("OPT1", "Bronze", 70),
+            ("OPT2", "Silver", 80),
+            ("OPT3", "Gold", 90),
+        ]),
+        ("FED", "Fedhealth", [
+            ("OPT1", "Standard", 75),
+        ]),
+        ("POL", "Polmed", [
+            ("OPT1", "Plan A", 80),
+            ("OPT2", "Plan B", 85),
+        ]),
+    ]
+    
+    # Store scheme info in settings-like structure (for reference)
+    if not hasattr(store, "_scheme_registry"):
+        store._scheme_registry = {}
+    
+    for scheme_id, scheme_name, options in schemes:
+        store._scheme_registry[scheme_id] = {
+            "name": scheme_name,
+            "options": {opt_id: opt_name for opt_id, opt_name, _ in options},
+            "coverage_percent": {opt_id: coverage for _, _, coverage in options},
+        }
+
+
 def _ensure_demo_policy_profile(store: PersistentPlatformStore) -> None:
     rule_ids = list(store.rule_definitions.keys())
-    for scheme_id, option_id in [(DEMO_SCHEME, DEMO_OPTION), (LEGACY_SCHEME, LEGACY_OPTION)]:
+    
+    # Original demo schemes
+    base_schemes = [(DEMO_SCHEME, DEMO_OPTION), (LEGACY_SCHEME, LEGACY_OPTION)]
+    
+    # Extended realistic SA schemes
+    sa_schemes = [
+        ("DH", "OPT1"), ("DH", "OPT2"), ("DH", "OPT3"),
+        ("GEMS", "OPT1"), ("GEMS", "OPT2"),
+        ("BON", "OPT1"), ("BON", "OPT2"),
+        ("MOM", "OPT1"), ("MOM", "OPT2"), ("MOM", "OPT3"),
+        ("FED", "OPT1"),
+        ("POL", "OPT1"), ("POL", "OPT2"),
+    ]
+    
+    for scheme_id, option_id in base_schemes + sa_schemes:
         profile_id = f"{scheme_id}:{option_id}"
         store.policy_profiles[profile_id] = [
             PolicyProfile(
@@ -332,7 +669,7 @@ def _ensure_demo_policy_profile(store: PersistentPlatformStore) -> None:
                     "allowClosureWithWarnings": True,
                     "requireSupervisorOverrideOnWarnings": False,
                     "defaultSubmissionChannel": "DIRECT",
-                    "memberNumberRegex": r"^MEM\d{6}$",
+                    "memberNumberRegex": r"^(MEM\d{6}|[A-Z]{2,3}-MEM-\d{3,6}|[A-Z]{3,5}-MEM-\d{1,6})$",
                     "autoFlagPMBFromICD10": True,
                     "autoRoutePMBWhenMappingAllows": True,
                     "pmbEvidenceMode": "WARN",
@@ -356,21 +693,41 @@ def _ensure_demo_settings(store: PersistentPlatformStore) -> None:
 
 def _ensure_demo_reference_rows(store: PersistentPlatformStore) -> None:
     version = store.reference_versions["icd10_mit"].version
-    for code, description in {
-        "J11.1": "DEMO influenza with respiratory manifestations",
-        "I10": "DEMO essential hypertension",
-        "E11.9": "DEMO type 2 diabetes mellitus without complications",
-        "Z00.0": "DEMO general adult medical examination",
-    }.items():
+    
+    # Extended realistic ICD-10 codes
+    icd_codes = {
+        "J11.1": "Influenza with respiratory manifestations",
+        "I10": "Essential hypertension",
+        "E11.9": "Type 2 diabetes mellitus without complications",
+        "Z00.0": "General adult medical examination",
+        "I50.9": "Unspecified heart failure",
+        "J44.9": "Chronic obstructive pulmonary disease, unspecified",
+        "E78.5": "Hyperlipidemia, unspecified",
+        "F41.1": "Generalized anxiety disorder",
+        "M79.3": "Myalgia",
+        "K21.0": "Gastro-esophageal reflux disease with esophagitis",
+        "M54.5": "Low back pain",
+        "N18.3": "Chronic kidney disease, stage 3a",
+        "F32.9": "Major depressive disorder, single episode, unspecified",
+        "M25.50": "Pain in unspecified shoulder joint",
+        "B34.1": "Respiratory syncytial virus infection",
+        "E04.9": "Disorder of thyroid, unspecified",
+        "I21.9": "Acute myocardial infarction, unspecified",
+        "C34.90": "Unspecified malignant neoplasm of unspecified part of lung",
+        "J20.9": "Acute bronchitis, unspecified",
+        "G89.29": "Other chronic pain",
+    }
+    
+    for code, description in icd_codes.items():
         from platform_core import ICD10Code
-
+        
         store.icd10_codes[code] = ICD10Code(
             code=code,
             description=description,
             version=version,
             active=True,
             effective_from="2026-04-01",
-            source="DEMO business-owned production data required",
+            source="Realistic SA medical scheme data",
             status="ACTIVE",
         )
 
@@ -502,7 +859,15 @@ def _seed_claim(store: PersistentPlatformStore, scenario_key: str, payload: Dict
     if existing:
         _purge_claim(store, existing.id)
 
-    claim = store.create_claim({**payload, "scenario_key": scenario_key}, actor="system", role="Seeder")
+    claim = store.create_claim(
+        {
+            **payload,
+            "clinical_summary": payload.get("clinical_summary") or f"DEMO clinical summary for {scenario_key}",
+            "scenario_key": scenario_key,
+        },
+        actor="system",
+        role="Seeder",
+    )
     for action in actions:
         if action == "readiness":
             store.run_readiness(claim.id, "system", "Seeder")
