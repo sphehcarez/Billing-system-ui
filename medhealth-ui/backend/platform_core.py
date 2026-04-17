@@ -101,6 +101,7 @@ class Diagnosis(BaseModel):
 
 
 class ClaimLineItem(BaseModel):
+    claim_line_item_id: Optional[str] = None
     line_id: str
     service_code: str
     service_description: str
@@ -257,6 +258,12 @@ class PMBDecision(BaseModel):
     confidence: Literal["HIGH", "MEDIUM", "LOW", "NONE"] = "NONE"
     evidence_required: List[str] = Field(default_factory=list)
     evidence_missing: List[str] = Field(default_factory=list)
+    evaluated_icd10_list: List[str] = Field(default_factory=list)
+    mapping_table_version: Optional[str] = None
+    effective_date_used: Optional[str] = None
+    detection_reason: Optional[str] = None
+    action: Optional[Dict[str, Any]] = None
+    line_level_evaluation_limited: bool = False
     created_at: str
 
 
@@ -386,6 +393,19 @@ class PayloadArtifact(BaseModel):
     created_at: str
 
 
+class EDIArtifact(BaseModel):
+    artifact_id: str
+    claim_id: int
+    claim_version: int
+    payload_id: Optional[str] = None
+    format: Literal["PSEUDO_EDI"] = "PSEUDO_EDI"
+    content: str
+    content_hash: str
+    validation_errors: List[str] = Field(default_factory=list)
+    created_at: str
+    created_by: str
+
+
 class Submission(BaseModel):
     submission_id: str
     claim_id: int
@@ -401,7 +421,10 @@ class Submission(BaseModel):
 
 class TransportLog(BaseModel):
     transport_log_id: str
-    submission_id: str
+    submission_id: Optional[str] = None
+    claim_id: Optional[int] = None
+    claim_version: Optional[int] = None
+    artifact_id: Optional[str] = None
     event: str
     details: Dict[str, Any]
     created_at: str
@@ -675,6 +698,16 @@ class PMBDetectionService:
         validation = self.store.icd10_validation_service.evaluate_claim(claim)
         provider_marked_pmb = bool(claim.provider_pmb_indicator)
         primary = validation["primary_diagnosis"]
+        evaluated_diagnoses = self.store._diagnoses_for_pmb_evaluation(claim)
+        evaluated_codes = [item.icd10_code for item in evaluated_diagnoses if item.icd10_code]
+        mapping_version = self.store.reference_versions.get("pmb")
+        line_level_limited = any(not item.diagnosis_refs for item in claim.line_items)
+        pmb_admin_action = {
+            "type": "NAVIGATE",
+            "target": "PMB_MAPPING_ADMIN",
+            "location": "settings.html#pmb-mapping-admin",
+            "allowed_roles": ["Administrator"],
+        }
 
         if primary is None:
             return PMBDecision(
@@ -689,11 +722,25 @@ class PMBDetectionService:
                 message="PMB cannot be evaluated until primary diagnosis is captured.",
                 remediation_hint="Jump to diagnoses, capture a valid primary ICD-10, and rerun readiness.",
                 explainability="No primary diagnosis is present, so PMB identification cannot run safely.",
+                evaluated_icd10_list=evaluated_codes,
+                mapping_table_version=mapping_version.version if mapping_version else None,
+                effective_date_used=claim.service_date,
+                detection_reason="PRIMARY_MISSING",
                 created_at=utc_now(),
             )
 
-        mapping = self.store._best_pmb_mapping_for_claim(claim)
+        mapping_candidate = self.store._best_pmb_mapping_for_claim(claim)
+        mapping = mapping_candidate["mapping"]
+        matched_diagnosis = mapping_candidate["diagnosis"]
         if not mapping:
+            reason = "MAPPING_DATA_EMPTY" if not self.store.pmb_mapping_rules else "NO_MATCH"
+            explainability = (
+                "No active PMB mapping reference data was available for evaluation."
+                if reason == "MAPPING_DATA_EMPTY"
+                else f"Evaluated ICD-10 codes {', '.join(evaluated_codes) or primary.icd10_code} against active mappings and found no match."
+            )
+            if line_level_limited:
+                explainability += " Line-level confirmation was limited because one or more billable lines are not linked to diagnoses."
             return PMBDecision(
                 decision_id=new_ref("pmb"),
                 claim_id=claim.id,
@@ -705,8 +752,14 @@ class PMBDetectionService:
                 matched_icd10=primary.icd10_code,
                 reason_code="PMB_NOT_DETECTED",
                 message="No configured ICD-10 to PMB mapping matched the claim diagnoses.",
-                remediation_hint="Continue normal benefit routing unless reference data changes.",
-                explainability=f"Primary ICD-10 {primary.icd10_code} did not match any active PMB mapping.",
+                remediation_hint="Capture a mapped primary ICD-10, link diagnoses to billed lines, or configure the PMB mapping reference data.",
+                explainability=explainability,
+                evaluated_icd10_list=evaluated_codes,
+                mapping_table_version=mapping_version.version if mapping_version else None,
+                effective_date_used=claim.service_date,
+                detection_reason=reason,
+                action=pmb_admin_action,
+                line_level_evaluation_limited=line_level_limited,
                 created_at=utc_now(),
             )
 
@@ -729,11 +782,14 @@ class PMBDetectionService:
             message = "ICD-10 matched a configured PMB mapping, but confirmation evidence is still missing."
             remediation_hint = "Capture the missing PMB descriptor evidence or route the claim to PMB review."
 
+        matched_icd10 = matched_diagnosis.icd10_code if matched_diagnosis else primary.icd10_code
         explainability = (
-            f"ICD-10 {primary.icd10_code} matched mapping {mapping.mapping_id} for condition {mapping.pmb_condition_id}. "
+            f"ICD-10 {matched_icd10} matched mapping {mapping.mapping_id} for condition {mapping.pmb_condition_id}. "
             f"Provider marked PMB: {'yes' if provider_marked_pmb else 'no'}. "
             f"Evidence missing: {', '.join(evidence_missing) if evidence_missing else 'none'}."
         )
+        if line_level_limited:
+            explainability += " Line-level confirmation is limited because one or more billable lines are not linked to diagnoses."
 
         return PMBDecision(
             decision_id=new_ref("pmb"),
@@ -741,7 +797,7 @@ class PMBDetectionService:
             claim_version=claim.version,
             stage=stage,
             pmb_status=status,
-            matched_icd10=primary.icd10_code,
+            matched_icd10=matched_icd10,
             mapping_id=mapping.mapping_id,
             condition_id=mapping.pmb_condition_id,
             condition_name=condition.name if condition else None,
@@ -756,6 +812,11 @@ class PMBDetectionService:
             confidence=mapping.confidence,
             evidence_required=evidence_required,
             evidence_missing=evidence_missing,
+            evaluated_icd10_list=evaluated_codes,
+            mapping_table_version=mapping_version.version if mapping_version else None,
+            effective_date_used=claim.service_date,
+            detection_reason="MATCH_FOUND",
+            line_level_evaluation_limited=line_level_limited,
             created_at=utc_now(),
         )
 
@@ -942,6 +1003,7 @@ class PlatformStore:
         self.readiness_items: Dict[str, ReadinessItem] = {}
         self.decision_bundles: Dict[str, DecisionBundle] = {}
         self.payloads: Dict[str, PayloadArtifact] = {}
+        self.edi_artifacts: Dict[str, EDIArtifact] = {}
         self.submissions: Dict[str, Submission] = {}
         self.transport_logs: Dict[str, TransportLog] = {}
         self.responses: Dict[str, ResponseRecord] = {}
@@ -1166,6 +1228,74 @@ class PlatformStore:
         if claim_id not in self.claim_diagnoses:
             self._sync_claim_diagnoses_from_claim(claim, actor="system", source=claim.source_system)
         return [item.model_copy(deep=True) for item in sorted(self.claim_diagnoses.get(claim_id, []), key=lambda item: item.seq)]
+
+    def _ensure_claim_line_item_ids(self, claim: ClaimRecord) -> None:
+        for index, item in enumerate(claim.line_items, start=1):
+            if not item.claim_line_item_id:
+                item.claim_line_item_id = f"{claim.id}:{claim.version}:{item.line_id or index}"
+
+    def _claim_line_items_payload(self, claim_id: int) -> List[Dict[str, Any]]:
+        claim = self.claims[claim_id]
+        self._ensure_claim_line_item_ids(claim)
+        diagnoses = self.get_claim_diagnoses(claim_id)
+        diagnoses_by_seq = {item.seq: item for item in diagnoses}
+        items: List[Dict[str, Any]] = []
+        for item in claim.line_items:
+            linked = []
+            diagnosis_ids = []
+            diagnosis_codes = []
+            for seq in item.diagnosis_refs:
+                diagnosis = diagnoses_by_seq.get(int(seq))
+                if not diagnosis:
+                    continue
+                diagnosis_ids.append(diagnosis.diagnosis_id)
+                diagnosis_codes.append(diagnosis.icd10_code)
+                linked.append(
+                    {
+                        "diagnosis_id": diagnosis.diagnosis_id,
+                        "seq": diagnosis.seq,
+                        "icd10_code": diagnosis.icd10_code,
+                        "is_primary": diagnosis.is_primary,
+                    }
+                )
+            payload = item.model_dump(mode="json")
+            payload["diagnosis_ids"] = diagnosis_ids
+            payload["diagnosis_codes"] = diagnosis_codes
+            payload["linked_diagnoses"] = linked
+            payload["diagnosis_link_status"] = "LINKED" if linked else "MISSING"
+            payload["missing_diagnosis_link"] = not linked
+            items.append(payload)
+        return items
+
+    def get_claim_line_items(self, claim_id: int) -> List[Dict[str, Any]]:
+        return self._claim_line_items_payload(claim_id)
+
+    def _line_items_with_updated_links(
+        self,
+        claim: ClaimRecord,
+        line_id: str,
+        diagnosis_ids: List[str],
+    ) -> List[Dict[str, Any]]:
+        diagnoses = {item.diagnosis_id: item for item in self.get_claim_diagnoses(claim.id)}
+        refs: List[int] = []
+        for diagnosis_id in diagnosis_ids:
+            diagnosis = diagnoses.get(diagnosis_id)
+            if not diagnosis:
+                raise ValueError(f"Diagnosis {diagnosis_id} is not linked to this claim.")
+            refs.append(diagnosis.seq)
+
+        updated_items: List[Dict[str, Any]] = []
+        found = False
+        for item in claim.line_items:
+            if str(item.line_id) == str(line_id):
+                found = True
+                next_item = item.model_copy(update={"diagnosis_refs": refs})
+                updated_items.append(next_item.model_dump(mode="json"))
+            else:
+                updated_items.append(item.model_dump(mode="json"))
+        if not found:
+            raise KeyError(f"Claim line {line_id} not found.")
+        return updated_items
 
     def _safe_primary_autofix_available(self, claim_id: int) -> bool:
         diagnoses = self.get_claim_diagnoses(claim_id)
@@ -1901,6 +2031,7 @@ class PlatformStore:
         unit_price = float(data.get("unit_price", data.get("claimed_amount", 0)) or 0)
         claimed_amount = float(data.get("claimed_amount", quantity * unit_price) or 0)
         return ClaimLineItem(
+            claim_line_item_id=data.get("claim_line_item_id") or data.get("id") or None,
             line_id=str(data.get("line_id") or index),
             service_code=str(data.get("service_code") or "CONS001"),
             service_description=str(data.get("service_description") or "Consultation"),
@@ -2114,6 +2245,30 @@ class PlatformStore:
                 codes.append(code)
         return codes
 
+    def _diagnoses_for_pmb_evaluation(self, claim: ClaimRecord) -> List[ClaimDiagnosis]:
+        diagnoses = self.get_claim_diagnoses(claim.id)
+        diagnoses_by_id = {item.diagnosis_id: item for item in diagnoses}
+        primary = [item for item in diagnoses if item.is_primary]
+        secondary = [item for item in diagnoses if not item.is_primary]
+        line_linked: List[ClaimDiagnosis] = []
+        seen = {item.diagnosis_id for item in primary + secondary}
+        for line_item in claim.line_items:
+            for diagnosis_id in self._claim_line_item_diagnosis_ids(claim.id, line_item):
+                diagnosis = diagnoses_by_id.get(diagnosis_id)
+                if diagnosis and diagnosis.diagnosis_id not in seen:
+                    line_linked.append(diagnosis)
+                    seen.add(diagnosis.diagnosis_id)
+        return primary + secondary + line_linked
+
+    def _claim_line_item_diagnosis_ids(self, claim_id: int, line_item: ClaimLineItem) -> List[str]:
+        diagnoses = {item.seq: item for item in self.get_claim_diagnoses(claim_id)}
+        diagnosis_ids: List[str] = []
+        for seq in line_item.diagnosis_refs:
+            diagnosis = diagnoses.get(int(seq))
+            if diagnosis:
+                diagnosis_ids.append(diagnosis.diagnosis_id)
+        return diagnosis_ids
+
     def _icd10_format_valid(self, code: str) -> bool:
         return bool(re.match(r"^[A-Z][0-9]{2}(?:\.[0-9A-Z]{1,4})?$", code))
 
@@ -2131,35 +2286,40 @@ class PlatformStore:
             return normalized_code.startswith(mapping_code)
         return normalized_code == mapping_code
 
-    def _active_pmb_mappings_for_claim(self, claim: ClaimRecord) -> List[PMBMappingRule]:
-        codes = self._icd10_codes_for_claim(claim)
-        return [
-            item
-            for item in self.pmb_mapping_rules.values()
-            if self._is_effective_record(
-                active=item.active,
-                effective_from=item.effective_from,
-                effective_to=item.effective_to,
-                status=item.status,
-                as_of=claim.service_date,
-            )
-            and any(self._mapping_matches_code(code, item) for code in codes)
-        ]
+    def _active_pmb_mappings_for_claim(self, claim: ClaimRecord) -> List[Dict[str, Any]]:
+        matches: List[Dict[str, Any]] = []
+        for diagnosis in self._diagnoses_for_pmb_evaluation(claim):
+            code = diagnosis.icd10_code.strip().upper()
+            if not code:
+                continue
+            for item in self.pmb_mapping_rules.values():
+                if not self._is_effective_record(
+                    active=item.active,
+                    effective_from=item.effective_from,
+                    effective_to=item.effective_to,
+                    status=item.status,
+                    as_of=claim.service_date,
+                ):
+                    continue
+                if self._mapping_matches_code(code, item):
+                    matches.append({"diagnosis": diagnosis, "mapping": item})
+        return matches
 
-    def _best_pmb_mapping_for_claim(self, claim: ClaimRecord) -> Optional[PMBMappingRule]:
+    def _best_pmb_mapping_for_claim(self, claim: ClaimRecord) -> Dict[str, Any]:
         diagnoses = self.get_claim_diagnoses(claim.id)
         primary = next((item for item in diagnoses if item.is_primary), None)
         mappings = self._active_pmb_mappings_for_claim(claim)
         if not mappings:
-            return None
+            return {"diagnosis": None, "mapping": None}
 
-        def sort_key(item: PMBMappingRule) -> tuple[int, int, int]:
-            primary_match = 0
-            if primary and self._mapping_matches_code(primary.icd10_code, item):
-                primary_match = 1
-            confidence = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}.get(item.confidence, 0)
-            exact = 1 if item.match_type == "EXACT" else 0
-            return (primary_match, exact, confidence)
+        def sort_key(item: Dict[str, Any]) -> tuple[int, int, int, int]:
+            diagnosis = item["diagnosis"]
+            mapping = item["mapping"]
+            primary_match = 1 if primary and diagnosis.diagnosis_id == primary.diagnosis_id else 0
+            confidence = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}.get(mapping.confidence, 0)
+            exact = 1 if mapping.match_type == "EXACT" else 0
+            linked = 1 if diagnosis.diagnosis_id in {value for line in claim.line_items for value in self._claim_line_item_diagnosis_ids(claim.id, line)} else 0
+            return (primary_match, linked, exact, confidence)
 
         return sorted(mappings, key=sort_key, reverse=True)[0]
 
@@ -2170,7 +2330,22 @@ class PlatformStore:
         return sorted(item for item in required if item.upper() not in available_types)
 
     def _pmb_evidence_gap_count(self, claim: ClaimRecord) -> int:
-        return sum(len(self._missing_pmb_evidence(claim, mapping)) for mapping in self._active_pmb_mappings_for_claim(claim))
+        return sum(
+            len(self._missing_pmb_evidence(claim, item["mapping"]))
+            for item in self._active_pmb_mappings_for_claim(claim)
+        )
+
+    def _recommended_attachment_types(self, claim: ClaimRecord) -> List[str]:
+        recommended: List[str] = []
+        if any(item.requires_attachment for item in claim.line_items):
+            recommended.append("REPORT")
+        mapping_candidate = self._best_pmb_mapping_for_claim(claim)
+        mapping = mapping_candidate.get("mapping")
+        if mapping:
+            for evidence_type in self._missing_pmb_evidence(claim, mapping):
+                if evidence_type not in recommended:
+                    recommended.append(evidence_type)
+        return recommended
 
     def _facts_for_claim(self, claim: ClaimRecord, policy: PolicyProfile) -> Dict[str, Any]:
         diagnosis_records = self.get_claim_diagnoses(claim.id)
@@ -2210,6 +2385,12 @@ class PlatformStore:
             "invalid_icd_codes": self._invalid_icd10_codes(claim),
             "pmb_mapping_count": len(self._active_pmb_mappings_for_claim(claim)),
             "missing_pmb_evidence_count": self._pmb_evidence_gap_count(claim),
+            "missing_attachment_types": self._recommended_attachment_types(claim),
+            "missing_pmb_evidence_types": (
+                self._missing_pmb_evidence(claim, self._best_pmb_mapping_for_claim(claim)["mapping"])
+                if self._best_pmb_mapping_for_claim(claim).get("mapping")
+                else []
+            ),
         }
 
     def _evaluate_rule(self, rule: RuleDefinition, claim: ClaimRecord, policy: PolicyProfile) -> List[RuleHit]:
@@ -2414,7 +2595,9 @@ class PlatformStore:
             "reason_code": hit.reason_code,
             "title": hit.name,
             "message": hit.message,
+            "user_message": hit.message,
             "remediation": hit.remediation_hint,
+            "remediation_hint": hit.remediation_hint,
             "affected_fields": hit.affected_fields,
             "jump_target": hit.affected_fields[0] if hit.affected_fields else None,
         }
@@ -2422,6 +2605,53 @@ class PlatformStore:
             item["action"] = {"type": "NAVIGATE_DIAGNOSES", "target": "diagnoses", "claimId": claim_id}
             item["action_target"] = "diagnoses"
             item["allowAutoFix"] = self._safe_primary_autofix_available(claim_id)
+        if claim_id and hit.reason_code == "DIAGNOSIS_LINK_MISSING":
+            line_items = self.get_claim_line_items(claim_id)
+            affected_line_ids = [row["line_id"] for row in line_items if row["missing_diagnosis_link"]]
+            item["affected_line_ids"] = affected_line_ids
+            item["action"] = {
+                "type": "NAVIGATE",
+                "target": "line_items",
+                "claimId": claim_id,
+                "highlightMissingDiagnosis": True,
+                "line_ids": affected_line_ids,
+            }
+            item["action_target"] = "line_items"
+        if claim_id and hit.reason_code == "ATTACHMENT_REQUIRED":
+            claim = self.claims[claim_id]
+            affected_line_ids = [line.line_id for line in claim.line_items if line.requires_attachment]
+            recommended_documents = self._recommended_attachment_types(claim) or ["REPORT"]
+            item["recommended_documents"] = recommended_documents
+            item["affected_line_ids"] = affected_line_ids
+            item["action"] = {
+                "type": "NAVIGATE",
+                "target": "attachments",
+                "payload": {
+                    "recommended": recommended_documents,
+                    "line_ids": affected_line_ids,
+                },
+            }
+            item["action_target"] = "attachments"
+        if claim_id and hit.reason_code == "PMB_EVIDENCE_REQUIRED":
+            claim = self.claims[claim_id]
+            mapping_candidate = self._best_pmb_mapping_for_claim(claim)
+            mapping = mapping_candidate.get("mapping")
+            matched_diagnosis = mapping_candidate.get("diagnosis")
+            condition = self.pmb_conditions.get(mapping.pmb_condition_id) if mapping else None
+            evidence_missing = self._missing_pmb_evidence(claim, mapping) if mapping else []
+            item["matched_icd10"] = matched_diagnosis.icd10_code if matched_diagnosis else None
+            item["mapping_id"] = mapping.mapping_id if mapping else None
+            item["condition_id"] = mapping.pmb_condition_id if mapping else None
+            item["condition_type"] = condition.type if condition else None
+            item["evidence_missing"] = evidence_missing
+            item["action"] = {
+                "type": "NAVIGATE",
+                "target": "attachments",
+                "payload": {
+                    "required": evidence_missing,
+                },
+            }
+            item["action_target"] = "attachments"
         return item
 
     def _validation_summary(
@@ -2447,7 +2677,9 @@ class PlatformStore:
                     "reason_code": "ACTION_BLOCKED",
                     "title": "Action blocked",
                     "message": error,
+                    "user_message": error,
                     "remediation": "Resolve the prerequisite workflow step and retry the action.",
+                    "remediation_hint": "Resolve the prerequisite workflow step and retry the action.",
                     "affected_fields": [],
                     "jump_target": None,
                     "action_target": None,
@@ -2465,7 +2697,9 @@ class PlatformStore:
                     "route": route_decision.route,
                     "action": route_decision.action,
                     "message": route_decision.message,
+                    "user_message": route_decision.message,
                     "remediation": route_decision.remediation_hint,
+                    "remediation_hint": route_decision.remediation_hint,
                     "evidence_required": route_decision.evidence_required,
                     "evidence_missing": route_decision.evidence_missing,
                 }
@@ -2544,11 +2778,194 @@ class PlatformStore:
             ],
         }
 
+    def create_pmb_mapping(self, data: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:
+        mapping = PMBMappingRule(
+            mapping_id=str(data.get("mapping_id") or new_ref("pmbmap")),
+            icd10_code=str(data["icd10_code"]).strip().upper(),
+            pmb_condition_id=str(data["pmb_condition_id"]),
+            match_type=str(data.get("match_type") or "EXACT").upper(),
+            version=int(data.get("version") or 1),
+            effective_from=str(data.get("effective_from") or utc_now()[:10]),
+            effective_to=data.get("effective_to"),
+            confidence=str(data.get("confidence") or "MEDIUM").upper(),
+            auto_route_allowed=to_bool(data.get("auto_route_allowed")),
+            required_evidence_types=list(data.get("required_evidence_types") or []),
+            active=to_bool(data.get("active", True)),
+            status=str(data.get("status") or "ACTIVE").upper(),
+            source=str(data.get("source") or "DEMO business-owned production data required"),
+        )
+        self.pmb_mapping_rules[mapping.mapping_id] = mapping
+        self.add_audit_event(actor, role, "PMB_MAPPING_CREATED", "pmb_mapping", mapping.mapping_id, mapping.model_dump())
+        return mapping.model_dump()
+
+    def update_pmb_mapping(self, mapping_id: str, data: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:
+        existing = self.pmb_mapping_rules[mapping_id]
+        payload = {**existing.model_dump(), **data, "mapping_id": mapping_id}
+        if "icd10_code" in payload:
+            payload["icd10_code"] = str(payload["icd10_code"]).strip().upper()
+        updated = PMBMappingRule(**payload)
+        self.pmb_mapping_rules[mapping_id] = updated
+        self.add_audit_event(actor, role, "PMB_MAPPING_UPDATED", "pmb_mapping", mapping_id, updated.model_dump())
+        return updated.model_dump()
+
+    def delete_pmb_mapping(self, mapping_id: str, actor: str, role: str) -> Dict[str, Any]:
+        deleted = self.pmb_mapping_rules.pop(mapping_id)
+        self.add_audit_event(actor, role, "PMB_MAPPING_DELETED", "pmb_mapping", mapping_id, deleted.model_dump())
+        return {"deleted": True, "mapping_id": mapping_id}
+
+    def simulate_pmb_mapping(self, icd10_code: str) -> Dict[str, Any]:
+        normalized = str(icd10_code or "").strip().upper()
+        matches = [
+            item.model_dump()
+            for item in self.pmb_mapping_rules.values()
+            if self._is_effective_record(
+                active=item.active,
+                effective_from=item.effective_from,
+                effective_to=item.effective_to,
+                status=item.status,
+                as_of=utc_now(),
+            )
+            and self._mapping_matches_code(normalized, item)
+        ]
+        impacted_claims = [
+            {
+                "claim_id": claim.id,
+                "claim_number": claim.claim_number,
+                "current_pmb_status": claim.pmb_status,
+            }
+            for claim in self.claims.values()
+            if normalized in self._icd10_codes_for_claim(claim)
+        ]
+        return {
+            "icd10_code": normalized,
+            "matches": matches,
+            "impacted_claims": impacted_claims,
+        }
+
     def list_patients(self) -> List[Dict[str, Any]]:
         return [item.model_dump() for item in self.patients.values()]
 
     def get_patient(self, patient_id: int) -> Patient:
         return self.patients[patient_id]
+
+    def _patient_claim_context_claim(self, claim: ClaimRecord) -> Dict[str, Any]:
+        patient = self.patients.get(claim.patient_id)
+        provider = self.providers.get(claim.provider_id)
+        diagnoses = self.get_claim_diagnoses(claim.id)
+        line_items = self.get_claim_line_items(claim.id)
+        attachments = [item.model_dump() for item in claim.attachments]
+        authorisations = [item.model_dump() for item in claim.authorisations]
+        missing = []
+        if not claim.member_number:
+            missing.append("member_number")
+        if not diagnoses or not any(item.is_primary for item in diagnoses):
+            missing.append("primary_icd10")
+        if not line_items:
+            missing.append("line_items")
+        if not authorisations:
+            missing.append("preauthorisation")
+        if not attachments:
+            missing.append("attachments")
+        if not claim.clinical_summary:
+            missing.append("consent_or_clinical_summary")
+        return {
+            "claim_id": claim.id,
+            "claim_number": claim.claim_number,
+            "claim_status": claim.status,
+            "claim_version": claim.version,
+            "member_number": claim.member_number,
+            "dependant_code": claim.dependant_code,
+            "membership_status": claim.membership_status,
+            "scheme_id": claim.scheme_id,
+            "plan_option_id": claim.plan_option_id,
+            "patient": patient.model_dump() if patient else None,
+            "provider": provider.model_dump() if provider else None,
+            "visit": {
+                "service_date": claim.service_date,
+                "care_setting": claim.care_setting,
+                "admission_date_time": claim.admission_date_time,
+                "discharge_date_time": claim.discharge_date_time,
+                "place_of_service": claim.care_setting,
+            },
+            "diagnoses": [item.model_dump() for item in diagnoses],
+            "charge_capture": {
+                "line_count": len(line_items),
+                "tariff_codes": [item["service_code"] for item in line_items],
+                "claimed_total": self._claim_amount(claim),
+            },
+            "preauthorisations": authorisations,
+            "referral_indicator": any(item.diagnosis_type == "REFERRAL" for item in claim.diagnoses),
+            "attachments": attachments,
+            "consent": {
+                "status": "CAPTURED" if claim.clinical_summary else "MISSING",
+                "captured_at": claim.updated_at,
+            },
+            "claim_status_timeline": {
+                "readiness_status": claim.readiness_status,
+                "validation_status": claim.validation_status,
+                "payload_status": claim.payload_status,
+                "submission_status": claim.submission_status,
+                "remittance_status": claim.remittance_status,
+                "reconciliation_status": claim.reconciliation_status,
+            },
+            "evidence_packet_url": f"/api/audit/claims/{claim.id}/evidence-packet",
+            "open_claim_url": f"claim_detail.html?id={claim.id}",
+            "missing_indicators": missing,
+        }
+
+    def get_patient_claim_context(self, patient_id: int) -> Dict[str, Any]:
+        patient = self.get_patient(patient_id)
+        claims = sorted(
+            [item for item in self.claims.values() if item.patient_id == patient_id],
+            key=lambda item: (item.service_date, item.updated_at or ""),
+            reverse=True,
+        )
+        contexts = [self._patient_claim_context_claim(item) for item in claims]
+        return {
+            "patient": patient.model_dump(),
+            "claim_ready_profile": contexts[0] if contexts else None,
+            "claims": contexts,
+            "missing_indicators": contexts[0]["missing_indicators"] if contexts else ["no_claim_context"],
+        }
+
+    def get_claim_attachments(self, claim_id: int) -> List[Dict[str, Any]]:
+        claim = self.claims[claim_id]
+        return [
+            {
+                "document_id": item.attachment_id,
+                "claim_id": claim.id,
+                "claim_version": claim.version,
+                "encounter_id": None,
+                "patient_id": claim.patient_id,
+                "provider_id": claim.provider_id,
+                "doc_type": item.attachment_type,
+                "filename": item.file_name,
+                "storage_ref": item.storage_ref,
+                "file_hash": item.file_hash,
+                "uploaded_at": item.uploaded_at,
+                "uploaded_by": item.uploaded_by,
+                "status": "AVAILABLE" if item.virus_scan_status == "CLEAN" else "PENDING_SCAN",
+            }
+            for item in claim.attachments
+        ]
+
+    def get_patient_timeline(self, patient_id: int) -> Dict[str, Any]:
+        claim_ids = {str(item.id): item.claim_number for item in self.claims.values() if item.patient_id == patient_id}
+        timeline = [
+            {
+                "timestamp": item.timestamp,
+                "event_type": item.event_type,
+                "claim_id": int(item.entity_id),
+                "claim_number": claim_ids.get(item.entity_id),
+                "detail": item.detail,
+            }
+            for item in sorted(self.audit_events.values(), key=lambda row: row.timestamp, reverse=True)
+            if item.entity_type == "claim" and item.entity_id in claim_ids
+        ]
+        return {
+            "patient_id": patient_id,
+            "timeline": timeline,
+        }
 
     def create_patient(self, data: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:
         patient = Patient(
@@ -2645,6 +3062,7 @@ class PlatformStore:
 
     def create_claim(self, data: Dict[str, Any], actor: str, role: str) -> ClaimRecord:
         claim = self._normalize_claim(data)
+        self._ensure_claim_line_item_ids(claim)
         self.claims[claim.id] = claim
         self._sync_claim_diagnoses_from_claim(claim, actor, source=claim.source_system)
         self._record_claim_version(claim, "Initial version")
@@ -2658,10 +3076,12 @@ class PlatformStore:
         claim = self.claims[claim_id]
         payload = self._claim_payload(claim)
         payload["diagnoses"] = [item.model_dump() for item in self.get_claim_diagnoses(claim_id)]
+        payload["line_items"] = self.get_claim_line_items(claim_id)
         payload["version_chain"] = [item.model_dump() for item in self.claim_versions.get(claim_id, [])]
         payload["current_policy"] = self._resolve_policy(claim.scheme_id, claim.plan_option_id).model_dump()
         payload["latest_snapshot"] = self.billing_snapshots[claim.latest_snapshot_id].model_dump() if claim.latest_snapshot_id else None
         payload["latest_payload"] = self.payloads[claim.latest_payload_id].model_dump() if claim.latest_payload_id else None
+        payload["latest_edi_artifact"] = self.get_latest_edi_artifact_for_claim(claim_id)
         payload["latest_response"] = self.responses[claim.latest_response_id].model_dump() if claim.latest_response_id else None
         payload["latest_remittance"] = self.remittances[claim.latest_remittance_id].model_dump() if claim.latest_remittance_id else None
         payload["latest_reconciliation"] = self.reconciliations[claim.latest_reconciliation_id].model_dump() if claim.latest_reconciliation_id else None
@@ -2683,6 +3103,8 @@ class PlatformStore:
         payload["pmb_decisions"] = self.get_pmb_decisions_for_claim(claim_id)
         payload["benefit_route_decisions"] = self.get_benefit_route_decisions_for_claim(claim_id)
         payload["costing_previews"] = self.get_costing_previews_for_claim(claim_id)
+        payload["edi_artifacts"] = self.get_edi_artifacts_for_claim(claim_id)
+        payload["transport_logs"] = [item.model_dump() for item in self.get_transport_logs_for_claim(claim_id)]
         return payload
 
     def update_claim(
@@ -2719,9 +3141,27 @@ class PlatformStore:
             next_claim.latest_costing_preview_id = None
             next_claim.pmb_status = "not_evaluated"
             for key, value in data.items():
-                if hasattr(next_claim, key):
-                    setattr(next_claim, key, value)
+                if not hasattr(next_claim, key):
+                    continue
+                if key == "line_items":
+                    normalized_line_items = [
+                        self._normalize_line_item(item, index, data.get("service_date", next_claim.service_date))
+                        for index, item in enumerate(value, start=1)
+                    ]
+                    setattr(next_claim, key, normalized_line_items)
+                    continue
+                if key == "diagnoses":
+                    setattr(next_claim, key, [Diagnosis(**item) if isinstance(item, dict) else item for item in value])
+                    continue
+                if key == "authorisations":
+                    setattr(next_claim, key, [AuthorizationRecord(**item) if isinstance(item, dict) else item for item in value])
+                    continue
+                if key == "attachments":
+                    setattr(next_claim, key, [AttachmentRecord(**item) if isinstance(item, dict) else item for item in value])
+                    continue
+                setattr(next_claim, key, value)
             next_claim.updated_at = utc_now()
+            self._ensure_claim_line_item_ids(next_claim)
             self.claims[claim_id] = next_claim
             if "diagnoses" in data:
                 self._sync_claim_diagnoses_from_claim(next_claim, actor, source=next_claim.source_system)
@@ -2742,6 +3182,7 @@ class PlatformStore:
         if "attachments" in data:
             payload["attachments"] = [AttachmentRecord(**item) for item in data["attachments"]]
         updated = ClaimRecord(**payload)
+        self._ensure_claim_line_item_ids(updated)
         self.claims[claim_id] = updated
         if "diagnoses" in data:
             self._sync_claim_diagnoses_from_claim(updated, actor, source=updated.source_system)
@@ -2846,6 +3287,148 @@ class PlatformStore:
             "reason": "ambiguous_primary",
             "message": "Automatic primary ICD-10 fix is only safe when exactly one diagnosis exists and none is primary.",
             "diagnoses": [item.model_dump() for item in records],
+        }
+
+    def update_claim_line_diagnosis_links(
+        self,
+        claim_id: int,
+        line_id: str,
+        diagnosis_ids: List[str],
+        actor: str,
+        role: str,
+    ) -> Dict[str, Any]:
+        claim = self.claims[claim_id]
+        had_snapshot = bool(claim.latest_snapshot_id)
+        updated_line_items = self._line_items_with_updated_links(claim, line_id, diagnosis_ids)
+        updated_claim = self.update_claim(
+            claim_id,
+            {"line_items": updated_line_items},
+            actor,
+            role,
+            change_summary="Diagnosis linkage updated on claim line items",
+        )
+        line_items = self.get_claim_line_items(claim_id)
+        updated_line = next((item for item in line_items if str(item["line_id"]) == str(line_id)), None)
+        self.add_audit_event(
+            actor,
+            role,
+            "DIAGNOSIS_LINK_UPDATED",
+            "claim",
+            str(claim_id),
+            {
+                "line_ids": [line_id],
+                "diagnosis_ids": diagnosis_ids,
+                "claim_version": self.claims[claim_id].version,
+            },
+        )
+        validation = None
+        if had_snapshot:
+            self.run_readiness(claim_id, actor, role)
+            self.close_claim(claim_id, ClaimClosureRequest(), actor, role)
+            validation = self.run_post_closure_validation(claim_id, actor, role)
+        return {
+            "claim_id": claim_id,
+            "claim_version": self.claims[claim_id].version,
+            "line_item": updated_line,
+            "line_items": line_items,
+            "claim": updated_claim,
+            "post_closure_validation": validation,
+        }
+
+    def add_claim_attachment(
+        self,
+        claim_id: int,
+        data: Dict[str, Any],
+        actor: str,
+        role: str,
+    ) -> Dict[str, Any]:
+        claim = self.claims[claim_id]
+        had_snapshot = bool(claim.latest_snapshot_id)
+        doc_type = str(data.get("doc_type") or data.get("attachment_type") or "OTHER").upper()
+        file_name = str(data.get("filename") or data.get("file_name") or f"{doc_type.lower()}-document.txt")
+        attachment = AttachmentRecord(
+            attachment_id=new_ref("att"),
+            attachment_type=doc_type if doc_type in {"MOTIVATION", "REPORT", "INVOICE", "PROOF_OF_PAYMENT", "OTHER"} else "OTHER",
+            file_name=file_name,
+            storage_ref=str(data.get("storage_ref") or f"claims/{claim_id}/{file_name}"),
+            file_hash=str(
+                data.get("file_hash")
+                or stable_hash({"claim_id": claim_id, "doc_type": doc_type, "file_name": file_name, "uploaded_by": actor})
+            ),
+            uploaded_at=utc_now(),
+            uploaded_by=actor,
+            virus_scan_status="CLEAN",
+        )
+        updated_claim = self.update_claim(
+            claim_id,
+            {"attachments": [*claim.attachments, attachment.model_dump()]},
+            actor,
+            role,
+            change_summary="Claim attachment added",
+        )
+        validation = None
+        if had_snapshot:
+            self.run_readiness(claim_id, actor, role)
+            self.close_claim(claim_id, ClaimClosureRequest(), actor, role)
+            validation = self.run_post_closure_validation(claim_id, actor, role)
+        self.add_audit_event(
+            actor,
+            role,
+            "CLAIM_ATTACHMENT_ADDED",
+            "claim",
+            str(claim_id),
+            {
+                "document_id": attachment.attachment_id,
+                "doc_type": attachment.attachment_type,
+                "filename": attachment.file_name,
+                "claim_version": self.claims[claim_id].version,
+            },
+        )
+        attachments = self.get_claim_attachments(claim_id)
+        return {
+            "claim_id": claim_id,
+            "claim_version": self.claims[claim_id].version,
+            "document": attachments[-1],
+            "attachments": attachments,
+            "claim": updated_claim,
+            "post_closure_validation": validation,
+        }
+
+    def delete_claim_attachment(self, claim_id: int, document_id: str, actor: str, role: str) -> Dict[str, Any]:
+        claim = self.claims[claim_id]
+        had_snapshot = bool(claim.latest_snapshot_id)
+        remaining = [item for item in claim.attachments if item.attachment_id != document_id]
+        if len(remaining) == len(claim.attachments):
+            raise KeyError(f"Attachment not found on claim {claim_id}: {document_id}")
+        updated_claim = self.update_claim(
+            claim_id,
+            {"attachments": [item.model_dump() for item in remaining]},
+            actor,
+            role,
+            change_summary="Claim attachment removed",
+        )
+        validation = None
+        if had_snapshot:
+            self.run_readiness(claim_id, actor, role)
+            self.close_claim(claim_id, ClaimClosureRequest(), actor, role)
+            validation = self.run_post_closure_validation(claim_id, actor, role)
+        self.add_audit_event(
+            actor,
+            role,
+            "CLAIM_ATTACHMENT_REMOVED",
+            "claim",
+            str(claim_id),
+            {
+                "document_id": document_id,
+                "claim_version": self.claims[claim_id].version,
+            },
+        )
+        return {
+            "claim_id": claim_id,
+            "claim_version": self.claims[claim_id].version,
+            "attachments": self.get_claim_attachments(claim_id),
+            "claim": updated_claim,
+            "post_closure_validation": validation,
         }
 
     def get_decision_bundles_for_claim(self, claim_id: int) -> List[DecisionBundle]:
@@ -3053,7 +3636,7 @@ class PlatformStore:
                 }
                 for item in self.get_claim_diagnoses(claim.id)
             ],
-            "line_items": [{"line_id": item.line_id, "service_code": item.service_code, "quantity": item.quantity, "unit_price": item.unit_price, "claimed_amount": item.claimed_amount, "diagnosis_refs": item.diagnosis_refs, "modifiers": item.modifiers, "nappi_code": item.nappi_code} for item in claim.line_items],
+            "line_items": self.get_claim_line_items(claim.id),
             "pmb": {
                 "provider_pmb_indicator": claim.provider_pmb_indicator,
                 "status": claim.pmb_status,
@@ -3156,10 +3739,301 @@ class PlatformStore:
             "phisc_xml": payload.phisc_xml,
         }
 
-    def _add_transport_log(self, submission_id: str, event: str, details: Dict[str, Any]) -> TransportLog:
+    def _payload_missing_actions(self, claim: ClaimRecord) -> Dict[str, Dict[str, Any]]:
+        return {
+            "primary_diagnosis": {
+                "label": "Capture primary ICD",
+                "target": "diagnoses",
+                "type": "NAVIGATE",
+            },
+            "line_diagnosis_links": {
+                "label": "Link line diagnoses",
+                "target": "line_items",
+                "type": "NAVIGATE",
+            },
+            "mapping_configuration": {
+                "label": "Configure PMB mapping",
+                "target": "PMB_MAPPING_ADMIN",
+                "type": "NAVIGATE",
+                "location": "settings.html#pmb-mapping-admin",
+                "allowed_roles": ["Administrator"],
+            },
+            "submission_metadata": {
+                "label": "Submit claim",
+                "target": "submission_tool",
+                "type": "NAVIGATE",
+            },
+        }
+
+    def get_structured_payload(self, claim_id: int, version: int) -> Dict[str, Any]:
+        claim = self.claims[claim_id]
+        if claim.version != version:
+            raise KeyError(f"Claim version {version} not found for claim {claim_id}")
+        payload = next(
+            (item for item in self.payloads.values() if item.claim_id == claim_id and item.claim_version == version),
+            None,
+        )
+        canonical = payload.canonical_claim if payload else self._canonical_claim(claim, claim.latest_snapshot_id or "draft")
+        pmb_decision = self.pmb_decisions.get(claim.latest_pmb_decision_id) if claim.latest_pmb_decision_id else None
+        routing_decision = self.benefit_route_decisions.get(claim.latest_benefit_route_decision_id) if claim.latest_benefit_route_decision_id else None
+        costing_preview = self.costing_previews.get(claim.latest_costing_preview_id) if claim.latest_costing_preview_id else None
+        line_items = self.get_claim_line_items(claim_id)
+        diagnoses = self.get_claim_diagnoses(claim_id)
+        primary = next((item for item in diagnoses if item.is_primary), None)
+        missing_actions = self._payload_missing_actions(claim)
+        structured_tiles = [
+            {
+                "stage_id": "parties",
+                "title": "Parties",
+                "status": "complete" if claim.member_number and claim.patient_id and claim.provider_id else "missing",
+                "summary": f"Member {claim.member_number} · Patient {claim.patient_id} · Provider {claim.provider_id}",
+                "fields": [
+                    {"label": "Member number", "value": claim.member_number},
+                    {"label": "Dependant code", "value": claim.dependant_code},
+                    {"label": "Patient ID", "value": claim.patient_id},
+                    {"label": "Provider ID", "value": claim.provider_id},
+                ],
+                "missing_fields": [],
+                "actions": [],
+            },
+            {
+                "stage_id": "visit",
+                "title": "Visit details",
+                "status": "complete" if claim.service_date else "missing",
+                "summary": f"{claim.service_date} · {claim.care_setting}",
+                "fields": [
+                    {"label": "Service date", "value": claim.service_date},
+                    {"label": "Care setting", "value": claim.care_setting},
+                    {"label": "Preauth numbers", "value": ", ".join(item.auth_number for item in claim.authorisations) or "-"},
+                ],
+                "missing_fields": [],
+                "actions": [],
+            },
+            {
+                "stage_id": "diagnoses",
+                "title": "Diagnoses",
+                "status": "complete" if primary else "missing",
+                "summary": ", ".join(item.icd10_code for item in diagnoses) or "No diagnoses captured",
+                "fields": [
+                    {"label": "Primary ICD-10", "value": primary.icd10_code if primary else None},
+                    {"label": "Secondary ICD-10", "value": ", ".join(item.icd10_code for item in diagnoses if not item.is_primary) or "-"},
+                ],
+                "missing_fields": [] if primary else [{"field": "primary_diagnosis", "message": "Primary ICD-10 is required.", "action": missing_actions["primary_diagnosis"]}],
+                "actions": [] if primary else [missing_actions["primary_diagnosis"]],
+            },
+            {
+                "stage_id": "line_items",
+                "title": "Line items",
+                "status": "complete" if line_items and all(not item["missing_diagnosis_link"] for item in line_items) else "missing",
+                "summary": f"{len(line_items)} billed line(s)",
+                "fields": [
+                    {"label": "Tariff codes", "value": ", ".join(item["service_code"] for item in line_items) or "-"},
+                    {"label": "Diagnosis link coverage", "value": f"{sum(1 for item in line_items if not item['missing_diagnosis_link'])}/{len(line_items)} linked" if line_items else "0/0 linked"},
+                ],
+                "missing_fields": [
+                    {
+                        "field": "line_diagnosis_links",
+                        "message": "One or more line items are missing diagnosis links.",
+                        "action": missing_actions["line_diagnosis_links"],
+                    }
+                ]
+                if any(item["missing_diagnosis_link"] for item in line_items)
+                else [],
+                "actions": [missing_actions["line_diagnosis_links"]] if any(item["missing_diagnosis_link"] for item in line_items) else [],
+            },
+            {
+                "stage_id": "routing",
+                "title": "Totals and routing",
+                "status": "complete" if pmb_decision and routing_decision and costing_preview else "missing",
+                "summary": f"PMB {pmb_decision.pmb_status if pmb_decision else 'UNKNOWN'} · {routing_decision.route if routing_decision else 'NO_ROUTE'}",
+                "fields": [
+                    {"label": "Claimed total", "value": self._claim_amount(claim)},
+                    {"label": "PMB status", "value": pmb_decision.pmb_status if pmb_decision else "UNKNOWN"},
+                    {"label": "Benefit route", "value": routing_decision.route if routing_decision else None},
+                    {"label": "Pricing basis", "value": costing_preview.pricing_basis if costing_preview else None},
+                ],
+                "missing_fields": [
+                    {
+                        "field": "mapping_configuration",
+                        "message": "No PMB mapping matched the evaluated diagnoses.",
+                        "action": missing_actions["mapping_configuration"],
+                    }
+                ]
+                if pmb_decision and pmb_decision.pmb_status == "NOT_DETECTED"
+                else [],
+                "actions": [missing_actions["mapping_configuration"]] if pmb_decision and pmb_decision.pmb_status == "NOT_DETECTED" else [],
+            },
+            {
+                "stage_id": "submission",
+                "title": "Submission metadata",
+                "status": "complete" if claim.latest_submission_id else "missing",
+                "summary": claim.latest_submission_id or "Not submitted",
+                "fields": [
+                    {"label": "Payload ID", "value": payload.payload_id if payload else claim.latest_payload_id},
+                    {"label": "Channel", "value": claim.submission_channel},
+                    {"label": "Correlation ID", "value": self.submissions[claim.latest_submission_id].correlation_id if claim.latest_submission_id else None},
+                    {"label": "Idempotency key", "value": self.submissions[claim.latest_submission_id].idempotency_key if claim.latest_submission_id else None},
+                ],
+                "missing_fields": [] if claim.latest_submission_id else [{"field": "submission_metadata", "message": "Submission has not started.", "action": missing_actions["submission_metadata"]}],
+                "actions": [] if claim.latest_submission_id else [missing_actions["submission_metadata"]],
+            },
+        ]
+        return {
+            "claim_id": claim_id,
+            "claim_version": version,
+            "canonical_json": canonical,
+            "structured_tiles": structured_tiles,
+        }
+
+    def _validate_edi_content(self, content: str) -> List[str]:
+        lines = [item.strip() for item in content.splitlines() if item.strip()]
+        errors: List[str] = []
+        required_prefixes = ["UNH+", "BGM+", "DTM+", "NAD+MS+", "RFF+MB:"]
+        for prefix in required_prefixes:
+            if not any(line.startswith(prefix) for line in lines):
+                errors.append(f"Missing required segment {prefix.rstrip(':')}")
+        if not any(line.startswith("RFF+ICD:") for line in lines):
+            errors.append("At least one ICD reference segment is required")
+        if not any(line.startswith("LIN+") for line in lines):
+            errors.append("At least one line item segment is required")
+        if not lines or not lines[-1].startswith("UNT+"):
+            errors.append("UNT trailer segment is required")
+        return errors
+
+    def generate_edi_artifact(self, claim_id: int, version: int, actor: str, role: str) -> Dict[str, Any]:
+        claim = self.claims[claim_id]
+        if claim.version != version:
+            raise KeyError(f"Claim version {version} not found for claim {claim_id}")
+        if not claim.latest_payload_id:
+            payload_result = self.build_payload(claim_id, actor, role)
+            if payload_result.get("status") == "blocked":
+                return payload_result
+        payload = self.payloads[self.claims[claim_id].latest_payload_id]
+        artifact = EDIArtifact(
+            artifact_id=new_ref("edi"),
+            claim_id=claim_id,
+            claim_version=version,
+            payload_id=payload.payload_id,
+            format="PSEUDO_EDI",
+            content=payload.pseudo_edi,
+            content_hash=stable_hash(payload.pseudo_edi),
+            validation_errors=[],
+            created_at=utc_now(),
+            created_by=actor,
+        )
+        self.edi_artifacts[artifact.artifact_id] = artifact
+        self._add_transport_log(
+            None,
+            "EDI_GENERATED",
+            {"payload_id": payload.payload_id, "artifact_id": artifact.artifact_id},
+            claim_id=claim_id,
+            claim_version=version,
+            artifact_id=artifact.artifact_id,
+        )
+        self.add_audit_event(actor, role, "EDI_GENERATED", "claim", str(claim_id), {"artifact_id": artifact.artifact_id, "payload_id": payload.payload_id})
+        return {
+            "claim_id": claim_id,
+            "claim_version": version,
+            "artifact": artifact.model_dump(),
+        }
+
+    def validate_edi_artifact(self, claim_id: int, version: int, actor: str, role: str) -> Dict[str, Any]:
+        artifact = next(
+            (
+                item
+                for item in sorted(self.edi_artifacts.values(), key=lambda row: row.created_at, reverse=True)
+                if item.claim_id == claim_id and item.claim_version == version
+            ),
+            None,
+        )
+        if artifact is None:
+            generated = self.generate_edi_artifact(claim_id, version, actor, role)
+            artifact = self.edi_artifacts[generated["artifact"]["artifact_id"]]
+        errors = self._validate_edi_content(artifact.content)
+        artifact.validation_errors = errors
+        self._add_transport_log(
+            None,
+            "EDI_VALIDATED",
+            {"artifact_id": artifact.artifact_id, "valid": not errors, "errors": errors},
+            claim_id=claim_id,
+            claim_version=version,
+            artifact_id=artifact.artifact_id,
+        )
+        self.add_audit_event(actor, role, "EDI_VALIDATED", "claim", str(claim_id), {"artifact_id": artifact.artifact_id, "valid": not errors, "errors": errors})
+        return {
+            "claim_id": claim_id,
+            "claim_version": version,
+            "artifact": artifact.model_dump(),
+            "valid": not errors,
+            "errors": errors,
+        }
+
+    def download_edi_artifact(self, claim_id: int, version: int) -> str:
+        artifact = self.get_latest_edi_artifact_for_claim(claim_id, version=version)
+        if not artifact:
+            raise KeyError(f"No EDI artifact found for claim {claim_id} version {version}")
+        return artifact["content"]
+
+    def submit_edi_artifact(
+        self,
+        claim_id: int,
+        version: int,
+        channel: str,
+        idempotency_key: Optional[str],
+        actor: str,
+        role: str,
+    ) -> Dict[str, Any]:
+        validation = self.validate_edi_artifact(claim_id, version, actor, role)
+        if not validation["valid"]:
+            return {
+                "claim_id": claim_id,
+                "claim_version": version,
+                "status": "blocked",
+                "errors": validation["errors"],
+                "artifact": validation["artifact"],
+            }
+        submission = self.submit_claim(
+            claim_id,
+            ClaimSubmissionRequest(channel=channel, idempotency_key=idempotency_key),
+            actor,
+            role,
+        )
+        self._add_transport_log(
+            submission.get("submission_id"),
+            "EDI_SUBMITTED",
+            {
+                "artifact_id": validation["artifact"]["artifact_id"],
+                "channel": channel,
+                "idempotency_key": idempotency_key,
+            },
+            claim_id=claim_id,
+            claim_version=version,
+            artifact_id=validation["artifact"]["artifact_id"],
+        )
+        return {
+            "claim_id": claim_id,
+            "claim_version": version,
+            "artifact": validation["artifact"],
+            "submission": submission,
+            "transport_logs": [item.model_dump() for item in self.get_transport_logs_for_claim(claim_id)],
+        }
+
+    def _add_transport_log(
+        self,
+        submission_id: Optional[str],
+        event: str,
+        details: Dict[str, Any],
+        *,
+        claim_id: Optional[int] = None,
+        claim_version: Optional[int] = None,
+        artifact_id: Optional[str] = None,
+    ) -> TransportLog:
         log = TransportLog(
             transport_log_id=new_ref("tlog"),
             submission_id=submission_id,
+            claim_id=claim_id,
+            claim_version=claim_version,
+            artifact_id=artifact_id,
             event=event,
             details=details,
             created_at=utc_now(),
@@ -3347,10 +4221,28 @@ class PlatformStore:
         claim.submission_channel = channel.lower()
         claim.submission_status = "submitted"
         claim.status = "submitted"
-        self._add_transport_log(submission.submission_id, "ENQUEUED", {"channel": channel, "idempotency_key": idempotency_key})
+        self._add_transport_log(
+            submission.submission_id,
+            "ENQUEUED",
+            {"channel": channel, "idempotency_key": idempotency_key},
+            claim_id=claim.id,
+            claim_version=claim.version,
+        )
         if channel == "SWITCH":
-            self._add_transport_log(submission.submission_id, "SWITCH_TRANSFORM", {"payload_id": claim.latest_payload_id, "mode": "PHISC simulation"})
-        self._add_transport_log(submission.submission_id, "SENT", {"correlation_id": submission.correlation_id, "payload_id": claim.latest_payload_id})
+            self._add_transport_log(
+                submission.submission_id,
+                "SWITCH_TRANSFORM",
+                {"payload_id": claim.latest_payload_id, "mode": "PHISC simulation"},
+                claim_id=claim.id,
+                claim_version=claim.version,
+            )
+        self._add_transport_log(
+            submission.submission_id,
+            "SENT",
+            {"correlation_id": submission.correlation_id, "payload_id": claim.latest_payload_id},
+            claim_id=claim.id,
+            claim_version=claim.version,
+        )
 
         response = self._simulate_response(claim, submission)
         claim.latest_response_id = response.response_id
@@ -3385,6 +4277,31 @@ class PlatformStore:
             [item for item in self.transport_logs.values() if item.submission_id == submission_id],
             key=lambda item: item.created_at,
         )
+
+    def get_transport_logs_for_claim(self, claim_id: int) -> List[TransportLog]:
+        return sorted(
+            [item for item in self.transport_logs.values() if item.claim_id == claim_id or (item.submission_id and self.submissions.get(item.submission_id, None) and self.submissions[item.submission_id].claim_id == claim_id)],
+            key=lambda item: item.created_at,
+        )
+
+    def get_edi_artifacts_for_claim(self, claim_id: int) -> List[Dict[str, Any]]:
+        return [
+            item.model_dump()
+            for item in sorted(
+                [value for value in self.edi_artifacts.values() if value.claim_id == claim_id],
+                key=lambda value: value.created_at,
+            )
+        ]
+
+    def get_latest_edi_artifact_for_claim(self, claim_id: int, version: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        matches = [
+            value
+            for value in self.edi_artifacts.values()
+            if value.claim_id == claim_id and (version is None or value.claim_version == version)
+        ]
+        if not matches:
+            return None
+        return sorted(matches, key=lambda value: value.created_at)[-1].model_dump()
 
     def get_claim_remittance(self, claim_id: int) -> Dict[str, Any]:
         claim = self.claims[claim_id]
@@ -3442,15 +4359,16 @@ class PlatformStore:
         claim = self.claims[claim_id]
         return {
             "claim": self.get_claim(claim_id),
-            "documents": ["snapshot.json", "decision_bundles.json", "pmb_decision.json", "pmb_routing.json", "costing_preview.json", "payloads.json", "submissions.json", "responses.json", "remittance.json", "reconciliation.json"],
+            "documents": self.get_claim_attachments(claim_id),
             "snapshot": self.billing_snapshots[claim.latest_snapshot_id].model_dump() if claim.latest_snapshot_id else None,
             "decision_bundles": [item.model_dump() for item in self.get_decision_bundles_for_claim(claim_id)],
             "pmb_decisions": self.get_pmb_decisions_for_claim(claim_id),
             "benefit_route_decisions": self.get_benefit_route_decisions_for_claim(claim_id),
             "costing_previews": self.get_costing_previews_for_claim(claim_id),
             "payloads": [item.model_dump() for item in self.payloads.values() if item.claim_id == claim_id],
+            "edi_artifacts": self.get_edi_artifacts_for_claim(claim_id),
             "submissions": [item.model_dump() for item in self.submissions.values() if item.claim_id == claim_id],
-            "transport_logs": [item.model_dump() for item in self.transport_logs.values() if self.submissions[item.submission_id].claim_id == claim_id],
+            "transport_logs": [item.model_dump() for item in self.get_transport_logs_for_claim(claim_id)],
             "responses": [item.model_dump() for item in self.responses.values() if item.claim_id == claim_id],
             "financial_bundles": [item.model_dump() for item in self.financial_bundles.values() if item.claim_id == claim_id],
             "remittances": [item.model_dump() for item in self.remittances.values() if item.claim_id == claim_id],
@@ -3466,7 +4384,22 @@ class PlatformStore:
             if item.claim_id == claim_id and item.claim_version == version
         ]
         if not payloads:
-            raise KeyError(f"No payload found for claim {claim_id} version {version}")
+            claim = self.claims[claim_id]
+            if claim.version != version:
+                raise KeyError(f"No payload found for claim {claim_id} version {version}")
+            canonical = self._canonical_claim(claim, claim.latest_snapshot_id or "draft")
+            return {
+                "payload_id": None,
+                "claim_id": claim_id,
+                "claim_version": version,
+                "snapshot_id": claim.latest_snapshot_id,
+                "canonical_claim": canonical,
+                "pseudo_edi": self._pseudo_edi(claim, canonical),
+                "phisc_xml": self._phisc_xml(claim, canonical),
+                "canonical_hash": stable_hash(canonical),
+                "payload_hash": stable_hash({"canonical": canonical, "claim_number": claim.claim_number}),
+                "created_at": claim.updated_at or claim.created_at,
+            }
         return sorted(payloads, key=lambda item: item.created_at)[-1].model_dump()
 
     def list_audit_events(self) -> List[Dict[str, Any]]:
@@ -3593,6 +4526,7 @@ class PlatformStore:
         settings = deepcopy(self.settings)
         settings["policy_profiles"] = self.list_policy_profiles()
         settings["rule_definitions"] = self.list_rules()
+        settings["pmb_reference"] = self.list_pmb_mapping_reference()
         return settings
 
     def update_settings(self, payload: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:

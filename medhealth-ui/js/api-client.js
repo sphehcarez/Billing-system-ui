@@ -3,12 +3,31 @@
  * Handles all communication with the FastAPI backend
  */
 
-const API_BASE_URL = "http://localhost:8001/api";
+function resolveApiBaseUrl() {
+  const explicitMeta = document.querySelector('meta[name="medhealth-api-base"]')?.content?.trim();
+  const storedOverride = localStorage.getItem("medhealth_api_base_url")?.trim();
+  const candidate = explicitMeta || storedOverride;
+  if (candidate) {
+    return new URL(candidate, window.location.origin).toString().replace(/\/$/, "");
+  }
+  if (window.location.port === "8001") {
+    return new URL("/api", window.location.origin).toString().replace(/\/$/, "");
+  }
+  if (window.location.protocol.startsWith("http") && window.location.hostname) {
+    return `${window.location.protocol}//${window.location.hostname}:8001/api`;
+  }
+  return "http://localhost:8001/api";
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
+const API_ORIGIN = API_BASE_URL.replace(/\/api$/, "");
 
 class BillingAPI {
   constructor() {
     this.token = localStorage.getItem("api_token") || null;
     this.role = localStorage.getItem("api_role") || localStorage.getItem("role") || null;
+    this.baseUrl = API_BASE_URL;
+    this.origin = API_ORIGIN;
   }
 
   // =========================================================================
@@ -56,6 +75,14 @@ class BillingAPI {
     return Boolean(this.token);
   }
 
+  getDocsUrl() {
+    return `${this.origin}/docs`;
+  }
+
+  getHealthUrl() {
+    return `${this.origin}/health`;
+  }
+
   async _request(endpoint, method = "GET", body = null) {
     const headers = {};
 
@@ -74,16 +101,24 @@ class BillingAPI {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+      const response = await fetch(`${this.baseUrl}${endpoint}`, options);
 
       if (response.status === 401) {
         this.logout();
-        throw new Error("Unauthorized - please login again");
+        const unauthorizedError = new Error("Unauthorized - please login again");
+        unauthorizedError.status = 401;
+        unauthorizedError.endpoint = endpoint;
+        unauthorizedError.method = method;
+        throw unauthorizedError;
       }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "API request failed");
+        const apiError = new Error(errorData.detail || `API request failed with ${response.status}`);
+        apiError.status = response.status;
+        apiError.endpoint = endpoint;
+        apiError.method = method;
+        throw apiError;
       }
 
       if (response.status === 204) {
@@ -97,6 +132,16 @@ class BillingAPI {
 
       return response.text();
     } catch (error) {
+      if (error instanceof TypeError) {
+        const networkError = new Error(
+          `API unavailable while calling ${method} ${endpoint}. Check the backend on ${this.origin}.`,
+        );
+        networkError.code = "NETWORK_ERROR";
+        networkError.endpoint = endpoint;
+        networkError.method = method;
+        networkError.apiBaseUrl = this.baseUrl;
+        throw networkError;
+      }
       console.error(`API Error [${method} ${endpoint}]:`, error);
       throw error;
     }
@@ -112,6 +157,22 @@ class BillingAPI {
 
   async getPatient(id) {
     return this._request(`/patients/${id}`, "GET");
+  }
+
+  async getPatientClaimContext(id) {
+    return this._request(`/patients/${id}/claim-context`, "GET");
+  }
+
+  async getPatientTimeline(id) {
+    return this._request(`/patients/${id}/timeline`, "GET");
+  }
+
+  async getHealth() {
+    const response = await fetch(this.getHealthUrl(), { method: "GET" });
+    if (!response.ok) {
+      throw new Error(`Health check failed with ${response.status}`);
+    }
+    return response.json();
   }
 
   async createPatient(patient) {
@@ -178,6 +239,30 @@ class BillingAPI {
     return this._request(`/claims/${claimId}/diagnoses`, "GET");
   }
 
+  async getClaimLineItems(claimId) {
+    return this._request(`/claims/${claimId}/line-items`, "GET");
+  }
+
+  async getClaimAttachments(claimId) {
+    return this._request(`/claims/${claimId}/attachments`, "GET");
+  }
+
+  async addClaimAttachment(claimId, payload) {
+    return this._request(`/claims/${claimId}/attachments`, "POST", payload);
+  }
+
+  async deleteClaimAttachment(claimId, documentId) {
+    return this._request(`/claims/${claimId}/attachments/${encodeURIComponent(documentId)}`, "DELETE");
+  }
+
+  async updateClaimLineDiagnosisLinks(claimId, lineId, diagnosisIds) {
+    return this._request(
+      `/claims/${claimId}/line-items/${encodeURIComponent(lineId)}/diagnosis-links`,
+      "PUT",
+      { diagnosis_ids: diagnosisIds },
+    );
+  }
+
   async addClaimDiagnosis(claimId, diagnosis) {
     return this._request(`/claims/${claimId}/diagnoses`, "POST", diagnosis);
   }
@@ -204,6 +289,34 @@ class BillingAPI {
 
   async buildClaimPayload(claimId) {
     return this._request(`/claims/${claimId}/payload`, "POST");
+  }
+
+  async getStructuredClaimPayload(claimId, version) {
+    return this._request(`/claims/${claimId}/payloads/${version}/structured`, "GET");
+  }
+
+  async generateClaimEdi(claimId, version) {
+    return this._request(`/claims/${claimId}/payloads/${version}/edi/generate`, "POST");
+  }
+
+  async validateClaimEdi(claimId, version) {
+    return this._request(`/claims/${claimId}/payloads/${version}/edi/validate`, "POST");
+  }
+
+  async downloadClaimEdi(claimId, version) {
+    return this._request(`/claims/${claimId}/payloads/${version}/edi/download`, "GET");
+  }
+
+  async submitClaimEdi(claimId, version, channel = "SWITCH", idempotencyKey = null) {
+    const params = new URLSearchParams({ channel });
+    if (idempotencyKey) {
+      params.set("idempotency_key", idempotencyKey);
+    }
+    return this._request(`/claims/${claimId}/payloads/${version}/edi/submit?${params.toString()}`, "POST");
+  }
+
+  async getClaimTransportLogs(claimId) {
+    return this._request(`/claims/${claimId}/transport-logs`, "GET");
   }
 
   // =========================================================================
@@ -331,6 +444,22 @@ class BillingAPI {
 
   async getPmbMappingReference() {
     return this._request("/reference/pmb-mappings", "GET");
+  }
+
+  async simulatePmbMapping(icd10Code) {
+    return this._request(`/reference/pmb-mappings/simulate?icd10_code=${encodeURIComponent(icd10Code)}`, "GET");
+  }
+
+  async createPmbMapping(payload) {
+    return this._request("/reference/pmb-mappings", "POST", payload);
+  }
+
+  async updatePmbMapping(mappingId, payload) {
+    return this._request(`/reference/pmb-mappings/${encodeURIComponent(mappingId)}`, "PATCH", payload);
+  }
+
+  async deletePmbMapping(mappingId) {
+    return this._request(`/reference/pmb-mappings/${encodeURIComponent(mappingId)}`, "DELETE");
   }
 
   async updateRule(ruleId, patch) {

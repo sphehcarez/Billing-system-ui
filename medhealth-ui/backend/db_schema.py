@@ -337,6 +337,61 @@ claim_diagnoses = Table(
 )
 Index("ix_claim_diagnoses_claim_primary", claim_diagnoses.c.claim_id, claim_diagnoses.c.is_primary)
 
+claim_line_items = Table(
+    "claim_line_items",
+    metadata,
+    Column("claim_line_item_id", String(120), primary_key=True),
+    Column("claim_id", Integer, ForeignKey("claims.id"), nullable=False),
+    Column("claim_version", Integer, nullable=False),
+    Column("line_id", String(120), nullable=False),
+    Column("service_code", String(120), nullable=False),
+    Column("service_description", Text, nullable=False),
+    Column("quantity", Numeric(12, 2), nullable=False),
+    Column("unit_price", Numeric(12, 2), nullable=False),
+    Column("claimed_amount", Numeric(12, 2), nullable=False),
+    Column("service_date", String(40), nullable=False),
+    Column("modifiers_json", JSONB, nullable=False),
+    Column("nappi_code", String(120)),
+    Column("device_id", String(120)),
+    Column("rendering_provider_practice_number", String(120)),
+    Column("requires_preauth", Boolean, nullable=False, default=False),
+    Column("requires_attachment", Boolean, nullable=False, default=False),
+    UniqueConstraint("claim_id", "claim_version", "line_id", name="uq_claim_line_items_claim_version_line"),
+)
+Index("ix_claim_line_items_claim_version", claim_line_items.c.claim_id, claim_line_items.c.claim_version)
+
+claim_line_diagnosis_links = Table(
+    "claim_line_diagnosis_links",
+    metadata,
+    Column("link_id", String(120), primary_key=True),
+    Column("claim_line_item_id", String(120), ForeignKey("claim_line_items.claim_line_item_id"), nullable=False),
+    Column("claim_id", Integer, ForeignKey("claims.id"), nullable=False),
+    Column("claim_version", Integer, nullable=False),
+    Column("line_id", String(120), nullable=False),
+    Column("diagnosis_id", String(120), ForeignKey("claim_diagnoses.diagnosis_id"), nullable=False),
+    Column("sequence", Integer, nullable=False),
+    UniqueConstraint("claim_line_item_id", "diagnosis_id", name="uq_claim_line_diagnosis_link"),
+)
+
+claim_documents = Table(
+    "claim_documents",
+    metadata,
+    Column("document_id", String(120), primary_key=True),
+    Column("claim_id", Integer, ForeignKey("claims.id"), nullable=False),
+    Column("claim_version", Integer, nullable=False),
+    Column("encounter_id", String(120)),
+    Column("patient_id", Integer, ForeignKey("patients.id"), nullable=False),
+    Column("provider_id", Integer, ForeignKey("providers.id"), nullable=False),
+    Column("doc_type", String(80), nullable=False),
+    Column("filename", String(255), nullable=False),
+    Column("storage_ref", String(255), nullable=False),
+    Column("file_hash", String(255), nullable=False),
+    Column("uploaded_at", String(40), nullable=False),
+    Column("uploaded_by", String(120), nullable=False),
+    Column("status", String(40), nullable=False, default="AVAILABLE"),
+)
+Index("ix_claim_documents_claim_version", claim_documents.c.claim_id, claim_documents.c.claim_version)
+
 pmb_decisions = Table(
     "pmb_decisions",
     metadata,
@@ -360,6 +415,12 @@ pmb_decisions = Table(
     Column("confidence", String(20), nullable=False),
     Column("evidence_required_json", JSONB, nullable=False),
     Column("evidence_missing_json", JSONB, nullable=False),
+    Column("evaluated_icd10_list_json", JSONB, nullable=False),
+    Column("mapping_table_version", String(255)),
+    Column("effective_date_used", String(40)),
+    Column("detection_reason", String(120)),
+    Column("action_json", JSONB),
+    Column("line_level_evaluation_limited", Boolean, nullable=False, default=False),
     Column("created_at", String(40), nullable=False),
 )
 
@@ -424,6 +485,21 @@ payloads = Table(
     Column("created_at", String(40), nullable=False),
 )
 
+edi_artifacts = Table(
+    "edi_artifacts",
+    metadata,
+    Column("artifact_id", String(120), primary_key=True),
+    Column("claim_id", Integer, ForeignKey("claims.id"), nullable=False),
+    Column("claim_version", Integer, nullable=False),
+    Column("payload_id", String(120), ForeignKey("payloads.payload_id")),
+    Column("format", String(40), nullable=False),
+    Column("content", Text, nullable=False),
+    Column("content_hash", String(255), nullable=False),
+    Column("validation_errors_json", JSONB, nullable=False),
+    Column("created_at", String(40), nullable=False),
+    Column("created_by", String(120), nullable=False),
+)
+
 submissions = Table(
     "submissions",
     metadata,
@@ -444,7 +520,10 @@ transport_logs = Table(
     "transport_logs",
     metadata,
     Column("transport_log_id", String(120), primary_key=True),
-    Column("submission_id", String(120), ForeignKey("submissions.submission_id"), nullable=False),
+    Column("submission_id", String(120), ForeignKey("submissions.submission_id")),
+    Column("claim_id", Integer, ForeignKey("claims.id")),
+    Column("claim_version", Integer),
+    Column("artifact_id", String(120), ForeignKey("edi_artifacts.artifact_id")),
     Column("event", String(120), nullable=False),
     Column("details_json", JSONB, nullable=False),
     Column("created_at", String(40), nullable=False),
@@ -583,10 +662,14 @@ ALL_TABLES = [
     tariff_rates,
     pmb_payment_policies,
     claim_diagnoses,
+    claim_line_items,
+    claim_line_diagnosis_links,
+    claim_documents,
     pmb_decisions,
     benefit_routing_decisions,
     costing_previews,
     payloads,
+    edi_artifacts,
     submissions,
     transport_logs,
     responses,
@@ -623,6 +706,9 @@ TRUNCATE_TABLES = [
     icd10_pmb_mappings,
     pmb_conditions,
     icd10_reference,
+    claim_line_diagnosis_links,
+    claim_line_items,
+    claim_documents,
     readiness_runs,
     decision_bundles,
     policy_profiles,

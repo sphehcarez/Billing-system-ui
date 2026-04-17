@@ -195,8 +195,25 @@
     page: getCurrentPage(),
     role: getStoredRole(),
     claimId: getClaimIdFromLocation(),
+    connection: { status: "checking", message: "Checking API connection..." },
+    patients: [],
+    providers: [],
+    claims: [],
+    auditLogs: [],
+    selectedProviderId: null,
     claimDetail: null,
     claimDiagnoses: [],
+    claimLineItems: [],
+    claimAttachments: [],
+    claimTransportLogs: [],
+    patientClaimContext: null,
+    patientTimeline: null,
+    selectedPatientId: null,
+    pmbReference: null,
+    structuredPayload: null,
+    latestEdiArtifact: null,
+    highlightedLineIds: [],
+    highlightedAttachmentTypes: { required: [], recommended: [] },
     icd10Reference: [],
   };
 
@@ -213,6 +230,8 @@
     applyRoleToLayout();
     configureTopbar();
     bindGlobalHandlers();
+    void refreshConnectionStatus();
+    scheduleConnectionChecks();
     void initializePage();
   });
 
@@ -262,12 +281,18 @@
   function configureTopbar() {
     const actionsBar = document.querySelector(".topbar .actions");
     if (actionsBar && !actionsBar.querySelector("[data-manual-link]")) {
+      const statusPill = document.createElement("div");
+      statusPill.className = "connection-pill";
+      statusPill.setAttribute("id", "connection-status-pill");
+      statusPill.innerHTML = '<span class="connection-dot"></span><span id="connection-status-label">Checking API…</span>';
+      actionsBar.insertBefore(statusPill, actionsBar.firstChild);
+
       const manualLink = document.createElement("a");
       manualLink.href = "manual.html";
       manualLink.className = "btn secondary";
       manualLink.setAttribute("data-manual-link", "true");
       manualLink.textContent = "User Manual";
-      actionsBar.insertBefore(manualLink, actionsBar.firstChild);
+      actionsBar.insertBefore(manualLink, statusPill.nextSibling);
     }
 
     const createButton = document.querySelector('[data-action="create-new"]');
@@ -287,8 +312,201 @@
     }
   }
 
+  async function refreshConnectionStatus() {
+    const label = document.getElementById("connection-status-label");
+    const pill = document.getElementById("connection-status-pill");
+    if (!label || !pill || !window.api?.getHealth) {
+      return;
+    }
+    try {
+      const health = await window.api.getHealth();
+      state.connection = {
+        status: health.db === "ok" ? "up" : "degraded",
+        message: health.db === "ok" ? "API connected" : "API degraded",
+      };
+    } catch (_) {
+      state.connection = {
+        status: "down",
+        message: "API down",
+      };
+    }
+    pill.dataset.status = state.connection.status;
+    label.textContent = state.connection.message;
+    pill.title = `${state.connection.message} · ${window.api.getHealthUrl()}`;
+  }
+
+  function scheduleConnectionChecks() {
+    if (state.page === "index.html") {
+      return;
+    }
+    window.setInterval(() => {
+      void refreshConnectionStatus();
+    }, 30000);
+  }
+
+  function ensureToastHost() {
+    let host = document.getElementById("toast-host");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "toast-host";
+      host.className = "toast-host";
+      document.body.appendChild(host);
+    }
+    return host;
+  }
+
+  function showToast(message, tone = "info", options = {}) {
+    const host = ensureToastHost();
+    const toast = document.createElement("div");
+    toast.className = `toast ${tone}`;
+    toast.innerHTML = `
+      <div class="toast-title">${escapeHtml(options.title || (tone === "error" ? "Action failed" : tone === "success" ? "Saved" : "Heads up"))}</div>
+      <div class="toast-message">${escapeHtml(message)}</div>
+    `;
+    host.appendChild(toast);
+    window.setTimeout(() => {
+      toast.classList.add("hide");
+      window.setTimeout(() => toast.remove(), 220);
+    }, options.duration || 4200);
+  }
+
+  function formatErrorMessage(error, attemptedAction = "request") {
+    if (!error) {
+      return `Unable to ${attemptedAction}.`;
+    }
+    if (error.code === "NETWORK_ERROR") {
+      return `${attemptedAction} could not reach the API. Check the backend on :8001 and try again.`;
+    }
+    if (error.status) {
+      return `${attemptedAction} failed with HTTP ${error.status}. ${error.message || "Please retry."}`;
+    }
+    return error.message || `Unable to ${attemptedAction}.`;
+  }
+
+  function showDrawer({ title, subtitle = "", content = "", actions = [] }) {
+    const overlay = document.createElement("div");
+    overlay.className = "drawer-overlay";
+    const drawer = document.createElement("aside");
+    drawer.className = "drawer";
+    drawer.innerHTML = `
+      <div class="drawer-header">
+        <div>
+          <h2>${escapeHtml(title)}</h2>
+          <p>${escapeHtml(subtitle)}</p>
+        </div>
+        <button type="button" class="icon-btn" data-drawer-close>Close</button>
+      </div>
+      <div class="drawer-actions"></div>
+      <div class="drawer-body">${content}</div>
+    `;
+    overlay.appendChild(drawer);
+    document.body.appendChild(overlay);
+    const actionsBar = drawer.querySelector(".drawer-actions");
+    actions.forEach((action) => {
+      const button = document.createElement(action.href ? "a" : "button");
+      if (action.href) {
+        button.href = action.href;
+      } else {
+        button.type = "button";
+        button.addEventListener("click", action.onClick);
+      }
+      button.className = action.className || "chip info";
+      button.textContent = action.label;
+      actionsBar.appendChild(button);
+    });
+    const close = () => overlay.remove();
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) {
+        close();
+      }
+    });
+    drawer.querySelector("[data-drawer-close]").addEventListener("click", close);
+    return { drawer, close };
+  }
+
+  function showConfirmDialog({ title, message, confirmLabel = "Confirm", tone = "warn" }) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      overlay.innerHTML = `
+        <div class="modal-card">
+          <h2>${escapeHtml(title)}</h2>
+          <p>${escapeHtml(message)}</p>
+          <div class="modal-actions">
+            <button type="button" class="btn secondary" data-confirm-cancel>Cancel</button>
+            <button type="button" class="btn ${tone === "warn" ? "warn" : ""}" data-confirm-ok>${escapeHtml(confirmLabel)}</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      const close = (value) => {
+        overlay.remove();
+        resolve(value);
+      };
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) {
+          close(false);
+        }
+      });
+      overlay.querySelector("[data-confirm-cancel]").addEventListener("click", () => close(false));
+      overlay.querySelector("[data-confirm-ok]").addEventListener("click", () => close(true));
+    });
+  }
+
+  function showInputDialog({ title, label, value = "", submitLabel = "Save" }) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      overlay.innerHTML = `
+        <div class="modal-card">
+          <h2>${escapeHtml(title)}</h2>
+          <label class="field" style="margin:0;">
+            <span class="label">${escapeHtml(label)}</span>
+            <input class="input" id="modal-input-value" value="${escapeHtml(value)}" />
+          </label>
+          <div class="modal-actions">
+            <button type="button" class="btn secondary" data-input-cancel>Cancel</button>
+            <button type="button" class="btn" data-input-submit>${escapeHtml(submitLabel)}</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      const input = overlay.querySelector("#modal-input-value");
+      const close = (result) => {
+        overlay.remove();
+        resolve(result);
+      };
+      overlay.querySelector("[data-input-cancel]").addEventListener("click", () => close(null));
+      overlay.querySelector("[data-input-submit]").addEventListener("click", () => close(input.value));
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) {
+          close(null);
+        }
+      });
+      window.setTimeout(() => input.focus(), 60);
+    });
+  }
+
   function bindGlobalHandlers() {
     document.addEventListener("click", (event) => {
+      const jumpButton = event.target.closest("[data-jump-target]");
+      if (jumpButton) {
+        event.preventDefault();
+        const targetName = jumpButton.getAttribute("data-jump-target");
+        let payload = {};
+        try {
+          payload = JSON.parse(jumpButton.getAttribute("data-jump-payload") || "{}");
+        } catch (_) {
+          payload = {};
+        }
+        const lineIds = String(jumpButton.getAttribute("data-jump-line-ids") || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+        jumpToClaimTarget(targetName, { ...payload, lineIds: payload.line_ids || lineIds });
+        return;
+      }
+
       const actionButton = event.target.closest("[data-action]");
       if (!actionButton) {
         return;
@@ -398,7 +616,7 @@
     try {
       switch (action) {
         case "open-api-docs":
-          window.open("http://localhost:8001/docs", "_blank", "noopener");
+          window.open(window.api.getDocsUrl(), "_blank", "noopener");
           break;
         case "create-new":
           handleCreateNew();
@@ -427,11 +645,38 @@
         case "auto-fix-primary":
           await handleAutoFixPrimary();
           break;
+        case "apply-line-diagnosis-links":
+          await handleApplyLineDiagnosisLinks();
+          break;
+        case "add-attachment":
+          await handleAddAttachment(false);
+          break;
+        case "mark-attachment-provided":
+          await handleAddAttachment(true);
+          break;
+        case "delete-attachment":
+          await handleDeleteAttachment(id);
+          break;
         case "submit-direct":
           await handleSubmitClaim("direct");
           break;
         case "submit-switch":
           await handleSubmitClaim("switch");
+          break;
+        case "generate-edi":
+          await handleGenerateEdi();
+          break;
+        case "validate-edi":
+          await handleValidateEdi();
+          break;
+        case "download-edi":
+          await handleDownloadEdi();
+          break;
+        case "submit-edi-switch":
+          await handleSubmitEdiSwitch();
+          break;
+        case "copy-canonical-json":
+          await handleCopyCanonicalJson();
           break;
         case "view-remittance":
           await handleViewRemittance();
@@ -442,11 +687,21 @@
         case "download-report":
           await handleDownloadReport(id);
           break;
+        case "view-audit-detail":
+          await handleViewAuditDetail(id);
+          break;
         case "edit-patient":
           await handleEditPatient(id);
           break;
+        case "view-provider-workspace":
+          state.selectedProviderId = Number(id);
+          renderProviderWorkspace();
+          break;
         case "delete-patient":
           await handleDeletePatient(id);
+          break;
+        case "view-patient-claim-context":
+          await handleViewPatientClaimContext(id);
           break;
         case "edit-provider":
           await handleEditProvider(id);
@@ -475,11 +730,25 @@
         case "edit-rule":
           await handleEditRule(button);
           break;
+        case "new-pmb-mapping":
+          await handleCreatePmbMapping();
+          break;
+        case "edit-pmb-mapping":
+          await handleEditPmbMapping(button);
+          break;
+        case "delete-pmb-mapping":
+          await handleDeletePmbMapping(button);
+          break;
+        case "simulate-pmb-mapping":
+          await handleSimulatePmbMapping();
+          break;
         default:
           throw new Error(`Unsupported action: ${action}`);
       }
     } catch (error) {
-      alert(error.message || "Something went wrong.");
+      showToast(formatErrorMessage(error, action?.replaceAll("-", " ") || "complete the action"), "error", {
+        title: "Action failed",
+      });
     } finally {
       button.disabled = false;
       button.textContent = originalLabel;
@@ -502,6 +771,7 @@
 
   async function loadPatients() {
     const patients = await window.api.getPatients();
+    state.patients = patients;
     renderTable(
       patients,
       6,
@@ -517,10 +787,71 @@
       `,
       "No patients found.",
     );
+    if (patients.length) {
+      const targetId = state.selectedPatientId || patients[0].id;
+      await handleViewPatientClaimContext(targetId);
+    }
+  }
+
+  function renderPatientClaimContext() {
+    const container = document.getElementById("patient-claim-context");
+    if (!container) {
+      return;
+    }
+    const context = state.patientClaimContext;
+    const profile = context?.claim_ready_profile;
+    if (!profile) {
+      container.textContent = "No claim context found for this patient.";
+      return;
+    }
+    container.innerHTML = `
+      <div class="panel" style="display:grid;gap:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+          <strong>${escapeHtml(profile.patient?.name || context.patient?.name || "Patient")}</strong>
+          <a class="chip info" href="${escapeHtml(profile.open_claim_url || "#")}">Open claim</a>
+        </div>
+        <div class="muted">Member ${escapeHtml(profile.member_number)} · Dependant ${escapeHtml(profile.dependant_code)} · Scheme ${escapeHtml(profile.scheme_id)} / ${escapeHtml(profile.plan_option_id)}</div>
+        <div class="muted">Provider ${escapeHtml(profile.provider?.name || "-")} · Practice ${escapeHtml(profile.provider?.practice_number || "-")} · Service ${escapeHtml(profile.visit?.service_date || "-")}</div>
+        <div class="muted">Diagnoses: ${escapeHtml((profile.diagnoses || []).map((item) => item.icd10_code).join(", ") || "-")}</div>
+        <div class="muted">Tariffs: ${escapeHtml((profile.charge_capture?.tariff_codes || []).join(", ") || "-")} · Claimed total ${formatCurrency(profile.charge_capture?.claimed_total || 0)}</div>
+        <div class="muted">Preauth: ${escapeHtml((profile.preauthorisations || []).map((item) => item.auth_number).join(", ") || "-")} · Attachments ${escapeHtml(String((profile.attachments || []).length))}</div>
+        <div class="muted">Consent ${escapeHtml(profile.consent?.status || "-")} · Evidence <span class="code">${escapeHtml(profile.evidence_packet_url || "-")}</span></div>
+        <div class="muted">Missing indicators: ${escapeHtml((profile.missing_indicators || []).join(", ") || "None")}</div>
+      </div>
+    `;
+  }
+
+  function renderPatientTimeline() {
+    const container = document.getElementById("patient-timeline");
+    if (!container) {
+      return;
+    }
+    const timeline = state.patientTimeline?.timeline || [];
+    if (!timeline.length) {
+      container.textContent = "No timeline events found for this patient.";
+      return;
+    }
+    container.innerHTML = timeline
+      .slice(0, 12)
+      .map(
+        (item) => `
+          <article style="border-bottom:1px solid #e5e7eb;padding:8px 0;">
+            <div style="display:flex;justify-content:space-between;gap:12px;">
+              <strong>${escapeHtml(item.event_type)}</strong>
+              <span class="muted">${escapeHtml(formatDateTime(item.timestamp))}</span>
+            </div>
+            <div class="muted">${escapeHtml(item.claim_number || `Claim ${item.claim_id}`)}</div>
+          </article>
+        `,
+      )
+      .join("");
   }
 
   async function loadProviders() {
     const providers = await window.api.getProviders();
+    state.providers = providers;
+    state.claims = state.claims.length ? state.claims : await window.api.getClaims().catch(() => []);
+    state.patients = state.patients.length ? state.patients : await window.api.getPatients().catch(() => []);
     renderTable(
       providers,
       6,
@@ -536,10 +867,15 @@
       `,
       "No providers found.",
     );
+    if (providers.length) {
+      state.selectedProviderId = state.selectedProviderId || providers[0].id;
+      renderProviderWorkspace();
+    }
   }
 
   async function loadClaims() {
     const claims = await window.api.getClaims();
+    state.claims = claims;
     renderTable(
       claims,
       5,
@@ -596,20 +932,8 @@
 
   async function loadAuditLogs() {
     const logs = await window.api.getAuditLogs();
-    renderTable(
-      logs,
-      5,
-      (log) => `
-        <tr>
-          <td class="code">${escapeHtml(log.action)}</td>
-          <td>${escapeHtml(log.resource)}</td>
-          <td>${escapeHtml(log.username || `User ${log.user_id}`)}</td>
-          <td>${formatDateTime(log.timestamp)}</td>
-          <td style="font-size:12px;color:#666;">${escapeHtml(log.details)}</td>
-        </tr>
-      `,
-      "No audit events recorded.",
-    );
+    state.auditLogs = logs;
+    renderAuditTrail();
   }
 
   async function loadUsers() {
@@ -632,6 +956,7 @@
 
   async function loadSettings() {
     const settings = await window.api.getSettings();
+    state.pmbReference = settings.pmb_reference || null;
     setTextById("settings-scheme", settings.scheme || "SCHEME_A");
     setTextById("settings-option", settings.option || "OPTION_X");
     setTextById("settings-policy-version", String(settings.policy_version || 1));
@@ -687,6 +1012,30 @@
         : '<tr><td colspan="6" style="text-align:center;color:#999;">No rules found.</td></tr>';
     }
 
+    const mappingBody = document.getElementById("pmb-mapping-rows");
+    if (mappingBody) {
+      const mappings = settings.pmb_reference?.mappings || [];
+      mappingBody.innerHTML = mappings.length
+        ? mappings
+            .map(
+              (mapping) => `
+                <tr>
+                  <td class="code">${escapeHtml(mapping.mapping_id)}</td>
+                  <td>${escapeHtml(mapping.icd10_code)}</td>
+                  <td>${escapeHtml(mapping.pmb_condition_id)}</td>
+                  <td>${escapeHtml(mapping.match_type)}</td>
+                  <td>${escapeHtml(mapping.effective_from || "-")}</td>
+                  <td class="row-actions">
+                    <button class="chip" data-action="edit-pmb-mapping" data-mapping-id="${escapeHtml(mapping.mapping_id)}">Edit</button>
+                    <button class="chip warn" data-action="delete-pmb-mapping" data-mapping-id="${escapeHtml(mapping.mapping_id)}">Delete</button>
+                  </td>
+                </tr>
+              `,
+            )
+            .join("")
+        : '<tr><td colspan="6" style="text-align:center;color:#999;">No PMB mappings found.</td></tr>';
+    }
+
     setPreById(
       "settings-retention",
       JSON.stringify(
@@ -703,15 +1052,27 @@
 
   async function loadClaimDetail() {
     const claimId = state.claimId || 1;
-    const [claim, diagnoses, icd10Reference] = await Promise.all([
+    const [claim, diagnoses, lineItems, attachments, transportLogs, icd10Reference] = await Promise.all([
       window.api.getClaim(claimId),
       window.api.getClaimDiagnoses(claimId),
+      window.api.getClaimLineItems(claimId),
+      window.api.getClaimAttachments(claimId),
+      window.api.getClaimTransportLogs(claimId),
       state.icd10Reference.length ? Promise.resolve(state.icd10Reference) : window.api.getIcd10Reference(),
     ]);
     state.claimId = claim.id;
     state.claimDetail = claim;
     state.claimDiagnoses = diagnoses || [];
+    state.claimLineItems = lineItems || [];
+    state.claimAttachments = attachments || [];
+    state.claimTransportLogs = transportLogs || [];
+    state.latestEdiArtifact = claim.latest_edi_artifact || null;
     state.icd10Reference = icd10Reference || [];
+    try {
+      state.structuredPayload = await window.api.getStructuredClaimPayload(claim.id, claim.version);
+    } catch (_) {
+      state.structuredPayload = null;
+    }
 
     setTextById("claim-number", claim.claim_number);
     setTextById("claim-member", claim.member_number || `Patient ${claim.patient_id}`);
@@ -719,18 +1080,19 @@
     setTextById("readiness-status", upperCaseValue(claim.readiness_status));
     setTextById("closure-status", claim.latest_snapshot ? "PASS" : "PENDING");
     setTextById("post-closure-status", claim.validation_status ? upperCaseValue(claim.validation_status) : "PENDING");
-    setPreById(
-      "payload-preview",
-      JSON.stringify(claim.latest_payload?.canonical_claim || buildPayloadPreview(claim), null, 2),
-    );
-    setPreById("edi-preview", claim.latest_payload?.pseudo_edi || buildEdiPreview(claim));
     renderDiagnosisReferenceOptions();
     renderClaimDiagnoses();
+    renderClaimLineDiagnosisOptions();
+    renderClaimLineItems();
+    renderClaimAttachments();
     renderClaimPmbSummary(
       claim.latest_pmb_decision,
       claim.latest_benefit_route_decision,
       claim.latest_costing_preview,
     );
+    renderStructuredPayload();
+    renderEdiPanel();
+    renderTransportTimeline();
   }
 
   function renderDiagnosisReferenceOptions() {
@@ -787,6 +1149,228 @@
       .join("");
   }
 
+  function renderClaimLineDiagnosisOptions() {
+    const select = document.getElementById("line-diagnosis-bulk-select");
+    if (!select) {
+      return;
+    }
+    select.innerHTML = (state.claimDiagnoses || [])
+      .map(
+        (diagnosis) =>
+          `<option value="${escapeHtml(diagnosis.diagnosis_id)}">${escapeHtml(
+            `${diagnosis.icd10_code} ${diagnosis.is_primary ? "(Primary)" : "(Secondary)"}`,
+          )}</option>`,
+      )
+      .join("");
+  }
+
+  function renderClaimLineItems() {
+    const container = document.getElementById("line-items-list");
+    if (!container) {
+      return;
+    }
+    const items = state.claimLineItems || [];
+    if (!items.length) {
+      container.innerHTML =
+        '<div class="panel"><strong>No line items captured.</strong><div class="muted" style="margin-top:6px;">Add billable lines to complete the claim submission dataset.</div></div>';
+      return;
+    }
+    container.innerHTML = `
+      <table class="table">
+        <thead>
+          <tr><th>Select</th><th>Line</th><th>Tariff</th><th>Qty</th><th>Claimed</th><th>Diagnosis</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          ${items
+            .map((item) => {
+              const selectedIds = new Set(item.diagnosis_ids || []);
+              const options = (state.claimDiagnoses || [])
+                .map(
+                  (diagnosis) =>
+                    `<option value="${escapeHtml(diagnosis.diagnosis_id)}" ${
+                      selectedIds.has(diagnosis.diagnosis_id) ? "selected" : ""
+                    }>${escapeHtml(`${diagnosis.icd10_code}${diagnosis.is_primary ? " (Primary)" : ""}`)}</option>`,
+                )
+                .join("");
+              const highlight = (state.highlightedLineIds || []).includes(item.line_id) || item.missing_diagnosis_link;
+              return `
+                <tr data-line-id="${escapeHtml(item.line_id)}" style="${
+                  highlight ? "background:#fff7ed;box-shadow:inset 0 0 0 1px #fb923c;" : ""
+                }">
+                  <td><input type="checkbox" data-line-select="${escapeHtml(item.line_id)}" /></td>
+                  <td class="code">${escapeHtml(item.line_id)}</td>
+                  <td>${escapeHtml(item.service_code)}</td>
+                  <td>${escapeHtml(String(item.quantity))}</td>
+                  <td>${formatCurrency(item.claimed_amount)}</td>
+                  <td>
+                    <select class="input" data-line-diagnosis-select="${escapeHtml(item.line_id)}" multiple size="3">${options}</select>
+                  </td>
+                  <td><span class="chip ${item.missing_diagnosis_link ? "warn" : "pass"}">${escapeHtml(
+                    item.diagnosis_link_status,
+                  )}</span></td>
+                </tr>
+              `;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function renderClaimAttachments() {
+    const container = document.getElementById("attachments-list");
+    const requirementContainer = document.getElementById("attachment-requirements");
+    if (!container) {
+      return;
+    }
+    const attachments = state.claimAttachments || [];
+    const requiredTypes = state.highlightedAttachmentTypes.required || [];
+    const recommendedTypes = state.highlightedAttachmentTypes.recommended || [];
+
+    if (requirementContainer) {
+      const requiredMarkup = requiredTypes.length
+        ? requiredTypes.map((item) => `<span class="chip warn">${escapeHtml(item)}</span>`).join(" ")
+        : '<span class="muted">No required documents highlighted.</span>';
+      const recommendedMarkup = recommendedTypes.length
+        ? recommendedTypes.map((item) => `<span class="chip info">${escapeHtml(item)}</span>`).join(" ")
+        : '<span class="muted">No recommended documents highlighted.</span>';
+      requirementContainer.innerHTML = `
+        <div class="drawer-grid">
+          <div class="mini-card">
+            <strong>Required</strong>
+            <div class="muted" style="margin-top:6px;">${requiredMarkup}</div>
+          </div>
+          <div class="mini-card">
+            <strong>Recommended</strong>
+            <div class="muted" style="margin-top:6px;">${recommendedMarkup}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (!attachments.length) {
+      container.innerHTML =
+        '<div class="panel"><strong>No attachments on this claim.</strong><div class="muted" style="margin-top:6px;">Use Add document or Mark as provided to satisfy attachment and PMB evidence warnings.</div></div>';
+      return;
+    }
+
+    container.innerHTML = `
+      <table class="table">
+        <thead>
+          <tr><th>Type</th><th>Filename</th><th>Status</th><th>Uploaded</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          ${attachments
+            .map((document) => {
+              const isRequired = requiredTypes.includes(document.doc_type);
+              const isRecommended = recommendedTypes.includes(document.doc_type);
+              return `
+                <tr style="${isRequired ? "background:#fff7ed;" : isRecommended ? "background:#f0f9ff;" : ""}">
+                  <td><span class="chip ${isRequired ? "warn" : isRecommended ? "info" : ""}">${escapeHtml(document.doc_type)}</span></td>
+                  <td class="code">${escapeHtml(document.filename)}</td>
+                  <td>${escapeHtml(document.status)}</td>
+                  <td>${escapeHtml(formatDateTime(document.uploaded_at))}</td>
+                  <td class="row-actions">
+                    <button class="chip warn" data-action="delete-attachment" data-id="${escapeHtml(document.document_id)}">Remove</button>
+                  </td>
+                </tr>
+              `;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function renderStructuredPayload() {
+    const container = document.getElementById("payload-preview");
+    if (!container) {
+      return;
+    }
+    const payload = state.structuredPayload;
+    if (!payload?.structured_tiles?.length) {
+      container.innerHTML =
+        '<div class="panel"><strong>No structured payload available.</strong><div class="muted" style="margin-top:6px;">Build the payload or complete the claim workflow to see staged tiles.</div></div>';
+      return;
+    }
+    container.innerHTML = payload.structured_tiles
+      .map(
+        (tile) => `
+          <article style="border:1px solid #e5e7eb;border-radius:16px;padding:14px;display:grid;gap:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+              <div>
+                <strong>${escapeHtml(tile.title)}</strong>
+                <div class="muted" style="margin-top:4px;">${escapeHtml(tile.summary || "")}</div>
+              </div>
+              <span class="chip ${tile.status === "complete" ? "pass" : "warn"}">${escapeHtml(tile.status)}</span>
+            </div>
+            <div class="muted" style="display:grid;gap:4px;">
+              ${(tile.fields || [])
+                .map((field) => `<div><strong>${escapeHtml(field.label)}:</strong> ${escapeHtml(field.value ?? "-")}</div>`)
+                .join("")}
+            </div>
+            ${
+              (tile.missing_fields || []).length
+                ? `<div style="display:grid;gap:6px;">${tile.missing_fields
+                    .map(
+                      (item) => `
+                        <div style="border:1px dashed #fdba74;border-radius:12px;padding:10px;background:#fff7ed;">
+                          <div style="font-weight:600;">${escapeHtml(item.message)}</div>
+                          ${
+                            item.action
+                              ? `<button type="button" class="chip" data-jump-target="${escapeHtml(
+                                  item.action.target,
+                                )}">${escapeHtml(item.action.label || `Go to ${item.action.target}`)}</button>`
+                              : ""
+                          }
+                        </div>
+                      `,
+                    )
+                    .join("")}</div>`
+                : ""
+            }
+          </article>
+        `,
+      )
+      .join("");
+  }
+
+  function renderEdiPanel() {
+    const artifact = state.latestEdiArtifact;
+    const feedback = document.getElementById("edi-feedback");
+    if (feedback) {
+      feedback.textContent = artifact
+        ? `Latest artifact ${artifact.artifact_id} · ${artifact.validation_errors?.length ? "Validation issues present" : "Ready for submission"}`
+        : "Generate an EDI artifact to validate, export, or submit.";
+    }
+    setPreById("edi-preview", artifact?.content || state.claimDetail?.latest_payload?.pseudo_edi || "No EDI artifact generated yet.");
+  }
+
+  function renderTransportTimeline() {
+    const container = document.getElementById("transport-log-timeline");
+    if (!container) {
+      return;
+    }
+    const logs = state.claimTransportLogs || [];
+    if (!logs.length) {
+      container.textContent = "No transport events yet.";
+      return;
+    }
+    container.innerHTML = logs
+      .map(
+        (log) => `
+          <article style="border-bottom:1px solid #e5e7eb;padding:8px 0;">
+            <div style="display:flex;justify-content:space-between;gap:12px;">
+              <strong>${escapeHtml(log.event)}</strong>
+              <span class="muted">${escapeHtml(formatDateTime(log.created_at))}</span>
+            </div>
+            <div class="muted" style="margin-top:4px;">${escapeHtml(JSON.stringify(log.details || {}))}</div>
+          </article>
+        `,
+      )
+      .join("");
+  }
+
   function renderClaimPmbSummary(pmbDecision, routingDecision, costingPreview) {
     const container = document.getElementById("claim-pmb-summary");
     if (!container) {
@@ -801,6 +1385,8 @@
     const route = routingDecision?.route || "-";
     const pricingBasis = costingPreview?.pricing_basis || "-";
     const pmbAllowed = costingPreview?.pmb_allowed_total == null ? "-" : formatCurrency(costingPreview.pmb_allowed_total);
+    const evaluatedList = (pmbDecision?.evaluated_icd10_list || []).join(", ") || "-";
+    const adminAction = pmbDecision?.action;
 
     container.innerHTML = `
       <div class="panel" style="display:grid;gap:8px;">
@@ -814,6 +1400,14 @@
         <div class="muted">Route: ${escapeHtml(route)} · Provider marked PMB: ${escapeHtml(pmbDecision?.provider_marked_pmb ? "yes" : "no")} · System auto-flagged: ${escapeHtml(pmbDecision?.auto_flagged ? "yes" : "no")}</div>
         <div class="muted">Pricing basis: ${escapeHtml(pricingBasis)} · Scheme allowed: ${formatCurrency(costingPreview?.allowed_total || 0)} · PMB allowed: ${escapeHtml(pmbAllowed)}</div>
         <div class="muted">Member liability estimate: ${formatCurrency(costingPreview?.member_liability_estimate || 0)}</div>
+        <div class="muted">Evaluated ICD-10 list: ${escapeHtml(evaluatedList)} · Mapping version: ${escapeHtml(pmbDecision?.mapping_table_version || "-")} · Effective date: ${escapeHtml(pmbDecision?.effective_date_used || "-")}</div>
+        <div class="muted">Detection reason: ${escapeHtml(pmbDecision?.detection_reason || "-")} · ${escapeHtml(pmbDecision?.line_level_evaluation_limited ? "Line-level confirmation limited by missing diagnosis linkage." : "")}</div>
+        <div class="muted">${escapeHtml(pmbDecision?.explainability || routingDecision?.message || "")}</div>
+        ${
+          adminAction && state.role === "Administrator"
+            ? `<div><a class="chip info" href="settings.html#pmb-mapping-admin">Configure PMB mapping</a></div>`
+            : ""
+        }
       </div>
     `;
   }
@@ -827,6 +1421,26 @@
 
   function setDiagnosisFeedback(message, tone = "info") {
     const element = document.getElementById("diagnosis-feedback");
+    if (!element) {
+      return;
+    }
+    element.textContent = message || "";
+    element.style.color =
+      tone === "error" ? "var(--fail)" : tone === "success" ? "var(--pass)" : "var(--ink-500)";
+  }
+
+  function setLineItemsFeedback(message, tone = "info") {
+    const element = document.getElementById("line-items-feedback");
+    if (!element) {
+      return;
+    }
+    element.textContent = message || "";
+    element.style.color =
+      tone === "error" ? "var(--fail)" : tone === "success" ? "var(--pass)" : "var(--ink-500)";
+  }
+
+  function setAttachmentsFeedback(message, tone = "info") {
+    const element = document.getElementById("attachments-feedback");
     if (!element) {
       return;
     }
@@ -891,16 +1505,110 @@
     await rerunReadinessFromDiagnosisAction("Primary diagnosis auto-fixed");
   }
 
+  async function handleApplyLineDiagnosisLinks() {
+    const selectedLineIds = Array.from(document.querySelectorAll("[data-line-select]:checked")).map((input) =>
+      input.getAttribute("data-line-select"),
+    );
+    if (!selectedLineIds.length) {
+      setLineItemsFeedback("Select at least one line item first.", "error");
+      return;
+    }
+    const bulkSelect = document.getElementById("line-diagnosis-bulk-select");
+    const diagnosisIds = Array.from(bulkSelect?.selectedOptions || []).map((option) => option.value);
+    for (const lineId of selectedLineIds) {
+      const rowSelect = document.querySelector(`[data-line-diagnosis-select="${CSS.escape(lineId)}"]`);
+      const rowDiagnosisIds = Array.from(rowSelect?.selectedOptions || []).map((option) => option.value);
+      const idsToApply = rowDiagnosisIds.length ? rowDiagnosisIds : diagnosisIds;
+      if (!idsToApply.length) {
+        setLineItemsFeedback("Choose one or more diagnoses to link to the selected lines.", "error");
+        return;
+      }
+      await window.api.updateClaimLineDiagnosisLinks(resolveClaimId(state.claimId), lineId, idsToApply);
+    }
+    setLineItemsFeedback("Diagnosis links saved. Post-closure validation is rerunning.", "success");
+    const result = await window.api.postClosureValidate(resolveClaimId(state.claimId));
+    await refreshClaimViews();
+    showValidationSummaryModal(`Post-closure validation: ${result.claim_number || result.claim_id}`, result);
+  }
+
+  async function handleAddAttachment(markProvided = false) {
+    const requiredType = state.highlightedAttachmentTypes.required?.[0] || "MOTIVATION";
+    const suggestedType = markProvided ? requiredType : state.highlightedAttachmentTypes.recommended?.[0] || requiredType;
+    showFormModal({
+      title: markProvided ? "Mark attachment as provided" : "Add claim attachment",
+      submitLabel: markProvided ? "Save record" : "Attach",
+      fields: [
+        {
+          name: "doc_type",
+          label: "Document type",
+          type: "select",
+          value: suggestedType,
+          options: ["MOTIVATION", "REPORT", "INVOICE", "PROOF_OF_PAYMENT", "OTHER"].map((value) => ({ value, label: value })),
+        },
+        {
+          name: "filename",
+          label: "Filename",
+          value: markProvided ? `${suggestedType.toLowerCase()}-provided.txt` : `${suggestedType.toLowerCase()}-upload.pdf`,
+        },
+        {
+          name: "storage_ref",
+          label: "Storage reference",
+          value: `demo/${resolveClaimId(state.claimId)}/${suggestedType.toLowerCase()}`,
+        },
+      ],
+      onSubmit: async (values, close) => {
+        const result = await window.api.addClaimAttachment(resolveClaimId(state.claimId), values);
+        close();
+        setAttachmentsFeedback(`${values.doc_type} saved. Validation is rerunning.`, "success");
+        showToast(`${values.doc_type} attached to claim ${resolveClaimId(state.claimId)}.`, "success", {
+          title: markProvided ? "Document recorded" : "Attachment uploaded",
+        });
+        await refreshClaimViews();
+        if (result.post_closure_validation) {
+          showValidationSummaryModal(`Post-closure validation: claim ${resolveClaimId(state.claimId)}`, result.post_closure_validation);
+        }
+      },
+    });
+  }
+
+  async function handleDeleteAttachment(documentId) {
+    const confirmed = await showConfirmDialog({
+      title: "Remove attachment",
+      message: "Remove this attachment from the claim? This action is audited.",
+      confirmLabel: "Remove",
+    });
+    if (!confirmed) {
+      return;
+    }
+    const result = await window.api.deleteClaimAttachment(resolveClaimId(state.claimId), documentId);
+    setAttachmentsFeedback("Attachment removed. Validation is rerunning.", "success");
+    showToast("Attachment removed and audit evidence recorded.", "success", {
+      title: "Attachment removed",
+    });
+    await refreshClaimViews();
+    if (result.post_closure_validation) {
+      showValidationSummaryModal(`Post-closure validation: claim ${resolveClaimId(state.claimId)}`, result.post_closure_validation);
+    }
+  }
+
   async function handleRunReadiness(claimId) {
     const targetId = resolveClaimId(claimId);
     const result = await window.api.runReadinessCheck(targetId);
+    showToast(`Readiness completed for claim ${result.claim_number || targetId}.`, result.validation_summary?.blockers?.length ? "warn" : "success", {
+      title: "Readiness complete",
+    });
     showValidationSummaryModal(`Readiness: ${result.claim_number || `claim ${result.claim_id}`}`, result);
     await refreshClaimViews();
   }
 
   async function handleCloseClaim(claimId) {
     const targetId = resolveClaimId(claimId);
-    if (!confirm("Close this claim?")) {
+    const confirmed = await showConfirmDialog({
+      title: "Close claim",
+      message: "Close this claim for billing and create an immutable snapshot?",
+      confirmLabel: "Close claim",
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -910,6 +1618,9 @@
       await refreshClaimViews();
       return;
     }
+    showToast(`Claim ${result.claim_number || targetId} closed for billing.`, "success", {
+      title: "Claim closed",
+    });
     showValidationSummaryModal(`Claim closed: ${result.claim_number || result.claim_id}`, result);
     await refreshClaimViews();
   }
@@ -917,6 +1628,9 @@
   async function handlePostClosureValidation(claimId) {
     const targetId = resolveClaimId(claimId);
     const result = await window.api.postClosureValidate(targetId);
+    showToast(`Post-closure validation finished for claim ${result.claim_number || targetId}.`, result.validation_summary?.warnings?.length ? "warn" : "success", {
+      title: "Validation complete",
+    });
     showValidationSummaryModal(`Post-closure validation: ${result.claim_number || result.claim_id}`, result);
     await refreshClaimViews();
   }
@@ -928,7 +1642,9 @@
       showValidationSummaryModal("Payload generation blocked", result);
       return;
     }
-    alert(`Payload built for ${result.claim_number || `claim ${result.claim_id}`}.`);
+    showToast(`Payload built for ${result.claim_number || `claim ${result.claim_id}`}.`, "success", {
+      title: "Payload generated",
+    });
     await refreshClaimViews();
   }
 
@@ -939,26 +1655,175 @@
       showValidationSummaryModal("Submission blocked", result);
       return;
     }
-    alert(`Claim submitted via ${result.channel}. Status: ${result.submission_status}.`);
+    showToast(`Claim submitted via ${result.channel}. Status: ${result.submission_status}.`, "success", {
+      title: "Submission complete",
+    });
     await refreshClaimViews();
   }
 
   async function handleViewRemittance() {
     const targetId = resolveClaimId(state.claimId);
     const remittance = await window.api.getClaimRemittance(targetId);
-    alert(
-      `Remittance status: ${remittance.status}\nReference: ${remittance.reference}\n` +
-        `${JSON.stringify(remittance.remittance?.totals || {}, null, 2)}`,
-    );
+    const reconciliation = await window.api._request(`/payments/claims/${targetId}/reconciliation`, "GET");
+    const remittanceData = remittance.remittance || {};
+    const { close } = showDrawer({
+      title: `Remittance review · Claim ${targetId}`,
+      subtitle: `Status ${remittance.status || "-"} · Batch ${remittance.reference || "-"}`,
+      content: `
+        <div class="drawer-grid">
+          <div class="mini-card">
+            <strong>Totals</strong>
+            <div class="muted">Claimed ${formatCurrency(remittanceData.totals?.claimed || 0)}</div>
+            <div class="muted">Paid ${formatCurrency(remittanceData.totals?.paid || 0)}</div>
+            <div class="muted">Adjustments ${formatCurrency(remittanceData.totals?.adjustments || 0)}</div>
+          </div>
+          <div class="mini-card">
+            <strong>Reconciliation</strong>
+            <div class="muted">Status ${escapeHtml((reconciliation.reconciliation || {}).status || reconciliation.status || "-")}</div>
+            <div class="muted">Exceptions ${escapeHtml(((reconciliation.reconciliation || {}).exception_reasons || []).join(", ") || "None")}</div>
+          </div>
+        </div>
+        <div class="mini-card" style="margin-top:16px;">
+          <strong>Line breakdown</strong>
+          <table class="table" style="margin-top:10px;">
+            <thead><tr><th>Line</th><th>Status</th><th>Paid</th><th>Adjustment</th></tr></thead>
+            <tbody>
+              ${(remittanceData.lines || [])
+                .map(
+                  (line) => `
+                    <tr>
+                      <td class="code">${escapeHtml(line.line_id)}</td>
+                      <td>${escapeHtml(line.status)}</td>
+                      <td>${formatCurrency(line.paid_amount || 0)}</td>
+                      <td>${formatCurrency(line.adjustment_amount || 0)}</td>
+                    </tr>
+                  `,
+                )
+                .join("") || '<tr><td colspan="4" class="muted">No remittance lines available.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      `,
+      actions: [
+        {
+          label: "Download remittance JSON",
+          onClick: () => downloadJson(`remittance-claim-${targetId}.json`, remittance),
+          className: "chip info",
+        },
+      ],
+    });
+    void close;
   }
 
   async function handleViewEvidence() {
     const targetId = resolveClaimId(state.claimId);
     const evidence = await window.api.getClaimEvidence(targetId);
-    alert(
-      `Evidence packet\nDocuments: ${evidence.documents.join(", ")}\n` +
-        `Decision bundles: ${(evidence.decision_bundles || []).length}`,
+    showDrawer({
+      title: `Evidence pack · Claim ${targetId}`,
+      subtitle: `Last updated ${formatDateTime(state.claimDetail?.updated_at || state.claimDetail?.created_at || new Date().toISOString())}`,
+      content: buildEvidencePackMarkup(evidence),
+      actions: [
+        {
+          label: "Download full pack JSON",
+          onClick: () => downloadJson(`evidence-pack-claim-${targetId}.json`, evidence),
+          className: "chip info",
+        },
+      ],
+    });
+  }
+
+  async function handleGenerateEdi() {
+    const result = await window.api.generateClaimEdi(resolveClaimId(state.claimId), state.claimDetail.version);
+    state.latestEdiArtifact = result.artifact;
+    state.claimTransportLogs = await window.api.getClaimTransportLogs(resolveClaimId(state.claimId));
+    renderEdiPanel();
+    renderTransportTimeline();
+    showToast(`EDI generated for claim ${resolveClaimId(state.claimId)}.`, "success", {
+      title: "EDI generated",
+    });
+  }
+
+  async function handleValidateEdi() {
+    const result = await window.api.validateClaimEdi(resolveClaimId(state.claimId), state.claimDetail.version);
+    state.latestEdiArtifact = result.artifact;
+    state.claimTransportLogs = await window.api.getClaimTransportLogs(resolveClaimId(state.claimId));
+    renderEdiPanel();
+    renderTransportTimeline();
+    showToast(
+      result.valid ? "EDI validation passed." : `EDI validation failed: ${(result.errors || []).join(", ")}`,
+      result.valid ? "success" : "error",
+      { title: "EDI validation" },
     );
+  }
+
+  async function handleDownloadEdi() {
+    const content = await window.api.downloadClaimEdi(resolveClaimId(state.claimId), state.claimDetail.version);
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `claim-${resolveClaimId(state.claimId)}-v${state.claimDetail.version}.edi.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
+  }
+
+  async function handleSubmitEdiSwitch() {
+    const idempotencyKey = await showInputDialog({
+      title: "Submit via Switch",
+      label: "Idempotency key",
+      value: `edi-switch-${resolveClaimId(state.claimId)}-v${state.claimDetail.version}`,
+      submitLabel: "Submit",
+    });
+    if (idempotencyKey === null) {
+      return;
+    }
+    const result = await window.api.submitClaimEdi(
+      resolveClaimId(state.claimId),
+      state.claimDetail.version,
+      "SWITCH",
+      idempotencyKey || null,
+    );
+    if (result.status === "blocked") {
+      showToast(`EDI submission blocked: ${(result.errors || []).join(", ")}`, "error", {
+        title: "Submission blocked",
+      });
+      return;
+    }
+    state.latestEdiArtifact = result.artifact;
+    state.claimTransportLogs = result.transport_logs || [];
+    await refreshClaimViews();
+    renderEdiPanel();
+    renderTransportTimeline();
+    showToast(
+      `Submitted via Switch. Claim status: ${result.submission?.submission_status || result.submission?.status || "-"}.`,
+      "success",
+      { title: "Switch submission completed" },
+    );
+  }
+
+  async function handleCopyCanonicalJson() {
+    const payload = state.structuredPayload?.canonical_json || state.claimDetail?.latest_payload?.canonical_claim;
+    if (!payload) {
+      throw new Error("No canonical payload is available to copy.");
+    }
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    showToast("Canonical JSON copied to clipboard.", "success", {
+      title: "Copied",
+      duration: 2600,
+    });
+  }
+
+  async function handleViewPatientClaimContext(patientId) {
+    state.selectedPatientId = Number(patientId);
+    const [claimContext, timeline] = await Promise.all([
+      window.api.getPatientClaimContext(state.selectedPatientId),
+      window.api.getPatientTimeline(state.selectedPatientId),
+    ]);
+    state.patientClaimContext = claimContext;
+    state.patientTimeline = timeline;
+    renderPatientClaimContext();
+    renderPatientTimeline();
   }
 
   async function handleCreatePolicyVersion() {
@@ -972,6 +1837,9 @@
       throw new Error("No policy profile is available.");
     }
     await window.api.createPolicyVersion(activeProfileId);
+    showToast(`Draft policy version created for ${activeProfileId}.`, "success", {
+      title: "Policy version created",
+    });
     await loadSettings();
   }
 
@@ -1037,10 +1905,18 @@
     }
     const profileId = button.getAttribute("data-profile-id");
     const version = Number(button.getAttribute("data-version"));
-    if (!confirm(`Activate ${profileId} v${version}?`)) {
+    const confirmed = await showConfirmDialog({
+      title: "Activate policy version",
+      message: `Activate ${profileId} v${version}? Changes are audited.`,
+      confirmLabel: "Activate",
+    });
+    if (!confirmed) {
       return;
     }
     await window.api.activatePolicyProfile(profileId, version);
+    showToast(`${profileId} v${version} is now active.`, "success", {
+      title: "Policy activated",
+    });
     await loadSettings();
   }
 
@@ -1104,9 +1980,146 @@
     });
   }
 
+  async function handleCreatePmbMapping() {
+    if (state.role !== "Administrator") {
+      throw new Error("Only Administrators may manage PMB mappings.");
+    }
+    const conditions = state.pmbReference?.conditions || [];
+    showFormModal({
+      title: "Create PMB Mapping",
+      submitLabel: "Create",
+      fields: [
+        { name: "mapping_id", label: "Mapping ID" },
+        { name: "icd10_code", label: "ICD-10 Code" },
+        {
+          name: "pmb_condition_id",
+          label: "Condition",
+          type: "select",
+          options: conditions.map((item) => ({ value: item.condition_id, label: `${item.condition_id} - ${item.name}` })),
+        },
+        {
+          name: "match_type",
+          label: "Match Type",
+          type: "select",
+          value: "EXACT",
+          options: statusOptions(["exact", "prefix"]),
+        },
+        { name: "effective_from", label: "Effective From", type: "date", value: new Date().toISOString().slice(0, 10) },
+      ],
+      onSubmit: async (values, close) => {
+        await window.api.createPmbMapping({
+          mapping_id: values.mapping_id,
+          icd10_code: values.icd10_code,
+          pmb_condition_id: values.pmb_condition_id,
+          match_type: String(values.match_type).toUpperCase(),
+          effective_from: values.effective_from,
+        });
+        close();
+        await loadSettings();
+      },
+    });
+  }
+
+  async function handleEditPmbMapping(button) {
+    if (state.role !== "Administrator") {
+      throw new Error("Only Administrators may manage PMB mappings.");
+    }
+    const mappingId = button.getAttribute("data-mapping-id");
+    const mapping = (state.pmbReference?.mappings || []).find((item) => item.mapping_id === mappingId);
+    const conditions = state.pmbReference?.conditions || [];
+    if (!mapping) {
+      throw new Error("PMB mapping not found.");
+    }
+    showFormModal({
+      title: `Edit ${mappingId}`,
+      submitLabel: "Save",
+      fields: [
+        { name: "icd10_code", label: "ICD-10 Code", value: mapping.icd10_code },
+        {
+          name: "pmb_condition_id",
+          label: "Condition",
+          type: "select",
+          value: mapping.pmb_condition_id,
+          options: conditions.map((item) => ({ value: item.condition_id, label: `${item.condition_id} - ${item.name}` })),
+        },
+        {
+          name: "match_type",
+          label: "Match Type",
+          type: "select",
+          value: mapping.match_type,
+          options: statusOptions(["exact", "prefix"]),
+        },
+        { name: "effective_from", label: "Effective From", type: "date", value: mapping.effective_from },
+        {
+          name: "active",
+          label: "Active",
+          type: "select",
+          value: mapping.active ? "true" : "false",
+          options: [
+            { value: "true", label: "True" },
+            { value: "false", label: "False" },
+          ],
+        },
+      ],
+      onSubmit: async (values, close) => {
+        await window.api.updatePmbMapping(mappingId, {
+          icd10_code: values.icd10_code,
+          pmb_condition_id: values.pmb_condition_id,
+          match_type: String(values.match_type).toUpperCase(),
+          effective_from: values.effective_from,
+          active: values.active === "true",
+        });
+        close();
+        await loadSettings();
+      },
+    });
+  }
+
+  async function handleDeletePmbMapping(button) {
+    if (state.role !== "Administrator") {
+      throw new Error("Only Administrators may manage PMB mappings.");
+    }
+    const mappingId = button.getAttribute("data-mapping-id");
+    const confirmed = await showConfirmDialog({
+      title: "Delete PMB mapping",
+      message: `Delete PMB mapping ${mappingId}?`,
+      confirmLabel: "Delete",
+    });
+    if (!confirmed) {
+      return;
+    }
+    await window.api.deletePmbMapping(mappingId);
+    showToast(`PMB mapping ${mappingId} deleted.`, "success", {
+      title: "Mapping deleted",
+    });
+    await loadSettings();
+  }
+
+  async function handleSimulatePmbMapping() {
+    const input = document.getElementById("pmb-simulate-icd10");
+    const output = document.getElementById("pmb-simulation-output");
+    const code = String(input?.value || "").trim().toUpperCase();
+    if (!code) {
+      throw new Error("Enter an ICD-10 code to simulate.");
+    }
+    const result = await window.api.simulatePmbMapping(code);
+    if (output) {
+      output.innerHTML = `
+        <div class="mini-card">
+          <strong>${escapeHtml(code)}</strong>
+          <div class="muted">Matches ${(result.matches || []).length} · Impacted claims ${(result.impacted_claims || []).length}</div>
+          <div class="muted" style="margin-top:8px;">${escapeHtml(JSON.stringify(result, null, 2))}</div>
+        </div>
+      `;
+    }
+  }
+
   async function handleDownloadReport(reportId) {
     const report = await window.api.getReport(reportId);
-    alert(`Report ready: ${report.name}\nGenerated: ${formatDateTime(report.generated_at)}`);
+    showToast(`Report ready: ${report.name}.`, "success", {
+      title: "Report generated",
+    });
+    downloadJson(`${report.name.replace(/\s+/g, "-").toLowerCase()}.json`, report);
   }
 
   async function handleEditPatient(patientId) {
@@ -1145,11 +2158,17 @@
       throw new Error("You do not have permission to delete patients.");
     }
 
-    if (!confirm("Delete this patient?")) {
+    const confirmed = await showConfirmDialog({
+      title: "Delete patient",
+      message: "Delete this patient record?",
+      confirmLabel: "Delete",
+    });
+    if (!confirmed) {
       return;
     }
 
     await window.api.deletePatient(patientId);
+    showToast("Patient deleted.", "success", { title: "Patient deleted" });
     await loadPatients();
   }
 
@@ -1189,11 +2208,17 @@
       throw new Error("You do not have permission to delete providers.");
     }
 
-    if (!confirm("Delete this provider?")) {
+    const confirmed = await showConfirmDialog({
+      title: "Delete provider",
+      message: "Delete this provider record?",
+      confirmLabel: "Delete",
+    });
+    if (!confirmed) {
       return;
     }
 
     await window.api.deleteProvider(providerId);
+    showToast("Provider deleted.", "success", { title: "Provider deleted" });
     await loadProviders();
   }
 
@@ -1267,11 +2292,17 @@
       throw new Error("You do not have permission to delete users.");
     }
 
-    if (!confirm("Delete this user?")) {
+    const confirmed = await showConfirmDialog({
+      title: "Delete user",
+      message: "Delete this user account?",
+      confirmLabel: "Delete",
+    });
+    if (!confirmed) {
       return;
     }
 
     await window.api.deleteUser(userId);
+    showToast("User deleted.", "success", { title: "User deleted" });
     await loadUsers();
   }
 
@@ -1308,15 +2339,23 @@
   }
 
   function renderPatientActions(patientId) {
+    const actions = [
+      `<button class="chip info" data-action="view-patient-claim-context" data-id="${patientId}">Claim-ready profile</button>`,
+    ];
     if (!hasPermission("patients", "write")) {
-      return '<span class="muted">Read only</span>';
+      actions.push('<span class="muted">Read only</span>');
+      return actions.join(" ");
     }
 
     const deleteButton = hasPermission("patients", "delete")
       ? `<button class="chip warn" data-action="delete-patient" data-id="${patientId}">Delete</button>`
       : "";
 
-    return `<button class="chip" data-action="edit-patient" data-id="${patientId}">Edit</button>${deleteButton}`;
+    actions.push(`<button class="chip" data-action="edit-patient" data-id="${patientId}">Edit</button>`);
+    if (deleteButton) {
+      actions.push(deleteButton);
+    }
+    return actions.join(" ");
   }
 
   function renderProviderActions(providerId) {
@@ -1411,20 +2450,36 @@
     card.querySelectorAll("[data-jump-target]").forEach((button) => {
       button.addEventListener("click", () => {
         const targetName = button.getAttribute("data-jump-target");
-        if (jumpToClaimTarget(targetName)) {
+        const lineIds = String(button.getAttribute("data-jump-line-ids") || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+        if (jumpToClaimTarget(targetName, { lineIds })) {
           close();
         }
       });
     });
   }
 
-  function jumpToClaimTarget(targetName) {
+  function jumpToClaimTarget(targetName, options = {}) {
+    if (targetName === "PMB_MAPPING_ADMIN") {
+      location.href = "settings.html#pmb-mapping-admin";
+      return true;
+    }
     const selectorValue = String(targetName || "").replaceAll("\\", "\\\\").replaceAll('"', '\\"');
     const target =
       document.querySelector(`[data-field="${selectorValue}"]`) ||
       document.getElementById(targetName);
     if (!target) {
       return false;
+    }
+    if (targetName === "line_items") {
+      state.highlightedLineIds = options.lineIds?.length
+        ? options.lineIds
+        : (state.claimLineItems || [])
+            .filter((item) => item.missing_diagnosis_link)
+            .map((item) => item.line_id);
+      renderClaimLineItems();
     }
     target.scrollIntoView({ behavior: "smooth", block: "center" });
     if (String(targetName).toLowerCase() === "diagnoses") {
@@ -1443,8 +2498,10 @@
         ${items
           .map((item) => {
             const jumpTarget = item.action?.target || item.action_target || item.jump_target || item.affected_fields?.[0] || "";
+            const jumpLabel = jumpTarget === "line_items" ? "Jump to line items" : `Jump to ${jumpTarget}`;
+            const jumpLineIds = (item.action?.line_ids || item.affected_line_ids || []).join(",");
             const jumpButton = jumpTarget
-              ? `<button type="button" class="chip" data-jump-target="${escapeHtml(jumpTarget)}">Jump to ${escapeHtml(jumpTarget)}</button>`
+              ? `<button type="button" class="chip" data-jump-target="${escapeHtml(jumpTarget)}" data-jump-line-ids="${escapeHtml(jumpLineIds)}">${escapeHtml(jumpLabel)}</button>`
               : "";
             const autoFixButton = item.allowAutoFix
               ? `<button type="button" class="chip info" data-action="auto-fix-primary">Auto-fix primary</button>`
@@ -1480,6 +2537,7 @@
     const mappingId = pmbDecision?.mapping_id || routingDecision?.mapping_id || legacyItems[0]?.mapping_id || "-";
     const conditionId = pmbDecision?.condition_id || routingDecision?.pmb_condition_id || legacyItems[0]?.pmb_condition_id || "-";
     const conditionName = pmbDecision?.condition_name || "-";
+    const evaluatedIcd10List = (pmbDecision?.evaluated_icd10_list || []).join(", ") || matchedCode;
     const pmbMessage =
       pmbDecision?.message ||
       routingDecision?.message ||
@@ -1519,10 +2577,23 @@
             ${escapeHtml(costingPreview?.pricing_basis || "-")}
           </p>
           <p style="margin:0;color:#64748b;font-size:.9rem;">
+            Evaluated ICD-10 list: ${escapeHtml(evaluatedIcd10List)} · Mapping version: ${escapeHtml(
+              pmbDecision?.mapping_table_version || "-",
+            )} · Effective date: ${escapeHtml(pmbDecision?.effective_date_used || "-")}
+          </p>
+          <p style="margin:0;color:#64748b;font-size:.9rem;">${escapeHtml(
+            pmbDecision?.explainability || "",
+          )}</p>
+          <p style="margin:0;color:#64748b;font-size:.9rem;">
             Scheme allowed: ${escapeHtml(schemeAllowed)} · PMB allowed: ${escapeHtml(pmbAllowed)} · Member liability estimate:
             ${escapeHtml(liability)}
           </p>
           ${pendingReviewNote ? `<p style="margin:0;color:#0f567b;font-size:.9rem;">${escapeHtml(pendingReviewNote)}</p>` : ""}
+          ${
+            pmbDecision?.action?.target === "PMB_MAPPING_ADMIN" && state.role === "Administrator"
+              ? `<div><button type="button" class="chip info" data-jump-target="PMB_MAPPING_ADMIN">Configure PMB mapping</button></div>`
+              : ""
+          }
           <p style="margin:0;color:#64748b;font-size:.9rem;">${escapeHtml(
             pmbDecision?.remediation_hint || routingDecision?.remediation_hint || legacyItems[0]?.remediation || legacyItems[0]?.remediation_hint || "",
           )}</p>

@@ -17,6 +17,9 @@ from db_schema import (
     benefit_routing_decisions,
     billing_snapshots,
     claim_diagnoses,
+    claim_documents,
+    claim_line_diagnosis_links,
+    claim_line_items,
     claim_drafts,
     claim_versions,
     claims,
@@ -25,6 +28,7 @@ from db_schema import (
     financial_bundles,
     icd10_pmb_mappings,
     icd10_reference,
+    edi_artifacts,
     ledger_entries,
     patients,
     payloads,
@@ -62,6 +66,7 @@ from platform_core import (
     CostingPreview,
     DecisionBundle,
     Diagnosis,
+    EDIArtifact,
     FinancialBundle,
     FinancialLineOutcome,
     ICD10Code,
@@ -135,6 +140,7 @@ class PersistentPlatformStore(LegacyPlatformStore):
         self.reference_versions: Dict[str, Any] = {}
         self.icd10_codes: Dict[str, Any] = {}
         self.claim_diagnoses: Dict[int, List[Any]] = {}
+        self.edi_artifacts: Dict[str, Any] = {}
         self.pmb_conditions: Dict[str, Any] = {}
         self.pmb_mapping_rules: Dict[str, Any] = {}
         self.benefit_route_rules: Dict[str, Any] = {}
@@ -469,6 +475,50 @@ class PersistentPlatformStore(LegacyPlatformStore):
             key: sorted(items, key=lambda item: item.seq) for key, items in diagnoses_by_claim.items()
         }
 
+        line_rows_by_claim: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
+        for row in self._rows(claim_line_items):
+            line_rows_by_claim[(row["claim_id"], row["claim_version"])].append(row)
+        link_rows_by_line: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in self._rows(claim_line_diagnosis_links):
+            link_rows_by_line[row["claim_line_item_id"]].append(row)
+        for (claim_id, claim_version), rows in line_rows_by_claim.items():
+            claim = self.claims.get(claim_id)
+            if not claim or claim.version != claim_version:
+                continue
+            diagnoses_by_id = {
+                item.diagnosis_id: item
+                for item in self.claim_diagnoses.get(claim_id, [])
+            }
+            rebuilt_items: list[ClaimLineItem] = []
+            for row in sorted(rows, key=lambda item: item["line_id"]):
+                links = sorted(link_rows_by_line.get(row["claim_line_item_id"], []), key=lambda item: item["sequence"])
+                diagnosis_refs = [
+                    diagnoses_by_id[link["diagnosis_id"]].seq
+                    for link in links
+                    if link["diagnosis_id"] in diagnoses_by_id
+                ]
+                rebuilt_items.append(
+                    ClaimLineItem(
+                        claim_line_item_id=row["claim_line_item_id"],
+                        line_id=row["line_id"],
+                        service_code=row["service_code"],
+                        service_description=row["service_description"],
+                        quantity=_as_float(row["quantity"]) or 0.0,
+                        unit_price=_as_float(row["unit_price"]) or 0.0,
+                        claimed_amount=_as_float(row["claimed_amount"]) or 0.0,
+                        service_date=row["service_date"],
+                        diagnosis_refs=diagnosis_refs,
+                        modifiers=row["modifiers_json"],
+                        nappi_code=row["nappi_code"],
+                        device_id=row["device_id"],
+                        rendering_provider_practice_number=row["rendering_provider_practice_number"],
+                        requires_preauth=row["requires_preauth"],
+                        requires_attachment=row["requires_attachment"],
+                    )
+                )
+            if rebuilt_items:
+                claim.line_items = rebuilt_items
+
         for row in self._rows(pmb_decisions):
             decision = PMBDecision(
                 decision_id=row["decision_id"],
@@ -491,6 +541,12 @@ class PersistentPlatformStore(LegacyPlatformStore):
                 confidence=row["confidence"],
                 evidence_required=row["evidence_required_json"],
                 evidence_missing=row["evidence_missing_json"],
+                evaluated_icd10_list=row["evaluated_icd10_list_json"],
+                mapping_table_version=row["mapping_table_version"],
+                effective_date_used=row["effective_date_used"],
+                detection_reason=row["detection_reason"],
+                action=row["action_json"],
+                line_level_evaluation_limited=row["line_level_evaluation_limited"],
                 created_at=row["created_at"],
             )
             self.pmb_decisions[decision.decision_id] = decision
@@ -556,6 +612,21 @@ class PersistentPlatformStore(LegacyPlatformStore):
             )
             self.payloads[payload.payload_id] = payload
 
+        for row in self._rows(edi_artifacts):
+            artifact = EDIArtifact(
+                artifact_id=row["artifact_id"],
+                claim_id=row["claim_id"],
+                claim_version=row["claim_version"],
+                payload_id=row["payload_id"],
+                format=row["format"],
+                content=row["content"],
+                content_hash=row["content_hash"],
+                validation_errors=row["validation_errors_json"],
+                created_at=row["created_at"],
+                created_by=row["created_by"],
+            )
+            self.edi_artifacts[artifact.artifact_id] = artifact
+
         for row in self._rows(submissions):
             submission = Submission(
                 submission_id=row["submission_id"],
@@ -576,6 +647,9 @@ class PersistentPlatformStore(LegacyPlatformStore):
             log = TransportLog(
                 transport_log_id=row["transport_log_id"],
                 submission_id=row["submission_id"],
+                claim_id=row["claim_id"],
+                claim_version=row["claim_version"],
+                artifact_id=row["artifact_id"],
                 event=row["event"],
                 details=row["details_json"],
                 created_at=row["created_at"],
@@ -706,10 +780,14 @@ class PersistentPlatformStore(LegacyPlatformStore):
             self._insert_rows(tariff_rates, self._tariff_rows())
             self._insert_rows(pmb_payment_policies, self._payment_policy_rows())
             self._insert_rows(claim_diagnoses, self._claim_diagnosis_rows())
+            self._insert_rows(claim_line_items, self._claim_line_item_rows())
+            self._insert_rows(claim_line_diagnosis_links, self._claim_line_diagnosis_link_rows())
+            self._insert_rows(claim_documents, self._claim_document_rows())
             self._insert_rows(pmb_decisions, self._pmb_decision_rows())
             self._insert_rows(benefit_routing_decisions, self._benefit_routing_rows())
             self._insert_rows(costing_previews, self._costing_rows())
             self._insert_rows(payloads, self._payload_rows())
+            self._insert_rows(edi_artifacts, self._edi_artifact_rows())
             self._insert_rows(submissions, self._submission_rows())
             self._insert_rows(transport_logs, self._transport_log_rows())
             self._insert_rows(responses, self._response_rows())
@@ -987,6 +1065,79 @@ class PersistentPlatformStore(LegacyPlatformStore):
             rows.extend(item.model_dump(mode="json") for item in items)
         return rows
 
+    def _claim_line_item_rows(self) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        for claim in self.claims.values():
+            self._ensure_claim_line_item_ids(claim)
+            for item in claim.line_items:
+                rows.append(
+                    {
+                        "claim_line_item_id": item.claim_line_item_id,
+                        "claim_id": claim.id,
+                        "claim_version": claim.version,
+                        "line_id": item.line_id,
+                        "service_code": item.service_code,
+                        "service_description": item.service_description,
+                        "quantity": item.quantity,
+                        "unit_price": item.unit_price,
+                        "claimed_amount": item.claimed_amount,
+                        "service_date": item.service_date,
+                        "modifiers_json": item.modifiers,
+                        "nappi_code": item.nappi_code,
+                        "device_id": item.device_id,
+                        "rendering_provider_practice_number": item.rendering_provider_practice_number,
+                        "requires_preauth": item.requires_preauth,
+                        "requires_attachment": item.requires_attachment,
+                    }
+                )
+        return rows
+
+    def _claim_line_diagnosis_link_rows(self) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        for claim in self.claims.values():
+            self._ensure_claim_line_item_ids(claim)
+            diagnoses_by_seq = {item.seq: item for item in self.claim_diagnoses.get(claim.id, [])}
+            for item in claim.line_items:
+                for sequence, seq in enumerate(item.diagnosis_refs, start=1):
+                    diagnosis = diagnoses_by_seq.get(int(seq))
+                    if not diagnosis:
+                        continue
+                    rows.append(
+                        {
+                            "link_id": f"{item.claim_line_item_id}:{diagnosis.diagnosis_id}",
+                            "claim_line_item_id": item.claim_line_item_id,
+                            "claim_id": claim.id,
+                            "claim_version": claim.version,
+                            "line_id": item.line_id,
+                            "diagnosis_id": diagnosis.diagnosis_id,
+                            "sequence": sequence,
+                        }
+                    )
+        return rows
+
+    def _claim_document_rows(self) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        for claim in self.claims.values():
+            for item in claim.attachments:
+                rows.append(
+                    {
+                        "document_id": item.attachment_id,
+                        "claim_id": claim.id,
+                        "claim_version": claim.version,
+                        "encounter_id": None,
+                        "patient_id": claim.patient_id,
+                        "provider_id": claim.provider_id,
+                        "doc_type": item.attachment_type,
+                        "filename": item.file_name,
+                        "storage_ref": item.storage_ref,
+                        "file_hash": item.file_hash,
+                        "uploaded_at": item.uploaded_at,
+                        "uploaded_by": item.uploaded_by,
+                        "status": "AVAILABLE" if item.virus_scan_status == "CLEAN" else "PENDING_SCAN",
+                    }
+                )
+        return rows
+
     def _pmb_decision_rows(self) -> List[Dict[str, Any]]:
         return [
             {
@@ -1010,6 +1161,12 @@ class PersistentPlatformStore(LegacyPlatformStore):
                 "confidence": item.confidence,
                 "evidence_required_json": item.evidence_required,
                 "evidence_missing_json": item.evidence_missing,
+                "evaluated_icd10_list_json": item.evaluated_icd10_list,
+                "mapping_table_version": item.mapping_table_version,
+                "effective_date_used": item.effective_date_used,
+                "detection_reason": item.detection_reason,
+                "action_json": item.action,
+                "line_level_evaluation_limited": item.line_level_evaluation_limited,
                 "created_at": item.created_at,
             }
             for item in self.pmb_decisions.values()
@@ -1082,6 +1239,23 @@ class PersistentPlatformStore(LegacyPlatformStore):
             for item in self.payloads.values()
         ]
 
+    def _edi_artifact_rows(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "artifact_id": item.artifact_id,
+                "claim_id": item.claim_id,
+                "claim_version": item.claim_version,
+                "payload_id": item.payload_id,
+                "format": item.format,
+                "content": item.content,
+                "content_hash": item.content_hash,
+                "validation_errors_json": item.validation_errors,
+                "created_at": item.created_at,
+                "created_by": item.created_by,
+            }
+            for item in self.edi_artifacts.values()
+        ]
+
     def _submission_rows(self) -> List[Dict[str, Any]]:
         return [item.model_dump(mode="json") for item in self.submissions.values()]
 
@@ -1090,6 +1264,9 @@ class PersistentPlatformStore(LegacyPlatformStore):
             {
                 "transport_log_id": item.transport_log_id,
                 "submission_id": item.submission_id,
+                "claim_id": item.claim_id,
+                "claim_version": item.claim_version,
+                "artifact_id": item.artifact_id,
                 "event": item.event,
                 "details_json": item.details,
                 "created_at": item.created_at,
@@ -1278,6 +1455,18 @@ class PersistentPlatformStore(LegacyPlatformStore):
     def auto_fix_primary_diagnosis(self, claim_id: int, actor: str, role: str) -> Dict[str, Any]:
         return self._persist_result(super().auto_fix_primary_diagnosis(claim_id, actor, role))
 
+    def update_claim_line_diagnosis_links(
+        self,
+        claim_id: int,
+        line_id: str,
+        diagnosis_ids: List[str],
+        actor: str,
+        role: str,
+    ) -> Dict[str, Any]:
+        return self._persist_result(
+            super().update_claim_line_diagnosis_links(claim_id, line_id, diagnosis_ids, actor, role)
+        )
+
     def run_readiness(self, claim_id: int, actor: str, role: str) -> Dict[str, Any]:
         return self._persist_result(super().run_readiness(claim_id, actor, role))
 
@@ -1289,6 +1478,25 @@ class PersistentPlatformStore(LegacyPlatformStore):
 
     def build_payload(self, claim_id: int, actor: str, role: str) -> Dict[str, Any]:
         return self._persist_result(super().build_payload(claim_id, actor, role))
+
+    def generate_edi_artifact(self, claim_id: int, version: int, actor: str, role: str) -> Dict[str, Any]:
+        return self._persist_result(super().generate_edi_artifact(claim_id, version, actor, role))
+
+    def validate_edi_artifact(self, claim_id: int, version: int, actor: str, role: str) -> Dict[str, Any]:
+        return self._persist_result(super().validate_edi_artifact(claim_id, version, actor, role))
+
+    def submit_edi_artifact(
+        self,
+        claim_id: int,
+        version: int,
+        channel: str,
+        idempotency_key: str | None,
+        actor: str,
+        role: str,
+    ) -> Dict[str, Any]:
+        return self._persist_result(
+            super().submit_edi_artifact(claim_id, version, channel, idempotency_key, actor, role)
+        )
 
     def adjudicate(self, claim_id: int, actor: str, role: str) -> FinancialBundle:
         bundle = super().adjudicate(claim_id, actor, role)
@@ -1345,6 +1553,15 @@ class PersistentPlatformStore(LegacyPlatformStore):
 
     def update_rule(self, rule_id: str, patch: RulePatch, actor: str, role: str) -> Dict[str, Any]:
         return self._persist_result(super().update_rule(rule_id, patch, actor, role))
+
+    def create_pmb_mapping(self, data: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:
+        return self._persist_result(super().create_pmb_mapping(data, actor, role))
+
+    def update_pmb_mapping(self, mapping_id: str, data: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:
+        return self._persist_result(super().update_pmb_mapping(mapping_id, data, actor, role))
+
+    def delete_pmb_mapping(self, mapping_id: str, actor: str, role: str) -> Dict[str, Any]:
+        return self._persist_result(super().delete_pmb_mapping(mapping_id, actor, role))
 
     def update_settings(self, payload: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:
         return self._persist_result(super().update_settings(payload, actor, role))

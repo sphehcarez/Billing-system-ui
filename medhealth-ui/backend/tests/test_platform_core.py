@@ -124,6 +124,48 @@ class PlatformCoreTests(unittest.TestCase):
         self.assertEqual(result["costing_preview"]["pricing_basis"], "NON_DSP_VOLUNTARY")
         self.assertTrue(result["costing_preview"]["pending_pmb_review"])
 
+    def test_pmb_detection_evaluates_secondary_diagnoses_after_primary(self) -> None:
+        claim = self.store.create_claim(
+            {
+                "claim_number": "CLM-PMB-ORDER",
+                "patient_id": 1,
+                "provider_id": 1,
+                "member_number": "MEM240004",
+                "service_date": "2026-04-10",
+                "attachments": [
+                    {
+                        "attachment_type": "MOTIVATION",
+                        "file_name": "motivation.pdf",
+                        "storage_ref": "motivation.pdf",
+                        "file_hash": "demo",
+                        "uploaded_by": "tester",
+                    }
+                ],
+                "diagnoses": [
+                    {"seq": 1, "icd10": "Z00.0", "diagnosis_type": "PRIMARY"},
+                    {"seq": 2, "icd10": "I10", "diagnosis_type": "SECONDARY"},
+                ],
+                "line_items": [
+                    {
+                        "line_id": "1",
+                        "service_code": "CONS001",
+                        "service_description": "Consultation",
+                        "quantity": 1,
+                        "unit_price": 500,
+                        "claimed_amount": 500,
+                        "diagnosis_refs": [2],
+                    }
+                ],
+            },
+            actor="tester",
+            role="Billing Specialist",
+        )
+        result = self.store.run_readiness(claim.id, "tester", "Billing Specialist")
+        self.assertEqual(result["pmb_decision"]["matched_icd10"], "I10")
+        self.assertEqual(result["pmb_decision"]["mapping_id"], "PMB-MAP-DEV-I10")
+        self.assertIn("Z00.0", result["pmb_decision"]["evaluated_icd10_list"])
+        self.assertIn("I10", result["pmb_decision"]["evaluated_icd10_list"])
+
     def test_costing_preview_respects_dsp_rules_configuration(self) -> None:
         confirmed_dsp = self.store.run_readiness(1, "tester", "Billing Specialist")
         self.assertEqual(confirmed_dsp["costing_preview"]["pricing_basis"], "DSP")

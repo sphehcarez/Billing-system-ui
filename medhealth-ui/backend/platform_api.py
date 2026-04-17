@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from jose import ExpiredSignatureError, JWTError, jwt
 
 from db_runtime import database_healthcheck
@@ -190,6 +190,18 @@ def get_patient(patient_id: int, current_user: Dict[str, Any] = Depends(get_curr
     return db.get_patient(patient_id).model_dump()
 
 
+@app.get("/api/patients/{patient_id}/claim-context")
+def get_patient_claim_context(patient_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "patients", "read")
+    return db.get_patient_claim_context(patient_id)
+
+
+@app.get("/api/patients/{patient_id}/timeline")
+def get_patient_timeline(patient_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "patients", "read")
+    return db.get_patient_timeline(patient_id)
+
+
 @app.post("/api/patients")
 def create_patient(payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "patients", "write")
@@ -303,6 +315,58 @@ def auto_fix_primary_diagnosis(claim_id: int, current_user: Dict[str, Any] = Dep
     return db.auto_fix_primary_diagnosis(claim_id, actor, role)
 
 
+@app.get("/api/claims/{claim_id}/line-items")
+def get_claim_line_items(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    require_permission(current_user, "claims", "read")
+    return db.get_claim_line_items(claim_id)
+
+
+@app.get("/api/claims/{claim_id}/attachments")
+def get_claim_attachments(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    require_permission(current_user, "claims", "read")
+    return db.get_claim_attachments(claim_id)
+
+
+@app.post("/api/claims/{claim_id}/attachments")
+def add_claim_attachment(
+    claim_id: int,
+    payload: Dict[str, Any],
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "write")
+    actor, role = current_identity(current_user)
+    return db.add_claim_attachment(claim_id, payload, actor, role)
+
+
+@app.delete("/api/claims/{claim_id}/attachments/{document_id}")
+def delete_claim_attachment(
+    claim_id: int,
+    document_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "write")
+    actor, role = current_identity(current_user)
+    return db.delete_claim_attachment(claim_id, document_id, actor, role)
+
+
+@app.put("/api/claims/{claim_id}/line-items/{line_id}/diagnosis-links")
+def update_claim_line_item_diagnosis_links(
+    claim_id: int,
+    line_id: str,
+    payload: Dict[str, Any],
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "write")
+    actor, role = current_identity(current_user)
+    return db.update_claim_line_diagnosis_links(
+        claim_id,
+        line_id,
+        list(payload.get("diagnosis_ids") or []),
+        actor,
+        role,
+    )
+
+
 @app.post("/api/claims/{claim_id}/readiness")
 def run_readiness(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "process")
@@ -352,6 +416,49 @@ def get_claim_payload(claim_id: int, version: int, current_user: Dict[str, Any] 
     return db.get_payload_for_claim_version(claim_id, version)
 
 
+@app.get("/api/claims/{claim_id}/payloads/{version}/structured")
+def get_structured_claim_payload(claim_id: int, version: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "read")
+    return db.get_structured_payload(claim_id, version)
+
+
+@app.post("/api/claims/{claim_id}/payloads/{version}/edi/generate")
+def generate_claim_edi(claim_id: int, version: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "process")
+    actor, role = current_identity(current_user)
+    return db.generate_edi_artifact(claim_id, version, actor, role)
+
+
+@app.post("/api/claims/{claim_id}/payloads/{version}/edi/validate")
+def validate_claim_edi(claim_id: int, version: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "process")
+    actor, role = current_identity(current_user)
+    return db.validate_edi_artifact(claim_id, version, actor, role)
+
+
+@app.get("/api/claims/{claim_id}/payloads/{version}/edi/download", response_class=PlainTextResponse)
+def download_claim_edi(claim_id: int, version: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> PlainTextResponse:
+    require_permission(current_user, "claims", "read")
+    content = db.download_edi_artifact(claim_id, version)
+    return PlainTextResponse(
+        content,
+        headers={"Content-Disposition": f'attachment; filename=\"claim-{claim_id}-v{version}.edi.txt\"'},
+    )
+
+
+@app.post("/api/claims/{claim_id}/payloads/{version}/edi/submit")
+def submit_claim_edi(
+    claim_id: int,
+    version: int,
+    channel: str = Query("SWITCH"),
+    idempotency_key: str | None = Query(None),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "submit")
+    actor, role = current_identity(current_user)
+    return db.submit_edi_artifact(claim_id, version, channel, idempotency_key, actor, role)
+
+
 @app.post("/api/claims/{claim_id}/submit")
 def submit_claim(claim_id: int, request: ClaimSubmissionRequest, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "submit")
@@ -373,6 +480,12 @@ def submit_claim_alias(
 def submission_logs(submission_id: str, current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     require_permission(current_user, "claims", "read")
     return [item.model_dump() for item in db.get_transport_logs_for_submission(submission_id)]
+
+
+@app.get("/api/claims/{claim_id}/transport-logs")
+def claim_transport_logs(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    require_permission(current_user, "claims", "read")
+    return [item.model_dump() for item in db.get_transport_logs_for_claim(claim_id)]
 
 
 @app.get("/api/claims/{claim_id}/remittance")
@@ -570,6 +683,33 @@ def icd10_reference(current_user: Dict[str, Any] = Depends(get_current_user)) ->
 def pmb_mapping_reference(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "rules", "read")
     return db.list_pmb_mapping_reference()
+
+
+@app.get("/api/reference/pmb-mappings/simulate")
+def simulate_pmb_mapping(icd10_code: str, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "rules", "write")
+    return db.simulate_pmb_mapping(icd10_code)
+
+
+@app.post("/api/reference/pmb-mappings")
+def create_pmb_mapping(payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "rules", "write")
+    actor, role = current_identity(current_user)
+    return db.create_pmb_mapping(payload, actor, role)
+
+
+@app.patch("/api/reference/pmb-mappings/{mapping_id}")
+def update_pmb_mapping(mapping_id: str, payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "rules", "write")
+    actor, role = current_identity(current_user)
+    return db.update_pmb_mapping(mapping_id, payload, actor, role)
+
+
+@app.delete("/api/reference/pmb-mappings/{mapping_id}")
+def delete_pmb_mapping(mapping_id: str, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "rules", "write")
+    actor, role = current_identity(current_user)
+    return db.delete_pmb_mapping(mapping_id, actor, role)
 
 
 @app.patch("/api/rules/{rule_id}")
