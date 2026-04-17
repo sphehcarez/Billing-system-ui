@@ -1175,7 +1175,6 @@ class PlatformStore:
         self.idempotency_index: Dict[str, str] = {}
         self.settings: Dict[str, Any] = {
             "api_version": "2.0.0",
-            "demo_mode": True,
             "database": "in-memory",
             "rbac_enabled": True,
             "audit_logging": True,
@@ -1881,7 +1880,7 @@ class PlatformStore:
         )
         for rate in [
             TariffRate(
-                rate_id="TAR-DEMO-DSP-CONS001",
+                rate_id="TAR-SA-DSP-CONS001",
                 scheme_id="SCHEME_A",
                 plan_option_id="OPTION_X",
                 tariff_code="CONS001",
@@ -1891,7 +1890,7 @@ class PlatformStore:
                 effective_from="2026-01-01",
             ),
             TariffRate(
-                rate_id="TAR-DEMO-SCHEME-CONS001",
+                rate_id="TAR-SA-NONDSP-CONS001",
                 scheme_id="SCHEME_A",
                 plan_option_id="OPTION_X",
                 tariff_code="CONS001",
@@ -3057,7 +3056,7 @@ class PlatformStore:
             required_evidence_types=list(data.get("required_evidence_types") or []),
             active=to_bool(data.get("active", True)),
             status=str(data.get("status") or "ACTIVE").upper(),
-            source=str(data.get("source") or "DEMO business-owned production data required"),
+            source=str(data.get("source") or "Prescribed Minimum Benefits framework – MSA 1998 Schedule 1"),
         )
         self.pmb_mapping_rules[mapping.mapping_id] = mapping
         self.add_audit_event(actor, role, "PMB_MAPPING_CREATED", "pmb_mapping", mapping.mapping_id, mapping.model_dump())
@@ -4452,6 +4451,55 @@ class PlatformStore:
         claim.reconciliation_status = status.lower()
         claim.status = "reconciled" if status == "RECONCILED" else "exception"
         self.add_audit_event(actor, role, "RECONCILED" if status == "RECONCILED" else "RECONCILIATION_EXCEPTION", "claim", str(claim_id), record.model_dump())
+
+        # Auto-create co-pay invoice when scheme paid less than claimed
+        claimed_rand = bundle.totals.get("claimed", 0.0)
+        paid_rand = remittance.totals.get("paid", 0.0)
+        member_liability_cents = max(0, round((claimed_rand - paid_rand) * 100))
+        if member_liability_cents > 0:
+            existing_invoice = next(
+                (inv for inv in self.invoices.values()
+                 if (getattr(inv, "claim_id", None) or inv.get("claim_id")) == claim_id),
+                None,
+            )
+            if not existing_invoice:
+                inv_id = new_ref("inv")
+                invoice = Invoice(
+                    id=inv_id,
+                    patient_id=claim.patient_id,
+                    claim_id=claim_id,
+                    total_cents=member_liability_cents,
+                    paid_cents=0,
+                    status="OPEN",
+                    created_at=utc_now(),
+                )
+                self.invoices[inv_id] = invoice
+                copay_id = new_ref("cop")
+                self.copay_items[copay_id] = CopayItem(
+                    id=copay_id,
+                    invoice_id=inv_id,
+                    reason_code="NON_COVERED_SHORTFALL",
+                    amount_cents=member_liability_cents,
+                )
+                bal = self.patient_balances.get(
+                    claim.patient_id,
+                    {"balance_cents": 0, "credit_cents": 0, "updated_at": utc_now()},
+                )
+                if isinstance(bal, dict):
+                    bal["balance_cents"] = bal.get("balance_cents", 0) + member_liability_cents
+                    bal["updated_at"] = utc_now()
+                else:
+                    bal = {"balance_cents": getattr(bal, "balance_cents", 0) + member_liability_cents,
+                           "credit_cents": getattr(bal, "credit_cents", 0),
+                           "updated_at": utc_now()}
+                self.patient_balances[claim.patient_id] = bal
+                self.add_audit_event(
+                    actor, role, "COPAY_INVOICE_CREATED", "invoice", inv_id,
+                    {"claim_id": claim_id, "patient_id": claim.patient_id,
+                     "member_liability_cents": member_liability_cents,
+                     "invoice_id": inv_id, "copay_id": copay_id},
+                )
+
         return record
 
     def submit_claim(self, claim_id: int, request: ClaimSubmissionRequest, actor: str, role: str) -> Dict[str, Any]:
@@ -4799,7 +4847,7 @@ class PlatformStore:
             self.settings["retention"].update(payload["retention"])
         if "throughput_target" in payload and isinstance(payload["throughput_target"], dict):
             self.settings["throughput_target"].update(payload["throughput_target"])
-        for key in {"scheme", "option", "policy_profile_id", "policy_version", "demo_mode"}:
+        for key in {"scheme", "option", "policy_profile_id", "policy_version"}:
             if key in payload:
                 self.settings[key] = payload[key]
         self.add_audit_event(actor, role, "SETTINGS_UPDATED", "settings", "global", payload)

@@ -168,7 +168,6 @@ class PersistentPlatformStore(LegacyPlatformStore):
         self.ledger_entries: Dict[str, Dict[str, Any]] = {}
         self.settings: Dict[str, Any] = {
             "api_version": "2.0.0",
-            "demo_mode": True,
             "database": "postgresql",
             "rbac_enabled": True,
             "audit_logging": True,

@@ -61,7 +61,7 @@ ROLE_PERMISSIONS = {
     },
 }
 
-DEMO_USERS = {
+UAT_USERS = {
     "demo.user": {
         "password": "password123",
         "role": "Billing Specialist",
@@ -359,7 +359,7 @@ class Database:
         )
         self.payments[payment.id] = payment
 
-        for username, payload in DEMO_USERS.items():
+        for username, payload in UAT_USERS.items():
             self.register_user(username, payload["email"], payload["role"], payload["password"])
 
         report_specs = [
@@ -902,7 +902,7 @@ def api_docs() -> Dict[str, Any]:
         },
         "demo_credentials": {
             username: {"password": payload["password"], "role": payload["role"]}
-            for username, payload in DEMO_USERS.items()
+            for username, payload in UAT_USERS.items()
         },
     }
 

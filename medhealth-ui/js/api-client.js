@@ -392,6 +392,52 @@ class BillingAPI {
   }
 
   // =========================================================================
+  // PATIENT BALANCES, INVOICES & PAYMENTS
+  // =========================================================================
+
+  async getPatientBalance(patientId) {
+    return this._request(`/patients/${patientId}/balances`, "GET");
+  }
+
+  async getPatientInvoices(patientId) {
+    return this._request(`/patients/${patientId}/invoices`, "GET");
+  }
+
+  async recordPatientPayment(patientId, amountCents, method = "EFT") {
+    const key = `pay-${patientId}-${amountCents}-${Date.now()}`;
+    return this._requestWithHeaders(
+      `/patients/${patientId}/payments`,
+      "POST",
+      { amount_cents: amountCents, method },
+      { "Idempotency-Key": key },
+    );
+  }
+
+  async _requestWithHeaders(endpoint, method, body, extraHeaders) {
+    const headers = {};
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    if (body !== null) headers["Content-Type"] = "application/json";
+    Object.assign(headers, extraHeaders);
+    const options = { method, headers };
+    if (body !== null) options.body = JSON.stringify(body);
+    try {
+      const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+      if (response.status === 401) { this.logout(); throw Object.assign(new Error("Unauthorized"), { status: 401 }); }
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw Object.assign(new Error(err.detail || `HTTP ${response.status}`), { status: response.status });
+      }
+      if (response.status === 204) return null;
+      return response.json();
+    } catch (error) {
+      if (error instanceof TypeError) {
+        throw Object.assign(new Error("API unavailable"), { code: "NETWORK_ERROR" });
+      }
+      throw error;
+    }
+  }
+
+  // =========================================================================
   // SETTINGS
   // =========================================================================
 

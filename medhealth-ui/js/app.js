@@ -820,17 +820,33 @@
             <td>${escapeHtml(patient.email)}</td>
             <td>${escapeHtml(patient.phone)}</td>
             <td><span class="chip ${statusClass(patient.status)}">${escapeHtml(patient.status)}</span></td>
-            <td><span style="padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600;${readinessStyle}">${readinessLabel}</span></td>
-            <td data-balance-id="${patient.id}">R0.00</td>
+            <td><span style="padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600;${readinessStyle}" title="${isReady ? "All required fields present" : "Missing contact, scheme or provider info"}">${readinessLabel}</span></td>
+            <td data-balance-id="${patient.id}">—</td>
             <td class="row-actions" onclick="event.stopPropagation()">${renderPatientActions(patient.id)}</td>
           </tr>
         `;
       },
       "No patients found.",
     );
+    // Load outstanding balances in background (non-blocking)
+    _loadPatientBalances(patients);
     if (patients.length) {
       const targetId = state.selectedPatientId || patients[0].id;
       await handleViewPatientClaimContext(targetId);
+    }
+  }
+
+  async function _loadPatientBalances(patients) {
+    for (const p of patients) {
+      try {
+        const bal = await window.api.getPatientBalance(p.id);
+        const cell = document.querySelector(`[data-balance-id="${p.id}"]`);
+        if (cell) {
+          const cents = bal.balance_cents || 0;
+          cell.textContent = cents > 0 ? formatCurrency(cents / 100) : "R0.00";
+          if (cents > 0) cell.style.color = "#b42318";
+        }
+      } catch (_) { /* balance display is non-critical */ }
     }
   }
 
@@ -2941,62 +2957,122 @@
   // ===== PATIENT PROFILE DRAWER =====
   async function openPatientProfile(patientId) {
     try {
-      const [profile, balance] = await Promise.all([
+      const [profile, balance, invoices] = await Promise.all([
         window.api.get(`/patients/${patientId}/claim-ready-profile`),
-        window.api.get(`/patients/${patientId}/balances`),
+        window.api.getPatientBalance(patientId),
+        window.api.getPatientInvoices(patientId),
       ]);
-      renderPatientProfileDrawer(patientId, profile, balance);
+      renderPatientProfileDrawer(patientId, profile, balance, invoices);
     } catch (e) {
       toastError("Could not load patient profile.");
     }
   }
 
-  function renderPatientProfileDrawer(patientId, profile, balance) {
+  function renderPatientProfileDrawer(patientId, profile, balance, invoices = []) {
     let drawer = document.getElementById("patient-profile-drawer");
     if (!drawer) {
       drawer = document.createElement("div");
       drawer.id = "patient-profile-drawer";
-      drawer.style.cssText = "position:fixed;top:0;right:0;height:100vh;width:420px;background:#fff;box-shadow:-4px 0 20px rgba(0,0,0,0.15);z-index:1000;overflow-y:auto;padding:1.5rem;transform:translateX(100%);transition:transform 0.25s ease;";
+      drawer.style.cssText = "position:fixed;top:0;right:0;height:100vh;width:460px;background:#fff;box-shadow:-4px 0 20px rgba(0,0,0,0.15);z-index:1000;overflow-y:auto;padding:1.5rem;transform:translateX(100%);transition:transform 0.25s ease;";
       document.body.appendChild(drawer);
     }
 
     const readinessColor = profile.readiness === "READY" ? "#10b981" : "#f59e0b";
     const missingHtml = (profile.missing_items || []).slice(0, 3).map(item =>
-      `<li style="font-size:0.8rem;color:#6b7280">${item.label}</li>`
+      `<li style="font-size:0.8rem;color:#6b7280">${escapeHtml(item.label)}</li>`
     ).join("");
 
     const balanceCents = balance?.balance_cents ?? 0;
+    const creditCents  = balance?.credit_cents ?? 0;
 
     const billingHtml = profile.billing_summary ? `
-      <div style="background:#f9fafb;border-radius:8px;padding:1rem;margin-top:1rem">
-        <div style="font-weight:600;margin-bottom:0.5rem">Billing Summary</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem;font-size:0.875rem">
-          <span style="color:#6b7280">Claimed:</span><span>R${Math.round((profile.billing_summary.claimed_cents||0)/100).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-          <span style="color:#6b7280">Allowed:</span><span>R${Math.round((profile.billing_summary.scheme_allowed_cents||0)/100).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-          <span style="color:#6b7280">Liability:</span><span style="color:#ef4444;font-weight:600">R${Math.round((profile.billing_summary.member_liability_cents||0)/100).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+      <div style="background:#f9fafb;border-radius:8px;padding:0.875rem;margin-top:0.875rem">
+        <div style="font-weight:600;margin-bottom:0.5rem;font-size:0.875rem">Billing Summary</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem;font-size:0.8rem">
+          <span style="color:#6b7280">Claimed:</span><span>${formatCurrency((profile.billing_summary.claimed_cents||0)/100)}</span>
+          <span style="color:#6b7280">Scheme allowed:</span><span>${formatCurrency((profile.billing_summary.scheme_allowed_cents||0)/100)}</span>
+          <span style="color:#6b7280">Member liability:</span><span style="color:#ef4444;font-weight:600">${formatCurrency((profile.billing_summary.member_liability_cents||0)/100)}</span>
         </div>
       </div>` : "";
 
+    // Membership section
+    const memberHtml = `
+      <div style="background:#f9fafb;border-radius:8px;padding:0.875rem;margin-top:0.875rem;font-size:0.8rem">
+        <div style="font-weight:600;margin-bottom:0.5rem">Membership</div>
+        <div style="display:grid;grid-template-columns:max-content 1fr;gap:0.2rem 0.75rem;color:#374151">
+          <span style="color:#6b7280">Scheme</span><span>${escapeHtml(profile.scheme_id || "-")}</span>
+          <span style="color:#6b7280">Option</span><span>${escapeHtml(profile.plan_option_id || "-")}</span>
+          <span style="color:#6b7280">Number</span><span>${escapeHtml(profile.member_number || "-")}</span>
+          <span style="color:#6b7280">Dependant</span><span>${escapeHtml(profile.dependant_code || "00")}</span>
+        </div>
+      </div>`;
+
+    // Outstanding invoices section
+    const openInvoices = (invoices || []).filter(inv => (inv.status || inv.Status || "OPEN") !== "PAID" && (inv.status || "OPEN") !== "VOIDED");
+    const invoicesHtml = openInvoices.length ? `
+      <div style="background:#fef2f2;border-radius:8px;padding:0.875rem;margin-top:0.875rem;font-size:0.8rem">
+        <div style="font-weight:600;margin-bottom:0.5rem;color:#991b1b">Outstanding Invoices (${openInvoices.length})</div>
+        ${openInvoices.map(inv => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:0.4rem 0;border-bottom:1px solid #fee2e2">
+            <div>
+              <span style="font-family:var(--mono);font-size:0.75rem;color:#6b7280">${escapeHtml(inv.id || "-")}</span>
+              <span style="margin-left:0.5rem;background:#fca5a5;color:#7f1d1d;padding:0.1rem 0.4rem;border-radius:4px;font-size:0.7rem">${escapeHtml(inv.status || "OPEN")}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:0.5rem">
+              <strong style="color:#991b1b">${formatCurrency(((inv.total_cents||0) - (inv.paid_cents||0)) / 100)}</strong>
+              <button class="chip warn" style="font-size:0.7rem" onclick="handlePayInvoice(${patientId}, ${JSON.stringify((inv.total_cents||0) - (inv.paid_cents||0)).replace(/"/g, "&quot;")}, '${escapeHtml(inv.id || "")}')">Pay now</button>
+            </div>
+          </div>`).join("")}
+        <div style="margin-top:0.5rem;font-size:0.75rem;color:#6b7280">Total outstanding: <strong style="color:#991b1b">${formatCurrency(openInvoices.reduce((s, inv) => s + Math.max(0, (inv.total_cents||0) - (inv.paid_cents||0)), 0) / 100)}</strong></div>
+      </div>` : (balanceCents > 0 ? "" : `<div style="background:#ecfdf5;border-radius:8px;padding:0.75rem;margin-top:0.875rem;font-size:0.8rem;color:#065f46">No outstanding invoices.</div>`);
+
     drawer.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
-        <h3 style="margin:0">Patient Profile</h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+        <h3 style="margin:0;font-size:1rem">${escapeHtml(profile.patient?.name || "Patient Profile")}</h3>
         <button onclick="closePatientProfile()" style="background:none;border:none;font-size:1.25rem;cursor:pointer;color:#6b7280">&times;</button>
       </div>
-      <div style="margin-bottom:1rem">
-        <span style="background:${readinessColor};color:#fff;padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600">${profile.readiness || "UNKNOWN"}</span>
-        ${balanceCents > 0 ? `<span style="background:#fef2f2;color:#991b1b;padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600;margin-left:0.5rem">Outstanding: R${(balanceCents/100).toFixed(2)}</span>` : ""}
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem">
+        <span style="background:${readinessColor};color:#fff;padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600">${escapeHtml(profile.readiness || "UNKNOWN")}</span>
+        ${balanceCents > 0 ? `<span style="background:#fef2f2;color:#991b1b;padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600">Outstanding: ${formatCurrency(balanceCents/100)}</span>` : ""}
+        ${creditCents > 0 ? `<span style="background:#ecfdf5;color:#065f46;padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600">Credit: ${formatCurrency(creditCents/100)}</span>` : ""}
       </div>
-      ${missingHtml ? `<div style="background:#fffbeb;border-radius:8px;padding:0.75rem;margin-bottom:1rem"><div style="font-size:0.8rem;font-weight:600;color:#92400e;margin-bottom:0.25rem">Missing items:</div><ul style="margin:0;padding-left:1rem">${missingHtml}</ul></div>` : ""}
+      ${missingHtml ? `<div style="background:#fffbeb;border-radius:8px;padding:0.75rem;margin-bottom:0.75rem"><div style="font-size:0.8rem;font-weight:600;color:#92400e;margin-bottom:0.25rem">Action required:</div><ul style="margin:0;padding-left:1rem">${missingHtml}</ul></div>` : ""}
+      ${memberHtml}
       ${billingHtml}
-      <div style="margin-top:1.5rem;display:flex;flex-direction:column;gap:0.5rem">
-        ${profile.active_claim_id ? `<a href="claim_detail.html?id=${profile.active_claim_id}" class="btn primary" style="text-align:center">Open Active Claim</a>` : ""}
-        ${profile.active_claim_id ? `<a href="claim_detail.html?id=${profile.active_claim_id}#diagnoses" class="btn secondary" style="text-align:center">Jump to Diagnoses</a>` : ""}
-        ${profile.active_claim_id ? `<a href="claim_detail.html?id=${profile.active_claim_id}#attachments" class="btn secondary" style="text-align:center">Jump to Attachments</a>` : ""}
+      ${invoicesHtml}
+      <div style="margin-top:1.25rem;display:flex;flex-direction:column;gap:0.5rem">
+        ${profile.active_claim_id ? `<a href="claim_detail.html?id=${profile.active_claim_id}" class="btn" style="text-align:center;font-size:0.875rem">Open Active Claim</a>` : ""}
+        ${profile.active_claim_id ? `<a href="claim_detail.html?id=${profile.active_claim_id}#diagnoses" class="btn secondary" style="text-align:center;font-size:0.875rem">Jump to Diagnoses</a>` : ""}
+        ${profile.active_claim_id ? `<a href="claim_detail.html?id=${profile.active_claim_id}#attachments" class="btn secondary" style="text-align:center;font-size:0.875rem">Jump to Attachments</a>` : ""}
       </div>
     `;
 
     requestAnimationFrame(() => { drawer.style.transform = "translateX(0)"; });
   }
+
+  async function handlePayInvoice(patientId, amountCents, invoiceId) {
+    if (!amountCents || amountCents <= 0) {
+      toastError("Invalid invoice amount.");
+      return;
+    }
+    try {
+      const result = await window.api.recordPatientPayment(patientId, amountCents, "EFT");
+      toastSuccess(`Payment of ${formatCurrency(amountCents / 100)} recorded successfully. Invoice ${escapeHtml(invoiceId)} updated.`);
+      // Refresh drawer
+      await openPatientProfile(patientId);
+      // Refresh balance cell in table
+      const cell = document.querySelector(`[data-balance-id="${patientId}"]`);
+      if (cell) {
+        const bal = await window.api.getPatientBalance(patientId);
+        const cents = bal.balance_cents || 0;
+        cell.textContent = cents > 0 ? formatCurrency(cents / 100) : "R0.00";
+        cell.style.color = cents > 0 ? "#b42318" : "";
+      }
+    } catch (e) {
+      toastError(`Payment failed: ${e.message}`);
+    }
+  }
+  window.handlePayInvoice = handlePayInvoice;
 
   function closePatientProfile() {
     const drawer = document.getElementById("patient-profile-drawer");

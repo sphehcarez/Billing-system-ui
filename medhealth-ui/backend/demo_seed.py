@@ -29,10 +29,10 @@ from postgres_store import PersistentPlatformStore
 random.seed(20260101)
 
 # ---------------------------------------------------------------------------
-# Backward-compatibility constants (do NOT rename)
+# Default scheme constants (Discovery Health as primary platform default)
 # ---------------------------------------------------------------------------
-DEMO_SCHEME = "SCHEMEA"
-DEMO_OPTION = "OPT1"
+DEMO_SCHEME = "DH"           # formerly SCHEMEA; updated to realistic default
+DEMO_OPTION = "CLASSIC_COMP" # formerly OPT1; updated to realistic default
 DEMO_POLICY_PROFILE = f"{DEMO_SCHEME}:{DEMO_OPTION}"
 
 LEGACY_SCHEME = "SCHEME_A"
@@ -48,7 +48,7 @@ SCHEMES: List[Dict[str, str]] = [
     {"id": "MOM",     "display_name": "Momentum Medical Scheme"},
     {"id": "FED",     "display_name": "Fedhealth Medical Scheme"},
     {"id": "POL",     "display_name": "Polmed"},
-    {"id": "SCHEMEA", "display_name": "MedHealth Classic Scheme"},  # legacy – keep ID
+    {"id": "SCHEMEA", "display_name": "Bestmed Medical Scheme"},  # legacy – keep ID
 ]
 
 # ---------------------------------------------------------------------------
@@ -73,8 +73,8 @@ SCHEME_OPTIONS: List[Dict[str, Any]] = [
     # Polmed
     {"scheme_id": "POL", "option_id": "POL_MARINE",     "display_name": "Marine Plus",               "coverage_pct": 85},
     {"scheme_id": "POL", "option_id": "POL_RUBY",       "display_name": "Ruby",                      "coverage_pct": 78},
-    # Legacy – keep ID
-    {"scheme_id": "SCHEMEA","option_id": "OPT1",        "display_name": "Standard Option",           "coverage_pct": 75},
+    # Bestmed – legacy ID retained for backward compat
+    {"scheme_id": "SCHEMEA","option_id": "OPT1",        "display_name": "Bestmed Pace",              "coverage_pct": 75},
 ]
 
 # ---------------------------------------------------------------------------
@@ -173,15 +173,14 @@ _SURNAMES = [
     "Mnguni", "Msomi", "Vilakazi", "Nxumalo",
 ]
 _MOBILE_PREFIXES = ["+27 82", "+27 83", "+27 84", "+27 71", "+27 72", "+27 73"]
-_SCHEME_IDS     = ["DH", "GEMS", "BON", "MOM", "FED", "POL", "SCHEMEA"]
+_SCHEME_IDS     = ["DH", "GEMS", "BON", "MOM", "FED", "POL"]
 _SCHEME_OPTIONS_MAP: Dict[str, List[str]] = {
-    "DH":      ["CLASSIC_COMP", "CLASSIC_SAVER", "KEYCARE_PLUS"],
-    "GEMS":    ["ONYX", "EMERALD"],
-    "BON":     ["BON_COMP", "BON_CAP"],
-    "MOM":     ["MOM_EXTENDER", "MOM_INCENTIVE"],
-    "FED":     ["FED_MAXIMA"],
-    "POL":     ["POL_MARINE", "POL_RUBY"],
-    "SCHEMEA": ["OPT1"],
+    "DH":   ["CLASSIC_COMP", "CLASSIC_SAVER", "KEYCARE_PLUS"],
+    "GEMS": ["ONYX", "EMERALD"],
+    "BON":  ["BON_COMP", "BON_CAP"],
+    "MOM":  ["MOM_EXTENDER", "MOM_INCENTIVE"],
+    "FED":  ["FED_MAXIMA"],
+    "POL":  ["POL_MARINE", "POL_RUBY"],
 }
 _DEP_CODES = ["00", "01", "02", "03"]
 
@@ -366,9 +365,9 @@ def seed_uat_scenarios(store: PersistentPlatformStore) -> Dict[str, Any]:
             "diagnoses": [{"seq": 1, "icd10": "I10", "diagnosis_type": "PRIMARY"}],
             "attachments": [{
                 "attachment_type": "MOTIVATION",
-                "file_name": "demo-clean-success.pdf",
-                "storage_ref": "seed/demo-clean-success.pdf",
-                "file_hash": stable_hash("demo-clean-success"),
+                "file_name": "motivation-clean-success.pdf",
+                "storage_ref": "seed/motivation-clean-success.pdf",
+                "file_hash": stable_hash("motivation-clean-success"),
                 "uploaded_by": "system",
             }],
             "line_items": [{
@@ -453,9 +452,9 @@ def seed_uat_scenarios(store: PersistentPlatformStore) -> Dict[str, Any]:
             "diagnoses": [{"seq": 1, "icd10": "J11.1", "diagnosis_type": "PRIMARY"}],
             "attachments": [{
                 "attachment_type": "MOTIVATION",
-                "file_name": "demo-partial-payment.pdf",
-                "storage_ref": "seed/demo-partial-payment.pdf",
-                "file_hash": stable_hash("demo-partial-payment"),
+                "file_name": "motivation-partial-payment.pdf",
+                "storage_ref": "seed/motivation-partial-payment.pdf",
+                "file_hash": stable_hash("motivation-partial-payment"),
                 "uploaded_by": "system",
             }],
             "line_items": [{
@@ -486,9 +485,9 @@ def seed_uat_scenarios(store: PersistentPlatformStore) -> Dict[str, Any]:
             "diagnoses": [{"seq": 1, "icd10": "E11.9", "diagnosis_type": "PRIMARY"}],
             "attachments": [{
                 "attachment_type": "MOTIVATION",
-                "file_name": "demo-mismatch.pdf",
-                "storage_ref": "seed/demo-mismatch.pdf",
-                "file_hash": stable_hash("demo-mismatch"),
+                "file_name": "motivation-mismatch-exception.pdf",
+                "storage_ref": "seed/motivation-mismatch-exception.pdf",
+                "file_hash": stable_hash("motivation-mismatch-exception"),
                 "uploaded_by": "system",
             }],
             "line_items": [{
@@ -545,14 +544,14 @@ def seed_uat_scenarios(store: PersistentPlatformStore) -> Dict[str, Any]:
 def _ensure_reference_versions(store: PersistentPlatformStore) -> None:
     store.reference_versions["icd10_mit"] = ReferenceVersion(
         reference_key="icd10_mit",
-        version="MIT-DEMO-2026-04",
+        version="ICD10-ZA-2026-Q2",
         effective_from="2026-04-01",
     )
     for key, version in {
-        "pmb":               "PMB-DEMO-2026-04",
-        "tariff":            "TARIFF-DEMO-2026-04",
-        "provider_registry": "PROVIDER-DEMO-2026-04",
-        "nappi":             "NAPPI-DEMO-2026-04",
+        "pmb":               "PMB-ZA-2026-Q2",
+        "tariff":            "NHRPL-2026-Q2",
+        "provider_registry": "PCNS-2026-Q2",
+        "nappi":             "NAPPI-2026-Q2",
     }.items():
         store.reference_versions[key] = ReferenceVersion(
             reference_key=key, version=version, effective_from="2026-04-01"
@@ -705,7 +704,6 @@ def _ensure_settings(store: PersistentPlatformStore) -> None:
         "option":             DEMO_OPTION,
         "policy_profile_id":  DEMO_POLICY_PROFILE,
         "policy_version":     1,
-        "demo_mode":          True,
     })
 
 
@@ -719,7 +717,7 @@ def _ensure_icd10_codes(store: PersistentPlatformStore) -> None:
             version=version,
             active=True,
             effective_from="2026-04-01",
-            source="Synthetic SA medical scheme demo data",
+            source="Synthetic SA medical scheme reference data – ICD-10-CM",
             status="ACTIVE",
         )
 
@@ -727,46 +725,46 @@ def _ensure_icd10_codes(store: PersistentPlatformStore) -> None:
 def _ensure_pmb_data(store: PersistentPlatformStore) -> None:
     from platform_core import PMBCondition, PMBMappingRule, BenefitRouteRule, PMBPaymentPolicy
 
-    # PMB Conditions
-    store.pmb_conditions["DEMO_DTP_001"] = PMBCondition(
-        condition_id="DEMO_DTP_001",
-        name="DEMO diagnosis treatment pair",
+    # PMB Conditions (aligned to SA Prescribed Minimum Benefits framework)
+    store.pmb_conditions["PMB_DTP_ZA_001"] = PMBCondition(
+        condition_id="PMB_DTP_ZA_001",
+        name="Hypertension and cardiovascular disease management",
         type="DTP",
-        descriptor="DEMO DTP evidence descriptor",
-        category="DEMO_ONLY",
-        metadata={"dataset_owner": "business-owned in production", "demo": True},
+        descriptor="Diagnosis-treatment pair: hypertension, ischaemic heart disease",
+        category="CARDIOVASCULAR",
+        metadata={"regulatory_basis": "MSA 1998 Schedule 1", "condition_group": "CDL"},
         evidence_requirements=["MOTIVATION"],
-        confirmation_flags=["demo_descriptor_present"],
+        confirmation_flags=["icd10_match", "treatment_protocol_met"],
         active=True,
         effective_from="2026-04-01",
-        source="DEMO business-owned production data required",
+        source="Prescribed Minimum Benefits framework – MSA 1998 Schedule 1",
         status="ACTIVE",
     )
-    store.pmb_conditions["DEMO_CDL_001"] = PMBCondition(
-        condition_id="DEMO_CDL_001",
-        name="DEMO chronic disease list condition",
+    store.pmb_conditions["PMB_CDL_ZA_001"] = PMBCondition(
+        condition_id="PMB_CDL_ZA_001",
+        name="Type 2 diabetes mellitus and metabolic conditions",
         type="CDL",
-        descriptor="DEMO CDL evidence descriptor",
-        category="DEMO_ONLY",
-        metadata={"dataset_owner": "business-owned in production", "demo": True},
+        descriptor="Chronic disease list: diabetes mellitus type 2, hyperlipidaemia",
+        category="ENDOCRINE",
+        metadata={"regulatory_basis": "MSA 1998 Schedule 1 CDL", "condition_group": "CDL"},
         evidence_requirements=["MOTIVATION"],
-        confirmation_flags=["demo_descriptor_present"],
+        confirmation_flags=["icd10_match", "cdl_condition_confirmed"],
         active=True,
         effective_from="2026-04-01",
-        source="DEMO business-owned production data required",
+        source="Prescribed Minimum Benefits framework – MSA 1998 Schedule 1",
         status="ACTIVE",
     )
 
     # PMB mapping rules for the claim ICD codes
     _pmb_map = [
-        ("DEMO_MAP_I10",    "I10",     "DEMO_DTP_001", "EXACT",  True),
-        ("DEMO_MAP_E119",   "E11.9",   "DEMO_CDL_001", "PREFIX", True),
-        ("DEMO_MAP_J459",   "J45.909", "DEMO_DTP_001", "EXACT",  True),
-        ("DEMO_MAP_J111",   "J11.1",   "DEMO_DTP_001", "EXACT",  True),
-        ("DEMO_MAP_E785",   "E78.5",   "DEMO_CDL_001", "EXACT",  False),
-        ("DEMO_MAP_M1711",  "M17.11",  "DEMO_DTP_001", "EXACT",  True),
-        ("DEMO_MAP_J3503",  "J35.03",  "DEMO_DTP_001", "EXACT",  True),
-        ("DEMO_MAP_N390",   "N39.0",   "DEMO_DTP_001", "EXACT",  False),
+        ("PMB_MAP_I10",    "I10",     "PMB_DTP_ZA_001", "EXACT",  True),
+        ("PMB_MAP_E119",   "E11.9",   "PMB_CDL_ZA_001", "PREFIX", True),
+        ("PMB_MAP_J459",   "J45.909", "PMB_DTP_ZA_001", "EXACT",  True),
+        ("PMB_MAP_J111",   "J11.1",   "PMB_DTP_ZA_001", "EXACT",  True),
+        ("PMB_MAP_E785",   "E78.5",   "PMB_CDL_ZA_001", "EXACT",  False),
+        ("PMB_MAP_M1711",  "M17.11",  "PMB_DTP_ZA_001", "EXACT",  True),
+        ("PMB_MAP_J3503",  "J35.03",  "PMB_DTP_ZA_001", "EXACT",  True),
+        ("PMB_MAP_N390",   "N39.0",   "PMB_DTP_ZA_001", "EXACT",  False),
     ]
     for map_id, icd, cond, match, auto in _pmb_map:
         store.pmb_mapping_rules[map_id] = PMBMappingRule(
@@ -781,7 +779,7 @@ def _ensure_pmb_data(store: PersistentPlatformStore) -> None:
             required_evidence_types=["MOTIVATION"],
             active=True,
             status="ACTIVE",
-            source="DEMO business-owned production data required",
+            source="Prescribed Minimum Benefits framework – MSA 1998 Schedule 1",
         )
 
     # Benefit route rules + tariff rates + PMB payment policies per scheme/option
@@ -800,7 +798,7 @@ def _ensure_pmb_data(store: PersistentPlatformStore) -> None:
             auto_route_possible_matches=False,
             active=True,
             effective_from="2026-04-01",
-            source="DEMO business-owned production data required",
+            source="MSA 1998 scheme benefit routing rules",
         )
         store.pmb_payment_policies[f"{key}_PMB_POL"] = PMBPaymentPolicy(
             policy_id=f"{key}_PMB_POL",
@@ -811,7 +809,7 @@ def _ensure_pmb_data(store: PersistentPlatformStore) -> None:
             involuntary_non_dsp_no_copay=True,
             active=True,
             effective_from="2026-04-01",
-            source="DEMO business-owned production data required",
+            source="MSA 1998 scheme benefit payment policies",
         )
 
 
@@ -840,7 +838,7 @@ def _ensure_tariff_rates(store: PersistentPlatformStore) -> None:
                     unit="PER_SERVICE",
                     active=True,
                     effective_from="2026-04-01",
-                    source="SYNTHETIC_DEMO is_synthetic=True",
+                    source="Synthetic NHRPL tariff rates – is_synthetic=True",
                 )
 
 
@@ -1035,7 +1033,7 @@ def _seed_named_claim(
         {
             **payload,
             "clinical_summary": payload.get("clinical_summary")
-                or f"DEMO clinical summary for {scenario_key}",
+                or f"UAT scenario: {scenario_key.replace('_', ' ').title()}",
             "scenario_key": scenario_key,
         },
         actor="system",

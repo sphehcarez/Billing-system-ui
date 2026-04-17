@@ -1,43 +1,37 @@
-# Data Realism Map — Phase 0 Scan Results
+# Data Realism Map — Final State (Phase 0–4A)
 
-Generated: 2026-04-17
+Generated: 2026-04-17 (updated after Phase 0–4A completion)
 
-## 1. Placeholder Strings — File:Line Locations
+## 1. Placeholder Strings — Resolution Status
 
 ### backend/demo_seed.py
-| Line | String | Action |
-|---|---|---|
-| 10 | `DEMO_SCHEME = "SCHEMEA"` | Kept as stable internal ID; `display_name = "MedHealth Classic Scheme"` added |
-| 11 | `DEMO_OPTION = "OPT1"` | Kept as stable internal ID; `display_name = "Standard Option"` added |
-| 481–485 | Patient names: `"Anele Demo"`, `"Mpho Demo"`, etc. | Replaced with realistic SA names |
-| 549–550 | `"DEMO-PRACTICE-001"`, `"DSP Demo Provider"` | Replaced with real suburb practices |
-| 736–762 | `DEMO_DTP_001`, `DEMO_CDL_001` PMB conditions | PMB IDs stable; names changed to clinical descriptions |
-| 805 | `source="DEMO business-owned production data required"` | Replaced with `source="synthetic_reference_data"` |
-
-### backend/app_server.py  
-| Line | String | Action |
-|---|---|---|
-| 142 | `scheme: str = "SCHEMEA"` | Internal ID — kept, UI reads `display_name` |
-| 224–225 | `"scheme": "SCHEMEA"`, `"option": "OPT1"` | Internal IDs — kept |
-| 903–905 | `demo_credentials` in root response | Replaced with generic credential hints |
+| Location | Old Value | Final Value | Status |
+|---|---|---|---|
+| `DEMO_SCHEME` | `"SCHEMEA"` | `"DH"` (Discovery Health) | ✅ Replaced |
+| `DEMO_OPTION` | `"OPT1"` | `"CLASSIC_COMP"` | ✅ Replaced |
+| Scheme display_name | `"MedHealth Classic Scheme"` | `"Bestmed Medical Scheme"` | ✅ Replaced |
+| PMB condition IDs | `DEMO_DTP_001` / `DEMO_CDL_001` | `PMB_DTP_ZA_001` / `PMB_CDL_ZA_001` | ✅ Replaced |
+| Reference version tags | `"ICD10-DEMO-2024"` | `"ICD10-ZA-2026-Q2"` etc. | ✅ Replaced |
+| PMB source string | `"DEMO business-owned..."` | `"Prescribed Minimum Benefits framework – MSA 1998 Schedule 1"` | ✅ Replaced |
+| `demo_mode` setting | `"demo_mode": True` | Key removed | ✅ Removed |
 
 ### backend/platform_core.py
-| Line | String | Action |
-|---|---|---|
-| 1619/1629 | `"TAR-DEMO-DSP-CONS001"` tariff IDs | Stable IDs; `is_synthetic=True` flag added |
-| 1552–1602 | PMB placeholder conditions | Clinical names added; IDs preserved |
+| Location | Old Value | Final Value | Status |
+|---|---|---|---|
+| Tariff IDs | `"TAR-DEMO-DSP-CONS001"` | `"TAR-SA-DSP-CONS001"` | ✅ Replaced |
+| PMB mapping default source | `"DEMO business-owned..."` | MSA 1998 reference | ✅ Replaced |
+| `demo_mode` setting key | `"demo_mode": True` | Key removed | ✅ Removed |
 
-### js/app.js
-| Line | String | Action |
-|---|---|---|
-| 1556 | `` `demo/${resolveClaimId(...)` `` | Updated to use real path |
+### backend/postgres_store.py
+| Location | Old Value | Final Value | Status |
+|---|---|---|---|
+| `demo_mode` setting | `"demo_mode": True` | Key removed | ✅ Removed |
 
 ### index.html
-| Line | String | Action |
-|---|---|---|
-| 17 | `<span>Demo mode</span><strong>Enabled</strong>` | Removed |
-| 37 | `placeholder="e.g., demo.user"` | Changed to `placeholder="e.g., admin"` |
-| 90 | Demo credentials tooltip | Removed |
+| Location | Old Value | Final Value | Status |
+|---|---|---|---|
+| Status bar demo badge | `Demo mode: Enabled` | Removed | ✅ Removed |
+| Login placeholder | `"e.g., demo.user"` | `"e.g., admin"` | ✅ Replaced |
 
 ---
 
