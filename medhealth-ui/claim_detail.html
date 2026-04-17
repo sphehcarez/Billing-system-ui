@@ -37,149 +37,268 @@
     </aside>
 
     <main class="main">
-      <div class="topbar">
-        <div class="h1">
-          <h1>Claim detail</h1>
-          <p>Single claim cockpit: readiness, closure, payload preview, submission, remittance, evidence.</p>
+
+      <!-- Sticky cockpit header -->
+      <div id="cockpit-header" class="cockpit-header">
+        <div class="cockpit-id">
+          <span class="code" id="claim-number" style="font-size:15px;font-weight:700;">—</span>
+          <span class="cockpit-member muted" id="claim-member">—</span>
+          <span class="chip" id="claim-status-chip">—</span>
         </div>
-        <div class="actions">
-          <div class="pill">
-            <span class="code">Search</span>
-            <input placeholder="Claim ID, member number, batch ref..." />
-          </div>
+        <div class="cockpit-actions">
+          <button class="btn secondary" data-action="evidence-packet">Evidence</button>
+          <button class="btn secondary" data-action="view-remittance">Remittance</button>
           <button class="btn secondary" data-action="open-api-docs">API Docs</button>
-          <button class="btn" data-action="create-new">New</button>
         </div>
       </div>
 
-      
-    <div class="split">
-      <div class="card">
-        <h3>Lifecycle actions</h3>
-        <div class="panel" style="margin-bottom:10px">
-          <div class="kv"><span>Claim</span><strong id="claim-number" class="code">CLM-001</strong></div>
-          <div class="kv"><span>Member</span><strong id="claim-member">12345677</strong></div>
-          <div class="kv"><span>Status</span><strong><span id="claim-status-chip" class="chip pass">Ready to Close</span></strong></div>
-        </div>
-        <div class="grid" style="grid-template-columns: repeat(12, 1fr); gap:10px">
-          <button class="btn secondary" style="grid-column: span 4" data-action="readiness-run">Run readiness</button>
-          <button class="btn secondary" style="grid-column: span 4" data-action="closure-confirm">Close file</button>
-          <button class="btn secondary" style="grid-column: span 4" data-action="post-closure-validation">Post-closure validate</button>
+      <!-- Two-column cockpit body -->
+      <div id="cockpit-body" class="cockpit-body">
 
-          <button class="btn secondary" style="grid-column: span 12" data-action="build-payload">Build payload</button>
+        <!-- ── LEFT COLUMN: lifecycle + data entry ── -->
+        <div id="cockpit-left" class="cockpit-left">
 
-          <button class="btn" style="grid-column: span 6" data-action="submit-direct">Submit (Direct)</button>
-          <button class="btn" style="grid-column: span 6" data-action="submit-switch">Submit (Switch)</button>
+          <!-- Lifecycle card -->
+          <div class="card lifecycle-card">
+            <h3>Lifecycle</h3>
 
-          <button class="btn secondary" style="grid-column: span 6" data-action="view-remittance">View remittance</button>
-          <button class="btn secondary" style="grid-column: span 6" data-action="evidence-packet">Evidence packet</button>
-        </div>
+            <!-- Readiness stage -->
+            <div class="lifecycle-stage">
+              <div class="lifecycle-stage-header">
+                <span class="lifecycle-stage-name">Readiness</span>
+                <span class="chip" id="readiness-status">PENDING</span>
+              </div>
+              <div id="readiness-banner" class="inline-banner" hidden></div>
+              <div class="lifecycle-stage-actions">
+                <button class="btn secondary" data-action="readiness-run">Run readiness</button>
+              </div>
+            </div>
 
-        <div class="muted" style="margin-top:10px">
-          In the functional back-end pack, these actions map to: readiness, closure, post-closure validation, payload build, submission, response simulation, remittance, reconciliation, and audit events.
-        </div>
-      </div>
+            <!-- Closure stage -->
+            <div class="lifecycle-stage">
+              <div class="lifecycle-stage-header">
+                <span class="lifecycle-stage-name">Closure</span>
+                <span class="chip" id="closure-status">PENDING</span>
+              </div>
+              <div id="closure-banner" class="inline-banner" hidden></div>
+              <div class="lifecycle-stage-actions">
+                <button class="btn secondary" data-action="closure-confirm">Close file</button>
+                <button class="btn secondary" data-action="post-closure-validation">Post-closure validate</button>
+                <span class="chip" id="post-closure-status" style="font-size:11px;">—</span>
+              </div>
+            </div>
+          </div>
 
-      <div class="card">
-        <h3>Readiness and validation summary</h3>
-        <div class="panel">
-          <div class="kv"><span>Readiness outcome</span><strong id="readiness-status">PASS</strong></div>
-          <div class="kv"><span>Closure gate</span><strong id="closure-status">PASS</strong></div>
-          <div class="kv"><span>Post-closure</span><strong id="post-closure-status">PASS</strong></div>
-        </div>
-        <div class="muted" style="margin-top:10px">Preview UI. Replace with live outputs from Decision Bundles.</div>
-      </div>
-    </div>
+          <!-- Diagnoses card -->
+          <div class="card" id="diagnoses" data-field="diagnoses">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:10px;">
+              <div>
+                <h3>Diagnoses</h3>
+                <div class="muted">Capture ICD-10, set the primary diagnosis, and rerun readiness.</div>
+              </div>
+              <button class="btn secondary" type="button" data-action="auto-fix-primary" id="diagnosis-auto-fix" style="display:none;">Auto-fix primary</button>
+            </div>
+            <div class="grid" style="grid-template-columns: repeat(12, 1fr); gap:10px;">
+              <div class="field" style="grid-column: span 5; margin-bottom:0;">
+                <label class="label" for="diagnosis-search-input">ICD-10 search</label>
+                <input class="input" id="diagnosis-search-input" list="icd10-options" placeholder="Type ICD-10 code or description" />
+                <datalist id="icd10-options"></datalist>
+              </div>
+              <div class="field" style="grid-column: span 3; margin-bottom:0;">
+                <label class="label" for="diagnosis-type-input">Diagnosis role</label>
+                <select class="input" id="diagnosis-type-input">
+                  <option value="PRIMARY">Primary</option>
+                  <option value="SECONDARY">Secondary</option>
+                </select>
+              </div>
+              <div class="field" style="grid-column: span 2; margin-bottom:0;">
+                <label class="label" for="diagnosis-source-input">Source</label>
+                <input class="input" id="diagnosis-source-input" value="UserEntry" />
+              </div>
+              <div class="field" style="grid-column: span 2; margin-bottom:0; justify-content:end;">
+                <label class="label" for="diagnosis-add-btn">Action</label>
+                <button class="btn" type="button" data-action="add-diagnosis" id="diagnosis-add-btn">Add</button>
+              </div>
+            </div>
+            <div id="diagnosis-feedback" class="muted" style="margin-top:10px;"></div>
+            <div id="diagnoses-list" style="margin-top:12px;"></div>
+          </div>
 
-    <div class="grid">
-      <div class="card" id="diagnoses" data-field="diagnoses" style="grid-column: span 7">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:10px;">
-          <div>
-            <h3>Diagnoses</h3>
-            <div class="muted">Capture ICD-10, set the primary diagnosis, and rerun readiness from the action point.</div>
+          <!-- Line items card -->
+          <div class="card" id="line_items" data-field="line_items">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:10px;">
+              <div>
+                <h3>Line items and diagnosis linkage</h3>
+                <div class="muted">Resolve post-closure diagnosis linkage warnings directly on each billed line.</div>
+              </div>
+            </div>
+            <div class="grid" style="grid-template-columns: repeat(12, 1fr); gap:10px; margin-bottom:12px;">
+              <div class="field" style="grid-column: span 6; margin-bottom:0;">
+                <label class="label" for="line-diagnosis-bulk-select">Apply diagnoses to selected lines</label>
+                <select class="input" id="line-diagnosis-bulk-select" multiple size="4"></select>
+              </div>
+              <div class="field" style="grid-column: span 3; margin-bottom:0; justify-content:end;">
+                <label class="label" for="line-diagnosis-apply-btn">Bulk action</label>
+                <button class="btn" type="button" data-action="apply-line-diagnosis-links" id="line-diagnosis-apply-btn">Apply to selected lines</button>
+              </div>
+              <div class="field" style="grid-column: span 3; margin-bottom:0;">
+                <label class="label">Hint</label>
+                <div class="muted">Missing links are highlighted and will rerun post-closure validation after save.</div>
+              </div>
+            </div>
+            <div id="line-items-feedback" class="muted" style="margin-bottom:10px;"></div>
+            <div id="line-items-list"></div>
           </div>
-          <button class="btn secondary" type="button" data-action="auto-fix-primary" id="diagnosis-auto-fix" style="display:none;">Auto-fix primary</button>
-        </div>
-        <div class="grid" style="grid-template-columns: repeat(12, 1fr); gap:10px;">
-          <div class="field" style="grid-column: span 5; margin-bottom:0;">
-            <label class="label" for="diagnosis-search-input">ICD-10 search</label>
-            <input class="input" id="diagnosis-search-input" list="icd10-options" placeholder="Type ICD-10 code or description" />
-            <datalist id="icd10-options"></datalist>
-          </div>
-          <div class="field" style="grid-column: span 3; margin-bottom:0;">
-            <label class="label" for="diagnosis-type-input">Diagnosis role</label>
-            <select class="input" id="diagnosis-type-input">
-              <option value="PRIMARY">Primary</option>
-              <option value="SECONDARY">Secondary</option>
-            </select>
-          </div>
-          <div class="field" style="grid-column: span 2; margin-bottom:0;">
-            <label class="label" for="diagnosis-source-input">Source</label>
-            <input class="input" id="diagnosis-source-input" value="UserEntry" />
-          </div>
-          <div class="field" style="grid-column: span 2; margin-bottom:0; justify-content:end;">
-            <label class="label" for="diagnosis-add-btn">Action</label>
-            <button class="btn" type="button" data-action="add-diagnosis" id="diagnosis-add-btn">Add</button>
-          </div>
-        </div>
-        <div id="diagnosis-feedback" class="muted" style="margin-top:10px;"></div>
-        <div id="diagnoses-list" style="margin-top:12px;"></div>
-      </div>
 
-      <div class="card" style="grid-column: span 5">
-        <h3>PMB and Costing Preview</h3>
-        <div id="claim-pmb-summary" class="muted">Run readiness to load PMB identification, routing, and costing preview.</div>
-      </div>
+          <!-- Canonical payload card -->
+          <div class="card" id="payload-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+              <h3 style="margin:0;">Canonical payload</h3>
+              <div class="row-actions">
+                <button class="btn secondary" type="button" data-action="build-payload">Build payload</button>
+                <button class="chip info" type="button" data-action="copy-canonical-json">Copy JSON</button>
+              </div>
+            </div>
+            <div id="payload-banner" class="inline-banner" hidden></div>
+            <div id="payload-preview" style="display:grid;gap:10px;"></div>
+            <!-- View JSON toggle -->
+            <details style="margin-top:12px;">
+              <summary class="chip" style="cursor:pointer;font-size:12px;">View raw JSON</summary>
+              <div style="margin-top:8px;">
+                <pre id="payload-raw-json" style="max-height:260px;overflow:auto;font-size:11px;"></pre>
+              </div>
+            </details>
+          </div>
 
-      <div class="card" id="line_items" data-field="line_items" style="grid-column: span 12">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:10px;">
-          <div>
-            <h3>Line items and diagnosis linkage</h3>
-            <div class="muted">Resolve post-closure diagnosis linkage warnings directly on each billed line.</div>
-          </div>
-        </div>
-        <div class="grid" style="grid-template-columns: repeat(12, 1fr); gap:10px; margin-bottom:12px;">
-          <div class="field" style="grid-column: span 6; margin-bottom:0;">
-            <label class="label" for="line-diagnosis-bulk-select">Apply diagnoses to selected lines</label>
-            <select class="input" id="line-diagnosis-bulk-select" multiple size="4"></select>
-          </div>
-          <div class="field" style="grid-column: span 3; margin-bottom:0; justify-content:end;">
-            <label class="label" for="line-diagnosis-apply-btn">Bulk action</label>
-            <button class="btn" type="button" data-action="apply-line-diagnosis-links" id="line-diagnosis-apply-btn">Apply to selected lines</button>
-          </div>
-          <div class="field" style="grid-column: span 3; margin-bottom:0;">
-            <label class="label">Hint</label>
-            <div class="muted">Missing links are highlighted and will rerun post-closure validation after save.</div>
-          </div>
-        </div>
-        <div id="line-items-feedback" class="muted" style="margin-bottom:10px;"></div>
-        <div id="line-items-list"></div>
-      </div>
+          <!-- Submission tool card -->
+          <div class="card" id="submission_tool" data-field="submission_tool">
+            <h3>Submission tool</h3>
 
-      <div class="card" style="grid-column: span 7">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;">
-          <h3>Canonical payload stages</h3>
-          <button class="chip info" type="button" data-action="copy-canonical-json">Copy JSON</button>
-        </div>
-        <div id="payload-preview" style="display:grid;gap:12px;margin-top:12px;"></div>
-      </div>
-      <div class="card" id="submission_tool" data-field="submission_tool" style="grid-column: span 5">
-        <h3>Submission tool</h3>
-        <div class="row-actions" style="margin-bottom:12px;">
-          <button class="chip" type="button" data-action="generate-edi">Generate EDI</button>
-          <button class="chip" type="button" data-action="validate-edi">Validate EDI</button>
-          <button class="chip" type="button" data-action="download-edi">Download EDI</button>
-          <button class="chip info" type="button" data-action="submit-edi-switch">Submit via Switch</button>
-        </div>
-        <div id="edi-feedback" class="muted" style="margin-bottom:10px;">Generate an EDI artifact to validate, export, or submit.</div>
-        <pre id="edi-preview" style="max-height:260px;overflow:auto;">No EDI artifact generated yet.</pre>
-        <div style="margin-top:12px;">
-          <h4 style="margin:0 0 8px 0;">Transport timeline</h4>
-          <div id="transport-log-timeline" class="muted">No transport events yet.</div>
-        </div>
-      </div>
-    </div>
-    
+            <!-- Stepper -->
+            <div class="submission-stepper" id="submission-stepper" role="list" aria-label="Submission steps">
+              <div class="stepper-step" data-step="generate" data-state="idle" role="listitem">
+                <div class="stepper-indicator"><span class="stepper-num">1</span></div>
+                <span class="stepper-label">Generate</span>
+              </div>
+              <div class="stepper-connector" aria-hidden="true"></div>
+              <div class="stepper-step" data-step="validate" data-state="idle" role="listitem">
+                <div class="stepper-indicator"><span class="stepper-num">2</span></div>
+                <span class="stepper-label">Validate</span>
+              </div>
+              <div class="stepper-connector" aria-hidden="true"></div>
+              <div class="stepper-step" data-step="submit" data-state="idle" role="listitem">
+                <div class="stepper-indicator"><span class="stepper-num">3</span></div>
+                <span class="stepper-label">Submit</span>
+              </div>
+              <div class="stepper-connector" aria-hidden="true"></div>
+              <div class="stepper-step" data-step="response" data-state="idle" role="listitem">
+                <div class="stepper-indicator"><span class="stepper-num">4</span></div>
+                <span class="stepper-label">Response</span>
+              </div>
+            </div>
+
+            <!-- Status card -->
+            <div class="edi-status-card" id="edi-status-card">
+              <div id="edi-feedback" class="muted">Generate an EDI artifact to validate, export, or submit.</div>
+              <div id="edi-artifact-info" style="display:none;margin-top:8px;" class="drawer-grid">
+                <div class="mini-card">
+                  <strong>Artifact</strong>
+                  <span class="code" id="edi-artifact-id">—</span>
+                </div>
+                <div class="mini-card">
+                  <strong>Validation</strong>
+                  <span class="chip" id="edi-validation-chip">—</span>
+                </div>
+              </div>
+              <div class="field" style="margin:10px 0 0 0;">
+                <label class="label" for="edi-idempotency-key">Idempotency key</label>
+                <input class="input" id="edi-idempotency-key" placeholder="Auto-suggested on generate" />
+              </div>
+              <div id="edi-error-banner" class="inline-banner" hidden></div>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="edi-actions">
+              <button class="btn secondary" type="button" data-action="generate-edi">Generate EDI</button>
+              <button class="btn secondary" type="button" data-action="validate-edi">Validate EDI</button>
+              <button class="btn secondary" type="button" data-action="download-edi">Download EDI</button>
+              <button class="btn" type="button" data-action="submit-edi-switch" id="submit-edi-btn" disabled>Submit via Switch</button>
+            </div>
+
+            <!-- Transport timeline -->
+            <div style="margin-top:16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap;">
+                <h4 style="margin:0;font-size:13px;">Transport timeline</h4>
+                <select class="input" id="transport-filter" style="padding:4px 8px;font-size:12px;width:auto;">
+                  <option value="">All events</option>
+                  <option value="GENERATED">Generated</option>
+                  <option value="VALIDATED">Validated</option>
+                  <option value="QUEUED">Queued</option>
+                  <option value="SENT">Sent</option>
+                  <option value="RESPONSE">Response</option>
+                </select>
+              </div>
+              <div id="transport-log-timeline" class="muted">No transport events yet.</div>
+            </div>
+
+            <!-- Raw EDI (secondary) -->
+            <details style="margin-top:12px;">
+              <summary class="chip" style="cursor:pointer;font-size:12px;">View raw EDI</summary>
+              <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">
+                <button class="chip info" style="align-self:flex-start;" type="button" onclick="navigator.clipboard.writeText(document.getElementById('edi-preview')?.textContent||'').then(()=>window.showToast&&window.showToast('EDI copied','success',{title:'Copied',duration:2000}))">Copy EDI</button>
+                <pre id="edi-preview" style="max-height:220px;overflow:auto;font-size:11px;">No EDI artifact generated yet.</pre>
+              </div>
+            </details>
+          </div>
+
+        </div><!-- /cockpit-left -->
+
+        <!-- ── RIGHT COLUMN: context sidebar ── -->
+        <div id="cockpit-right" class="cockpit-right">
+
+          <!-- Claim summary -->
+          <div class="card summary-card">
+            <h3>Claim summary</h3>
+            <div class="panel">
+              <div class="kv"><span>Claim ID</span><strong class="code" id="claim-number-r">—</strong></div>
+              <div class="kv"><span>Member</span><strong id="claim-member-r">—</strong></div>
+              <div class="kv"><span>Status</span><strong><span class="chip" id="claim-status-r">—</span></strong></div>
+              <div class="kv"><span>Created</span><strong id="claim-created-at" class="muted">—</strong></div>
+              <div class="kv"><span>Version</span><strong id="claim-version" class="muted">—</strong></div>
+            </div>
+          </div>
+
+          <!-- PMB & Costing -->
+          <div class="card">
+            <h3>PMB &amp; Costing Preview</h3>
+            <div id="claim-pmb-summary" class="muted">Run readiness to load PMB identification, routing, and costing preview.</div>
+          </div>
+
+          <!-- Attachments summary -->
+          <div class="card" id="attachments-summary-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <h3 style="margin:0;">Attachments</h3>
+              <div class="row-actions">
+                <button class="chip info" type="button" data-action="add-attachment">Add document</button>
+                <button class="chip" type="button" data-action="mark-attachment-provided">Mark provided</button>
+              </div>
+            </div>
+            <div id="attachments-summary" class="muted">Loading attachments…</div>
+          </div>
+
+          <!-- Quick audit -->
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <h3 style="margin:0;">Recent activity</h3>
+              <a class="chip info" href="audit.html">All events</a>
+            </div>
+            <div id="quick-audit-list" class="muted">—</div>
+          </div>
+
+        </div><!-- /cockpit-right -->
+
+      </div><!-- /cockpit-body -->
+
     </main>
   </div>
 

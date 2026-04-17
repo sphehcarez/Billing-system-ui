@@ -217,6 +217,7 @@
     highlightedLineIds: [],
     highlightedAttachmentTypes: { required: [], recommended: [] },
     icd10Reference: [],
+    ediStepperState: { generate: "idle", validate: "idle", submit: "idle", response: "idle" },
   };
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -655,7 +656,11 @@
     const originalLabel = button.textContent;
 
     button.disabled = true;
-    button.textContent = "Working...";
+    if (button.classList.contains("btn")) {
+      button.classList.add("loading");
+    } else {
+      button.textContent = "Working…";
+    }
 
     try {
       switch (action) {
@@ -786,6 +791,9 @@
         case "simulate-pmb-mapping":
           await handleSimulatePmbMapping();
           break;
+        case "view-transport-detail":
+          await handleViewTransportDetail(id);
+          break;
         default:
           throw new Error(`Unsupported action: ${action}`);
       }
@@ -795,6 +803,7 @@
       });
     } finally {
       button.disabled = false;
+      button.classList.remove("loading");
       button.textContent = originalLabel;
     }
   }
@@ -1133,13 +1142,14 @@
 
   async function loadClaimDetail() {
     const claimId = state.claimId || 1;
-    const [claim, diagnoses, lineItems, attachments, transportLogs, icd10Reference] = await Promise.all([
+    const [claim, diagnoses, lineItems, attachments, transportLogs, icd10Reference, auditLogs] = await Promise.all([
       window.api.getClaim(claimId),
       window.api.getClaimDiagnoses(claimId),
       window.api.getClaimLineItems(claimId),
       window.api.getClaimAttachments(claimId),
       window.api.getClaimTransportLogs(claimId),
       state.icd10Reference.length ? Promise.resolve(state.icd10Reference) : window.api.getIcd10Reference(),
+      state.auditLogs.length ? Promise.resolve(state.auditLogs) : window.api.getAuditLogs().catch(() => []),
     ]);
     state.claimId = claim.id;
     state.claimDetail = claim;
@@ -1149,28 +1159,55 @@
     state.claimTransportLogs = transportLogs || [];
     state.latestEdiArtifact = claim.latest_edi_artifact || null;
     state.icd10Reference = icd10Reference || [];
+    state.auditLogs = auditLogs || [];
+    // Reflect transport log history in stepper without resetting in-progress state
+    if (state.ediStepperState.generate === "idle" && transportLogs?.length) {
+      const events = new Set((transportLogs || []).map((l) => l.event));
+      state.ediStepperState = {
+        generate: events.has("GENERATED") ? "complete" : "idle",
+        validate: events.has("VALIDATED") ? "complete" : "idle",
+        submit: events.has("SENT") ? "complete" : "idle",
+        response: events.has("RESPONSE") ? "complete" : "idle",
+      };
+    }
     try {
       state.structuredPayload = await window.api.getStructuredClaimPayload(claim.id, claim.version);
     } catch (_) {
       state.structuredPayload = null;
     }
 
+    const memberLabel = claim.member_number || `Patient ${claim.patient_id}`;
+
+    // Sticky cockpit header
     setTextById("claim-number", claim.claim_number);
-    setTextById("claim-member", claim.member_number || `Patient ${claim.patient_id}`);
+    setTextById("claim-member", memberLabel);
     setChipById("claim-status-chip", claim.status, claimStatusClass(claim));
+
+    // Right-column summary mirror
+    setTextById("claim-number-r", claim.claim_number);
+    setTextById("claim-member-r", memberLabel);
+    setChipById("claim-status-r", claim.status, claimStatusClass(claim));
+    setTextById("claim-created-at", claim.created_at ? formatDateTime(claim.created_at) : "—");
+    setTextById("claim-version", claim.version != null ? String(claim.version) : "—");
+
+    // Lifecycle chips
     setTextById("readiness-status", upperCaseValue(claim.readiness_status));
     setTextById("closure-status", claim.latest_snapshot ? "PASS" : "PENDING");
     setTextById("post-closure-status", claim.validation_status ? upperCaseValue(claim.validation_status) : "PENDING");
+
     renderDiagnosisReferenceOptions();
     renderClaimDiagnoses();
     renderClaimLineDiagnosisOptions();
     renderClaimLineItems();
     renderClaimAttachments();
+    renderAttachmentsSummary();
+    renderQuickAudit();
     renderClaimPmbSummary(
       claim.latest_pmb_decision,
       claim.latest_benefit_route_decision,
       claim.latest_costing_preview,
     );
+    renderSubmissionStepper(state.ediStepperState);
     renderStructuredPayload();
     renderEdiPanel();
     renderTransportTimeline();
@@ -1363,93 +1400,357 @@
     `;
   }
 
+  function canonicalToStages(payload) {
+    if (!payload) return [];
+    const c = payload.canonical_json || payload;
+    const def = (v) => v != null && v !== "" && !(Array.isArray(v) && v.length === 0);
+    const tile = (name, summary, fields, missing) => ({
+      name,
+      summary,
+      fields: fields.filter((f) => def(f.value)),
+      missing: missing.filter((m) => !def(m.present)),
+      complete: missing.every((m) => def(m.present)),
+    });
+    return [
+      tile("Patient & Member", "Demographics and scheme membership",
+        [
+          { label: "Patient ID", value: c.patient_id },
+          { label: "Member #", value: c.member_number },
+          { label: "Scheme", value: c.scheme_name },
+          { label: "Option", value: c.scheme_option },
+          { label: "DoB", value: c.date_of_birth },
+        ],
+        [
+          { label: "Patient ID", present: c.patient_id },
+          { label: "Scheme", present: c.scheme_name },
+        ],
+      ),
+      tile("Provider", "Treating provider and facility",
+        [
+          { label: "Provider", value: c.provider_name || c.provider_id },
+          { label: "Facility", value: c.facility_name },
+          { label: "Practice #", value: c.practice_number },
+          { label: "Treating Dr", value: c.treating_doctor },
+        ],
+        [{ label: "Provider", present: c.provider_id }],
+      ),
+      tile("Diagnoses", "ICD-10 codes linked to this claim",
+        (c.diagnoses || []).map((d, i) => ({
+          label: i === 0 ? "Primary" : `Secondary ${i}`,
+          value: d.icd10_code || d,
+        })),
+        [{ label: "Primary ICD-10", present: (c.diagnoses || []).length }],
+      ),
+      tile("Service Lines", "Billed procedures and tariff codes",
+        (c.line_items || c.service_lines || []).map((l, i) => ({
+          label: `Line ${i + 1}`,
+          value: `${l.tariff_code || l.procedure_code || "?"} — ${formatCurrency((l.billed_amount_cents || l.billed_amount || 0) / 100)}`,
+        })),
+        [{ label: "At least one service line", present: (c.line_items || c.service_lines || []).length }],
+      ),
+      tile("PMB & Routing", "Prescribed minimum benefit decision",
+        [
+          { label: "PMB status", value: c.pmb_status },
+          { label: "Route", value: c.benefit_route },
+          { label: "Condition", value: c.pmb_condition_name || c.condition_name },
+          { label: "Pricing basis", value: c.pricing_basis },
+        ],
+        [],
+      ),
+      tile("Financials", "Amounts and liability",
+        [
+          { label: "Billed total", value: formatCurrency((c.total_billed_cents || c.total_billed || 0) / 100) },
+          { label: "Scheme allowed", value: formatCurrency((c.allowed_total_cents || c.allowed_total || 0) / 100) },
+          { label: "Member liability", value: formatCurrency((c.member_liability_cents || c.member_liability || 0) / 100) },
+        ],
+        [],
+      ),
+    ];
+  }
+
   function renderStructuredPayload() {
     const container = document.getElementById("payload-preview");
-    if (!container) {
-      return;
-    }
+    const rawEl = document.getElementById("payload-raw-json");
+    clearInlineBanner("payload-banner");
+    if (!container) return;
+
     const payload = state.structuredPayload;
-    if (!payload?.structured_tiles?.length) {
+    const rawJson = payload?.canonical_json || payload?.canonical_claim || null;
+
+    if (rawEl) {
+      rawEl.textContent = rawJson ? JSON.stringify(rawJson, null, 2) : "No canonical JSON available.";
+    }
+
+    const tiles = payload?.structured_tiles?.length
+      ? payload.structured_tiles.map((t) => ({
+          name: t.title,
+          summary: t.summary || "",
+          fields: t.fields || [],
+          missing: (t.missing_fields || []).map((m) => ({ label: m.message, present: false, action: m.action })),
+          complete: t.status === "complete",
+        }))
+      : canonicalToStages(rawJson);
+
+    if (!tiles.length) {
       container.innerHTML =
         '<div class="panel"><strong>No structured payload available.</strong><div class="muted" style="margin-top:6px;">Build the payload or complete the claim workflow to see staged tiles.</div></div>';
       return;
     }
-    container.innerHTML = payload.structured_tiles
+
+    container.innerHTML = tiles
       .map(
         (tile) => `
-          <article style="border:1px solid #e5e7eb;border-radius:16px;padding:14px;display:grid;gap:10px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
-              <div>
-                <strong>${escapeHtml(tile.title)}</strong>
-                <div class="muted" style="margin-top:4px;">${escapeHtml(tile.summary || "")}</div>
+          <details class="payload-tile${tile.complete ? "" : " open"}" ${tile.complete ? "" : "open"}>
+            <summary class="payload-tile-header">
+              <div class="payload-tile-title">
+                <span class="payload-tile-name">${escapeHtml(tile.name)}</span>
+                <span class="payload-tile-summary">${escapeHtml(tile.summary)}</span>
               </div>
-              <span class="chip ${tile.status === "complete" ? "pass" : "warn"}">${escapeHtml(tile.status)}</span>
+              <span class="chip ${tile.complete ? "pass" : tile.missing?.length ? "warn" : "info"}">${tile.complete ? "COMPLETE" : tile.missing?.length ? "INCOMPLETE" : "PRESENT"}</span>
+              <span class="payload-tile-toggle" aria-hidden="true">▾</span>
+            </summary>
+            <div class="payload-tile-body">
+              ${
+                tile.fields.length
+                  ? `<dl style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;margin:0;">
+                      ${tile.fields
+                        .map(
+                          (f) =>
+                            `<dt style="color:var(--ink-500);font-size:12px;">${escapeHtml(f.label)}</dt>
+                             <dd style="margin:0;font-size:12px;font-weight:600;">${escapeHtml(String(f.value ?? "—"))}</dd>`,
+                        )
+                        .join("")}
+                    </dl>`
+                  : '<span class="muted" style="font-size:12px;">No fields captured yet.</span>'
+              }
+              ${
+                (tile.missing || []).length
+                  ? `<div style="margin-top:10px;display:grid;gap:6px;">
+                      ${(tile.missing || [])
+                        .map(
+                          (m) => `
+                            <div class="payload-missing-item">
+                              <span style="font-size:12px;">${escapeHtml(m.label || m.message || "Missing field")}</span>
+                              ${
+                                m.action
+                                  ? `<button type="button" class="chip" data-jump-target="${escapeHtml(m.action.target)}">${escapeHtml(m.action.label || `Go to ${m.action.target}`)}</button>`
+                                  : ""
+                              }
+                            </div>`,
+                        )
+                        .join("")}
+                    </div>`
+                  : ""
+              }
             </div>
-            <div class="muted" style="display:grid;gap:4px;">
-              ${(tile.fields || [])
-                .map((field) => `<div><strong>${escapeHtml(field.label)}:</strong> ${escapeHtml(field.value ?? "-")}</div>`)
-                .join("")}
-            </div>
-            ${
-              (tile.missing_fields || []).length
-                ? `<div style="display:grid;gap:6px;">${tile.missing_fields
-                    .map(
-                      (item) => `
-                        <div style="border:1px dashed #fdba74;border-radius:12px;padding:10px;background:#fff7ed;">
-                          <div style="font-weight:600;">${escapeHtml(item.message)}</div>
-                          ${
-                            item.action
-                              ? `<button type="button" class="chip" data-jump-target="${escapeHtml(
-                                  item.action.target,
-                                )}">${escapeHtml(item.action.label || `Go to ${item.action.target}`)}</button>`
-                              : ""
-                          }
-                        </div>
-                      `,
-                    )
-                    .join("")}</div>`
-                : ""
-            }
-          </article>
-        `,
+          </details>`,
       )
       .join("");
   }
 
+  function setInlineBanner(id, message, tone = "error") {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = message;
+    el.className = `inline-banner ${tone}`;
+    el.removeAttribute("hidden");
+  }
+
+  function clearInlineBanner(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = "";
+    el.setAttribute("hidden", "");
+  }
+
+  function renderSubmissionStepper(stepStates) {
+    const stepper = document.getElementById("submission-stepper");
+    if (!stepper) return;
+    const keys = ["generate", "validate", "submit", "response"];
+    keys.forEach((key) => {
+      const step = stepper.querySelector(`[data-step="${key}"]`);
+      if (step) step.dataset.state = stepStates[key] || "idle";
+    });
+  }
+
   function renderEdiPanel() {
     const artifact = state.latestEdiArtifact;
+    clearInlineBanner("edi-error-banner");
+
+    // Status feedback text
     const feedback = document.getElementById("edi-feedback");
     if (feedback) {
       feedback.textContent = artifact
-        ? `Latest artifact ${artifact.artifact_id} · ${artifact.validation_errors?.length ? "Validation issues present" : "Ready for submission"}`
+        ? `Artifact ${artifact.artifact_id} · ${artifact.validation_errors?.length ? "Validation issues present" : "Ready for submission"}`
         : "Generate an EDI artifact to validate, export, or submit.";
     }
+
+    // Artifact info card
+    const infoCard = document.getElementById("edi-artifact-info");
+    if (infoCard) {
+      if (artifact) {
+        setTextById("edi-artifact-id", artifact.artifact_id || "—");
+        const validChip = document.getElementById("edi-validation-chip");
+        if (validChip) {
+          const hasErrors = artifact.validation_errors?.length;
+          validChip.textContent = hasErrors ? "ISSUES" : artifact.validated_at ? "VALID" : "PENDING";
+          validChip.className = `chip ${hasErrors ? "fail" : artifact.validated_at ? "pass" : ""}`;
+        }
+        infoCard.style.display = "";
+      } else {
+        infoCard.style.display = "none";
+      }
+    }
+
+    // Pre-fill idempotency key suggestion
+    const keyInput = document.getElementById("edi-idempotency-key");
+    if (keyInput && !keyInput.value && state.claimDetail) {
+      keyInput.placeholder = `edi-switch-${state.claimDetail.id || ""}-v${state.claimDetail.version || "1"}`;
+    }
+
+    // Enable submit button only when validated without errors
+    const submitBtn = document.getElementById("submit-edi-btn");
+    if (submitBtn) {
+      const canSubmit = artifact && artifact.validated_at && !artifact.validation_errors?.length;
+      submitBtn.disabled = !canSubmit;
+    }
+
+    // Raw EDI pre
     setPreById("edi-preview", artifact?.content || state.claimDetail?.latest_payload?.pseudo_edi || "No EDI artifact generated yet.");
   }
 
   function renderTransportTimeline() {
     const container = document.getElementById("transport-log-timeline");
-    if (!container) {
-      return;
-    }
-    const logs = state.claimTransportLogs || [];
+    if (!container) return;
+
+    const filterEl = document.getElementById("transport-filter");
+    const filterVal = filterEl?.value || "";
+    const logs = (state.claimTransportLogs || []).filter((l) => !filterVal || l.event === filterVal);
+
     if (!logs.length) {
-      container.textContent = "No transport events yet.";
+      container.innerHTML = '<span class="muted">No transport events yet.</span>';
       return;
     }
+
+    const eventTone = (evt) => {
+      if (evt === "GENERATED") return "info";
+      if (evt === "VALIDATED") return "pass";
+      if (evt === "SENT") return "pass";
+      if (evt === "RESPONSE") return "pass";
+      return "";
+    };
+
     container.innerHTML = logs
       .map(
         (log) => `
-          <article style="border-bottom:1px solid #e5e7eb;padding:8px 0;">
-            <div style="display:flex;justify-content:space-between;gap:12px;">
-              <strong>${escapeHtml(log.event)}</strong>
-              <span class="muted">${escapeHtml(formatDateTime(log.created_at))}</span>
+          <div class="transport-event">
+            <div class="transport-event-main">
+              <span class="chip ${eventTone(log.event)}" style="font-size:11px;">${escapeHtml(log.event || "—")}</span>
+              <span class="muted" style="font-size:11px;">${escapeHtml(formatDateTime(log.created_at))}</span>
             </div>
-            <div class="muted" style="margin-top:4px;">${escapeHtml(JSON.stringify(log.details || {}))}</div>
-          </article>
+            <div class="transport-event-detail">
+              ${escapeHtml(log.message || log.details?.message || JSON.stringify(log.details || {}))}
+            </div>
+            <div class="transport-event-actions">
+              <button class="chip" style="font-size:11px;" data-action="view-transport-detail" data-id="${escapeHtml(String(log.log_id || log.id || ""))}">Details</button>
+            </div>
+          </div>
         `,
       )
       .join("");
+
+    // Re-bind filter change
+    if (filterEl && !filterEl.dataset.bound) {
+      filterEl.dataset.bound = "1";
+      filterEl.addEventListener("change", () => renderTransportTimeline());
+    }
+  }
+
+  function handleViewTransportDetail(logId) {
+    const log = (state.claimTransportLogs || []).find(
+      (l) => String(l.log_id || l.id || "") === String(logId),
+    );
+    if (!log) {
+      toastInfo("Transport event not found in local state.");
+      return;
+    }
+    showDrawer({
+      title: `Transport event · ${escapeHtml(log.event || "—")}`,
+      subtitle: formatDateTime(log.created_at),
+      content: `<pre style="font-size:11px;overflow:auto;max-height:340px;">${escapeHtml(JSON.stringify(log, null, 2))}</pre>`,
+      actions: [
+        {
+          label: "Copy JSON",
+          onClick: () => navigator.clipboard.writeText(JSON.stringify(log, null, 2)).then(() => toastSuccess("Copied", { duration: 2000 })),
+          className: "chip info",
+        },
+      ],
+    });
+  }
+
+  function renderAttachmentsSummary() {
+    const container = document.getElementById("attachments-summary");
+    if (!container) return;
+    const attachments = state.claimAttachments || [];
+    if (!attachments.length) {
+      container.innerHTML = '<span class="muted">No attachments on this claim.</span>';
+      return;
+    }
+    const counts = attachments.reduce((acc, a) => {
+      acc[a.status] = (acc[a.status] || 0) + 1;
+      return acc;
+    }, {});
+    const chips = Object.entries(counts)
+      .map(([status, n]) => `<span class="chip ${status === "PROVIDED" ? "pass" : "warn"}">${escapeHtml(status)} (${n})</span>`)
+      .join(" ");
+    container.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">${chips}</div>
+      <table class="table" style="font-size:12px;">
+        <thead><tr><th>Type</th><th>Status</th><th>File</th></tr></thead>
+        <tbody>
+          ${attachments
+            .map(
+              (a) => `<tr>
+                <td><span class="chip ${["REQUIRED", "MISSING"].includes(a.status) ? "warn" : "info"}" style="font-size:11px;">${escapeHtml(a.doc_type)}</span></td>
+                <td>${escapeHtml(a.status)}</td>
+                <td class="code" style="font-size:11px;">${escapeHtml(a.filename || "—")}</td>
+              </tr>`,
+            )
+            .join("")}
+        </tbody>
+      </table>`;
+  }
+
+  function renderQuickAudit() {
+    const container = document.getElementById("quick-audit-list");
+    if (!container) return;
+    const logs = state.auditLogs || [];
+    const claimId = state.claimId;
+    const relevant = claimId
+      ? logs.filter((l) => l.resource_id === claimId || l.claim_id === claimId).slice(-3).reverse()
+      : logs.slice(-3).reverse();
+    if (!relevant.length) {
+      container.innerHTML = '<span class="muted">No recent activity found.</span>';
+      return;
+    }
+    const badgeClass = (action) => {
+      if (action === "CREATE" || action === "create") return "create";
+      if (action === "UPDATE" || action === "update") return "update";
+      if (action === "DELETE" || action === "delete") return "delete";
+      if (action === "SUBMIT" || action === "submit") return "submit";
+      return "system";
+    };
+    container.innerHTML = relevant
+      .map(
+        (l) => `<div style="display:flex;flex-direction:column;gap:2px;padding:6px 0;border-bottom:1px solid var(--line-200);">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="audit-badge ${badgeClass(l.action)}">${escapeHtml(l.action || "—")}</span>
+            <span style="font-size:12px;font-weight:600;">${escapeHtml(l.resource_type || l.entity || "—")}</span>
+          </div>
+          <span class="muted" style="font-size:11px;">${escapeHtml(formatDateTime(l.created_at || l.timestamp))} · ${escapeHtml(l.user_email || l.performed_by || "system")}</span>
+        </div>`,
+      )
+      .join("")
+      + `<div style="margin-top:6px;"><a class="chip info" style="font-size:11px;" href="audit.html">View all events</a></div>`;
   }
 
   function renderClaimPmbSummary(pmbDecision, routingDecision, costingPreview) {
@@ -1814,27 +2115,49 @@
   }
 
   async function handleGenerateEdi() {
-    const result = await window.api.generateClaimEdi(resolveClaimId(state.claimId), state.claimDetail.version);
-    state.latestEdiArtifact = result.artifact;
-    state.claimTransportLogs = await window.api.getClaimTransportLogs(resolveClaimId(state.claimId));
-    renderEdiPanel();
-    renderTransportTimeline();
-    showToast(`EDI generated for claim ${resolveClaimId(state.claimId)}.`, "success", {
-      title: "EDI generated",
-    });
+    state.ediStepperState = { generate: "active", validate: "idle", submit: "idle", response: "idle" };
+    renderSubmissionStepper(state.ediStepperState);
+    clearInlineBanner("edi-error-banner");
+    try {
+      const result = await window.api.generateClaimEdi(resolveClaimId(state.claimId), state.claimDetail.version);
+      state.latestEdiArtifact = result.artifact;
+      state.claimTransportLogs = await window.api.getClaimTransportLogs(resolveClaimId(state.claimId));
+      state.ediStepperState.generate = "complete";
+      renderSubmissionStepper(state.ediStepperState);
+      renderEdiPanel();
+      renderTransportTimeline();
+      showToast(`EDI generated for claim ${resolveClaimId(state.claimId)}.`, "success", { title: "EDI generated" });
+    } catch (err) {
+      state.ediStepperState.generate = "error";
+      renderSubmissionStepper(state.ediStepperState);
+      setInlineBanner("edi-error-banner", formatErrorMessage(err, "generate EDI"), "error");
+      throw err;
+    }
   }
 
   async function handleValidateEdi() {
-    const result = await window.api.validateClaimEdi(resolveClaimId(state.claimId), state.claimDetail.version);
-    state.latestEdiArtifact = result.artifact;
-    state.claimTransportLogs = await window.api.getClaimTransportLogs(resolveClaimId(state.claimId));
-    renderEdiPanel();
-    renderTransportTimeline();
-    showToast(
-      result.valid ? "EDI validation passed." : `EDI validation failed: ${(result.errors || []).join(", ")}`,
-      result.valid ? "success" : "error",
-      { title: "EDI validation" },
-    );
+    state.ediStepperState.validate = "active";
+    renderSubmissionStepper(state.ediStepperState);
+    clearInlineBanner("edi-error-banner");
+    try {
+      const result = await window.api.validateClaimEdi(resolveClaimId(state.claimId), state.claimDetail.version);
+      state.latestEdiArtifact = result.artifact;
+      state.claimTransportLogs = await window.api.getClaimTransportLogs(resolveClaimId(state.claimId));
+      state.ediStepperState.validate = result.valid ? "complete" : "error";
+      renderSubmissionStepper(state.ediStepperState);
+      renderEdiPanel();
+      renderTransportTimeline();
+      showToast(
+        result.valid ? "EDI validation passed." : `EDI validation failed: ${(result.errors || []).join(", ")}`,
+        result.valid ? "success" : "error",
+        { title: "EDI validation" },
+      );
+    } catch (err) {
+      state.ediStepperState.validate = "error";
+      renderSubmissionStepper(state.ediStepperState);
+      setInlineBanner("edi-error-banner", formatErrorMessage(err, "validate EDI"), "error");
+      throw err;
+    }
   }
 
   async function handleDownloadEdi() {
@@ -1850,37 +2173,52 @@
   }
 
   async function handleSubmitEdiSwitch() {
+    const keyInput = document.getElementById("edi-idempotency-key");
+    const suggestedKey = keyInput?.value || `edi-switch-${resolveClaimId(state.claimId)}-v${state.claimDetail.version}`;
     const idempotencyKey = await showInputDialog({
       title: "Submit via Switch",
       label: "Idempotency key",
-      value: `edi-switch-${resolveClaimId(state.claimId)}-v${state.claimDetail.version}`,
+      value: suggestedKey,
       submitLabel: "Submit",
     });
-    if (idempotencyKey === null) {
-      return;
+    if (idempotencyKey === null) return;
+
+    state.ediStepperState.submit = "active";
+    renderSubmissionStepper(state.ediStepperState);
+    clearInlineBanner("edi-error-banner");
+    try {
+      const result = await window.api.submitClaimEdi(
+        resolveClaimId(state.claimId),
+        state.claimDetail.version,
+        "SWITCH",
+        idempotencyKey || null,
+      );
+      if (result.status === "blocked") {
+        state.ediStepperState.submit = "error";
+        renderSubmissionStepper(state.ediStepperState);
+        setInlineBanner("edi-error-banner", `EDI submission blocked: ${(result.errors || []).join(", ")}`, "error");
+        showToast(`EDI submission blocked: ${(result.errors || []).join(", ")}`, "error", { title: "Submission blocked" });
+        return;
+      }
+      state.latestEdiArtifact = result.artifact;
+      state.claimTransportLogs = result.transport_logs || [];
+      state.ediStepperState.submit = "complete";
+      state.ediStepperState.response = result.submission ? "complete" : "idle";
+      renderSubmissionStepper(state.ediStepperState);
+      await refreshClaimViews();
+      renderEdiPanel();
+      renderTransportTimeline();
+      showToast(
+        `Submitted via Switch. Claim status: ${result.submission?.submission_status || result.submission?.status || "-"}.`,
+        "success",
+        { title: "Switch submission completed" },
+      );
+    } catch (err) {
+      state.ediStepperState.submit = "error";
+      renderSubmissionStepper(state.ediStepperState);
+      setInlineBanner("edi-error-banner", formatErrorMessage(err, "submit EDI"), "error");
+      throw err;
     }
-    const result = await window.api.submitClaimEdi(
-      resolveClaimId(state.claimId),
-      state.claimDetail.version,
-      "SWITCH",
-      idempotencyKey || null,
-    );
-    if (result.status === "blocked") {
-      showToast(`EDI submission blocked: ${(result.errors || []).join(", ")}`, "error", {
-        title: "Submission blocked",
-      });
-      return;
-    }
-    state.latestEdiArtifact = result.artifact;
-    state.claimTransportLogs = result.transport_logs || [];
-    await refreshClaimViews();
-    renderEdiPanel();
-    renderTransportTimeline();
-    showToast(
-      `Submitted via Switch. Claim status: ${result.submission?.submission_status || result.submission?.status || "-"}.`,
-      "success",
-      { title: "Switch submission completed" },
-    );
   }
 
   async function handleCopyCanonicalJson() {
