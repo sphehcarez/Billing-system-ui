@@ -94,6 +94,40 @@
   <pre id="settings-retention">Loading retention matrix...</pre>
 </div>
 
+<div class="card" id="pmb-mapping-admin" data-field="PMB_MAPPING_ADMIN">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;">
+    <div>
+      <h3>PMB Mapping Admin</h3>
+      <p class="muted" style="margin:6px 0 0 0;">Administrator-only ICD-10 to PMB mapping maintenance and simulation preview.</p>
+    </div>
+    <div class="row-actions">
+      <button class="chip info" data-action="new-pmb-mapping">New mapping</button>
+    </div>
+  </div>
+  <div class="grid" style="grid-template-columns: repeat(12, 1fr); gap:10px; margin:12px 0;">
+    <div class="field" style="grid-column: span 4; margin-bottom:0;">
+      <label class="label" for="pmb-simulate-icd10">Simulate by ICD-10</label>
+      <input class="input" id="pmb-simulate-icd10" placeholder="e.g. J11.1" />
+    </div>
+    <div class="field" style="grid-column: span 2; margin-bottom:0; justify-content:end;">
+      <label class="label" for="pmb-simulate-btn">Action</label>
+      <button class="btn secondary" data-action="simulate-pmb-mapping" id="pmb-simulate-btn" type="button">Simulate</button>
+    </div>
+    <div class="field" style="grid-column: span 6; margin-bottom:0;">
+      <label class="label">Simulation output</label>
+      <div id="pmb-simulation-output" class="muted">Run a simulation to see matching mappings and impacted claims.</div>
+    </div>
+  </div>
+  <table class="table">
+    <thead>
+      <tr><th>Mapping</th><th>ICD-10</th><th>Condition</th><th>Match</th><th>Effective</th><th>Actions</th></tr>
+    </thead>
+    <tbody id="pmb-mapping-rows">
+      <tr><td colspan="6" style="text-align:center;color:#999;">Loading PMB mappings...</td></tr>
+    </tbody>
+  </table>
+</div>
+
     </main>
   </div>
 

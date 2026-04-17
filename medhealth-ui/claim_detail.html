@@ -131,27 +131,52 @@
         <div id="claim-pmb-summary" class="muted">Run readiness to load PMB identification, routing, and costing preview.</div>
       </div>
 
-      <div class="card" style="grid-column: span 6">
-        <h3>Canonical payload preview</h3>
-        <pre id="payload-preview">{
-  "header": {"claim_id": "…", "scheme_id": "SCHEMEA", "member_number": "12345677"},
-  "diagnoses": ["J11.1"],
-  "lines": [{"line_id":"L1","code":"CONS001","claimed_amount":500}],
-  "totals": {"claimed_total": 1000}
-}</pre>
+      <div class="card" id="line_items" data-field="line_items" style="grid-column: span 12">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:10px;">
+          <div>
+            <h3>Line items and diagnosis linkage</h3>
+            <div class="muted">Resolve post-closure diagnosis linkage warnings directly on each billed line.</div>
+          </div>
+        </div>
+        <div class="grid" style="grid-template-columns: repeat(12, 1fr); gap:10px; margin-bottom:12px;">
+          <div class="field" style="grid-column: span 6; margin-bottom:0;">
+            <label class="label" for="line-diagnosis-bulk-select">Apply diagnoses to selected lines</label>
+            <select class="input" id="line-diagnosis-bulk-select" multiple size="4"></select>
+          </div>
+          <div class="field" style="grid-column: span 3; margin-bottom:0; justify-content:end;">
+            <label class="label" for="line-diagnosis-apply-btn">Bulk action</label>
+            <button class="btn" type="button" data-action="apply-line-diagnosis-links" id="line-diagnosis-apply-btn">Apply to selected lines</button>
+          </div>
+          <div class="field" style="grid-column: span 3; margin-bottom:0;">
+            <label class="label">Hint</label>
+            <div class="muted">Missing links are highlighted and will rerun post-closure validation after save.</div>
+          </div>
+        </div>
+        <div id="line-items-feedback" class="muted" style="margin-bottom:10px;"></div>
+        <div id="line-items-list"></div>
       </div>
-      <div class="card" style="grid-column: span 6">
-        <h3>Pseudo-EDI preview</h3>
-        <pre id="edi-preview">UNH+ABC123...+MEDCLM+0:912:13.4+ZA'
-BGM+CLAIM+...'
-DTM+137+2026-04-14+102'
-NAD+MSN+12345677'
-RFF+SCH+SCHEMEA'
-RFF+ICD+J11.1'
-LIN+1+CONS001+Procedure'
-QTY+47+1'
-MOA+203+500'
-UNT+...'</pre>
+
+      <div class="card" style="grid-column: span 7">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;">
+          <h3>Canonical payload stages</h3>
+          <button class="chip info" type="button" data-action="copy-canonical-json">Copy JSON</button>
+        </div>
+        <div id="payload-preview" style="display:grid;gap:12px;margin-top:12px;"></div>
+      </div>
+      <div class="card" id="submission_tool" data-field="submission_tool" style="grid-column: span 5">
+        <h3>Submission tool</h3>
+        <div class="row-actions" style="margin-bottom:12px;">
+          <button class="chip" type="button" data-action="generate-edi">Generate EDI</button>
+          <button class="chip" type="button" data-action="validate-edi">Validate EDI</button>
+          <button class="chip" type="button" data-action="download-edi">Download EDI</button>
+          <button class="chip info" type="button" data-action="submit-edi-switch">Submit via Switch</button>
+        </div>
+        <div id="edi-feedback" class="muted" style="margin-bottom:10px;">Generate an EDI artifact to validate, export, or submit.</div>
+        <pre id="edi-preview" style="max-height:260px;overflow:auto;">No EDI artifact generated yet.</pre>
+        <div style="margin-top:12px;">
+          <h4 style="margin:0 0 8px 0;">Transport timeline</h4>
+          <div id="transport-log-timeline" class="muted">No transport events yet.</div>
+        </div>
       </div>
     </div>
     
