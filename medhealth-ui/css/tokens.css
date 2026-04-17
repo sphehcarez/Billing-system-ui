@@ -1,0 +1,84 @@
+/* MedHealth Design Tokens — single source of truth for CSS variables.
+   Import this file first; do not scatter raw hex/px values elsewhere. */
+
+:root {
+  /* ── Brand palette (verbatim — do not alter hex values) ─────────────── */
+  --brand-900: #0b3e5a;
+  --brand-800: #0f567b;
+  --brand-700: #13709f;
+  --brand-600: #0a86bd;
+  --brand-500: #00a3d9;
+  --brand-200: #cfefff;
+
+  /* ── Ink (text hierarchy) ────────────────────────────────────────────── */
+  --ink-900: #0b1220;
+  --ink-700: #2b3648;
+  --ink-500: #55637a;
+
+  /* ── Surfaces & borders ─────────────────────────────────────────────── */
+  --line-200: #e6edf5;
+  --bg-50:    #f6f9fc;
+  --card:     #ffffff;
+
+  /* ── Semantic status (mapped from existing palette) ─────────────────── */
+  --color-success:        #067647;
+  --color-success-bg:     #ecfdf5;
+  --color-success-border: rgba(6, 118, 71, 0.35);
+
+  --color-warn:           #b36b00;
+  --color-warn-bg:        #fffbeb;
+  --color-warn-border:    rgba(179, 107, 0, 0.35);
+
+  --color-error:          #b42318;
+  --color-error-bg:       #fef2f2;
+  --color-error-border:   rgba(180, 35, 24, 0.35);
+
+  --color-info:           #13709f;
+  --color-info-bg:        rgba(19, 112, 159, 0.06);
+  --color-info-border:    rgba(19, 112, 159, 0.35);
+
+  /* Legacy aliases — keep for backward-compat, point to semantics */
+  --pass: var(--color-success);
+  --fail: var(--color-error);
+  --warn: var(--color-warn);
+
+  /* ── Elevation & shape ───────────────────────────────────────────────── */
+  --shadow:    0 10px 30px rgba(11, 18, 32, 0.08);
+  --shadow-sm: 0 2px 8px  rgba(11, 18, 32, 0.06);
+  --radius:    18px;
+  --radius-sm: 12px;
+  --radius-xs: 8px;
+
+  /* ── Spacing scale (4-point) ─────────────────────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* ── Focus ring ─────────────────────────────────────────────────────── */
+  --focus-ring: 0 0 0 3px rgba(10, 134, 189, 0.35);
+
+  /* ── Motion ─────────────────────────────────────────────────────────── */
+  --transition:      150ms ease;
+  --transition-slow: 220ms ease;
+
+  /* ── Typography ─────────────────────────────────────────────────────── */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+               Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+               "Liberation Mono", "Courier New", monospace;
+
+  /* Legacy aliases */
+  --sans: var(--font-sans);
+  --mono: var(--font-mono);
+}
+
+/* Respect prefers-reduced-motion — disable all transitions and animations */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration:  0.01ms !important;
+  }
+}

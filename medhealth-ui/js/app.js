@@ -1,33 +1,5 @@
 (() => {
-  // ===== TOAST NOTIFICATION SYSTEM =====
-  function showToast(message, type = "info", duration = 4000) {
-    let host = document.getElementById("toast-host");
-    if (!host) {
-      host = document.createElement("div");
-      host.id = "toast-host";
-      document.body.appendChild(host);
-    }
-    const toast = document.createElement("div");
-    toast.className = `toast ${type}`;
-    const role = type === "error" ? "alert" : "status";
-    const live = type === "error" ? "assertive" : "polite";
-    toast.setAttribute("role", role);
-    toast.setAttribute("aria-live", live);
-    toast.innerHTML = `<span class="toast-msg">${message}</span><button class="toast-close" aria-label="Dismiss">&times;</button>`;
-    toast.querySelector(".toast-close").addEventListener("click", () => dismissToast(toast));
-    host.appendChild(toast);
-    if (duration > 0) setTimeout(() => dismissToast(toast), duration);
-    return toast;
-  }
-  function dismissToast(toast) {
-    toast.style.animation = "toast-out 0.2s ease forwards";
-    setTimeout(() => toast.remove(), 200);
-  }
-  function toastSuccess(msg) { return showToast(msg, "success"); }
-  function toastError(msg)   { return showToast(msg, "error"); }
-  function toastInfo(msg)    { return showToast(msg, "info"); }
-  function toastWarning(msg) { return showToast(msg, "warning"); }
-  // ===== END TOAST SYSTEM =====
+  // Toast + shortcut functions defined further below (canonical at ensureToastHost / showToast)
 
   const ROLE_MODULES = {
     Administrator: [
@@ -374,6 +346,7 @@
     }, 30000);
   }
 
+  // ===== TOAST — canonical implementation =====
   function ensureToastHost() {
     let host = document.getElementById("toast-host");
     if (!host) {
@@ -388,17 +361,34 @@
   function showToast(message, tone = "info", options = {}) {
     const host = ensureToastHost();
     const toast = document.createElement("div");
+    const isError = tone === "error";
+    const defaultTitle = isError ? "Action failed" : tone === "success" ? "Saved" : "Heads up";
     toast.className = `toast ${tone}`;
+    toast.setAttribute("role", isError ? "alert" : "status");
+    toast.setAttribute("aria-live", isError ? "assertive" : "polite");
     toast.innerHTML = `
-      <div class="toast-title">${escapeHtml(options.title || (tone === "error" ? "Action failed" : tone === "success" ? "Saved" : "Heads up"))}</div>
-      <div class="toast-message">${escapeHtml(message)}</div>
+      <div class="toast-body">
+        <div class="toast-title">${escapeHtml(options.title || defaultTitle)}</div>
+        <div class="toast-message">${escapeHtml(message)}</div>
+      </div>
+      <button type="button" class="toast-close" aria-label="Dismiss notification">&times;</button>
     `;
-    host.appendChild(toast);
-    window.setTimeout(() => {
+    const dismiss = () => {
       toast.classList.add("hide");
       window.setTimeout(() => toast.remove(), 220);
-    }, options.duration || 4200);
+    };
+    toast.querySelector(".toast-close").addEventListener("click", dismiss);
+    host.appendChild(toast);
+    const duration = typeof options.duration === "number" ? options.duration : 4200;
+    if (duration > 0) window.setTimeout(dismiss, duration);
+    return toast;
   }
+
+  function toastSuccess(msg, opts) { return showToast(msg, "success", opts || {}); }
+  function toastError(msg, opts)   { return showToast(msg, "error",   opts || {}); }
+  function toastInfo(msg, opts)    { return showToast(msg, "info",    opts || {}); }
+  function toastWarning(msg, opts) { return showToast(msg, "warning", opts || {}); }
+  // ===== END TOAST =====
 
   function formatErrorMessage(error, attemptedAction = "request") {
     if (!error) {
@@ -431,6 +421,7 @@
     `;
     overlay.appendChild(drawer);
     document.body.appendChild(overlay);
+
     const actionsBar = drawer.querySelector(".drawer-actions");
     actions.forEach((action) => {
       const button = document.createElement(action.href ? "a" : "button");
@@ -444,13 +435,31 @@
       button.textContent = action.label;
       actionsBar.appendChild(button);
     });
-    const close = () => overlay.remove();
-    overlay.addEventListener("click", (event) => {
-      if (event.target === overlay) {
-        close();
+
+    const previouslyFocused = document.activeElement;
+    const closeBtn = drawer.querySelector("[data-drawer-close]");
+
+    const close = () => {
+      document.removeEventListener("keydown", handleEsc);
+      overlay.remove();
+      if (previouslyFocused && previouslyFocused.focus) {
+        previouslyFocused.focus();
       }
+    };
+
+    const handleEsc = (e) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", handleEsc);
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close();
     });
-    drawer.querySelector("[data-drawer-close]").addEventListener("click", close);
+    closeBtn.addEventListener("click", close);
+
+    // Focus the close button so keyboard users can immediately interact
+    window.setTimeout(() => closeBtn.focus(), 60);
+
     return { drawer, close };
   }
 
@@ -470,16 +479,19 @@
       `;
       document.body.appendChild(overlay);
       const close = (value) => {
+        document.removeEventListener("keydown", onEsc);
         overlay.remove();
         resolve(value);
       };
+      const onEsc = (e) => { if (e.key === "Escape") close(false); };
+      document.addEventListener("keydown", onEsc);
       overlay.addEventListener("click", (event) => {
-        if (event.target === overlay) {
-          close(false);
-        }
+        if (event.target === overlay) close(false);
       });
       overlay.querySelector("[data-confirm-cancel]").addEventListener("click", () => close(false));
       overlay.querySelector("[data-confirm-ok]").addEventListener("click", () => close(true));
+      // Focus confirm button so keyboard users can hit Enter immediately
+      window.setTimeout(() => overlay.querySelector("[data-confirm-ok]")?.focus(), 60);
     });
   }
 
@@ -503,15 +515,17 @@
       document.body.appendChild(overlay);
       const input = overlay.querySelector("#modal-input-value");
       const close = (result) => {
+        document.removeEventListener("keydown", onEsc);
         overlay.remove();
         resolve(result);
       };
+      const onEsc = (e) => { if (e.key === "Escape") close(null); };
+      document.addEventListener("keydown", onEsc);
       overlay.querySelector("[data-input-cancel]").addEventListener("click", () => close(null));
       overlay.querySelector("[data-input-submit]").addEventListener("click", () => close(input.value));
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") close(input.value); });
       overlay.addEventListener("click", (event) => {
-        if (event.target === overlay) {
-          close(null);
-        }
+        if (event.target === overlay) close(null);
       });
       window.setTimeout(() => input.focus(), 60);
     });
