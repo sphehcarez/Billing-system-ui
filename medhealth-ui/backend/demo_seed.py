@@ -134,11 +134,14 @@ def _build_providers() -> List[Dict[str, Any]]:
         surname_clean = surname.lower().replace(" ", "").replace("'", "")
         email = f"dr.{surname_clean}@{slug}.co.za"
         is_dsp = idx < 14  # first 14 are DSP
+        # Each provider has a unique HPCSA practice number (base + sequential suffix)
+        base = practice["practice_number"]
+        practice_number = f"{base}{idx + 1:02d}"
         providers.append({
             "registration_id": reg_id,
             "surname": surname,
             "name": f"Dr. {surname}",
-            "practice_number": practice["practice_number"],
+            "practice_number": practice_number,
             "specialty": specialty,
             "discipline": discipline,
             "is_dsp_provider": is_dsp,
@@ -1107,8 +1110,11 @@ def _patient_id_by_mrn(store: PersistentPlatformStore, mrn: str) -> int:
 
 
 def _provider_id_by_practice(store: PersistentPlatformStore, practice_number: str) -> int:
+    # Exact match first; fall back to prefix match for base practice numbers
     result = next(
-        (item.id for item in store.providers.values() if item.practice_number == practice_number),
+        (item.id for item in store.providers.values()
+         if item.practice_number == practice_number
+         or item.practice_number.startswith(practice_number)),
         None,
     )
     if result is None:
