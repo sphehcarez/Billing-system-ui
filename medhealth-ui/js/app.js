@@ -936,13 +936,15 @@
       providers,
       6,
       (provider) => `
-        <tr>
+        <tr style="cursor:pointer;" tabindex="0"
+            onclick="(function(){window._app&&window._app.selectProvider(${provider.id});})()"
+            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._app&&window._app.selectProvider(${provider.id});}">
           <td class="code">${escapeHtml(provider.npi)}</td>
           <td>${escapeHtml(provider.name)}</td>
           <td>${escapeHtml(provider.specialty)}</td>
           <td>${escapeHtml(provider.email)}</td>
           <td><span class="chip ${statusClass(provider.status)}">${escapeHtml(provider.status)}</span></td>
-          <td class="row-actions">${renderProviderActions(provider.id)}</td>
+          <td class="row-actions" onclick="event.stopPropagation()">${renderProviderActions(provider.id)}</td>
         </tr>
       `,
       "No providers found.",
@@ -951,6 +953,50 @@
       state.selectedProviderId = state.selectedProviderId || providers[0].id;
       renderProviderWorkspace();
     }
+  }
+
+  function renderProviderWorkspace() {
+    const container = document.getElementById("provider-workspace");
+    if (!container) return;
+    const provider = (state.providers || []).find(p => p.id === state.selectedProviderId);
+    if (!provider) {
+      container.innerHTML = '<div class="muted">Select a provider to view details.</div>';
+      return;
+    }
+    const providerClaims = (state.claims || []).filter(c => c.provider_id === provider.id);
+    const submitted = providerClaims.filter(c => c.status === "submitted").length;
+    const closed    = providerClaims.filter(c => c.status === "closed").length;
+    const draft     = providerClaims.filter(c => c.status === "draft").length;
+    const statusHtml = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <span class="chip">${providerClaims.length} total claims</span>
+        ${draft    ? `<span class="chip warn">${draft} draft</span>` : ""}
+        ${submitted ? `<span class="chip info">${submitted} submitted</span>` : ""}
+        ${closed   ? `<span class="chip pass">${closed} closed</span>` : ""}
+      </div>`;
+    container.innerHTML = `
+      <div class="panel" style="display:grid;gap:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+          <div>
+            <strong style="font-size:1rem;">${escapeHtml(provider.name)}</strong>
+            <div class="muted" style="margin-top:2px;">${escapeHtml(provider.specialty)}</div>
+          </div>
+          <span class="chip ${statusClass(provider.status)}">${escapeHtml(provider.status)}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;font-size:0.85rem;">
+          <span class="muted">NPI / PCNS</span><span class="code">${escapeHtml(provider.npi)}</span>
+          <span class="muted">Practice no.</span><span class="code">${escapeHtml(provider.practice_number || "—")}</span>
+          <span class="muted">Discipline</span><span>${escapeHtml(provider.discipline || provider.specialty)}</span>
+          <span class="muted">Email</span><span>${escapeHtml(provider.email || "—")}</span>
+          <span class="muted">Phone</span><span>${escapeHtml(provider.phone || "—")}</span>
+          <span class="muted">DSP</span><span>${provider.is_dsp_provider ? "Yes" : "No"}</span>
+        </div>
+        ${statusHtml}
+        <div style="margin-top:6px;display:flex;gap:8px;">
+          <button class="btn secondary" style="font-size:0.8rem;" data-action="edit-provider" data-id="${provider.id}">Edit provider</button>
+          <a class="chip info" href="claims.html" style="font-size:0.8rem;">View claims</a>
+        </div>
+      </div>`;
   }
 
   async function loadClaims() {
@@ -1214,16 +1260,31 @@
 
   function renderDiagnosisReferenceOptions() {
     const datalist = document.getElementById("icd10-options");
-    if (!datalist) {
-      return;
+    if (!datalist) return;
+    const searchInput = document.getElementById("diagnosis-search-input");
+
+    function buildOptions(query) {
+      const codes = state.icd10Reference || [];
+      const q = (query || "").toLowerCase().trim();
+      const matches = q.length < 2
+        ? codes.slice(0, 80)
+        : codes.filter(item =>
+            item.code.toLowerCase().includes(q) ||
+            (item.description || "").toLowerCase().includes(q)
+          ).slice(0, 80);
+      datalist.innerHTML = matches
+        .map(item => {
+          const label = escapeHtml(`${item.code} - ${item.description || ""}`);
+          return `<option value="${label}">${label}</option>`;
+        })
+        .join("");
     }
-    datalist.innerHTML = (state.icd10Reference || [])
-      .slice(0, 200)
-      .map(
-        (item) =>
-          `<option value="${escapeHtml(item.code)}">${escapeHtml(`${item.code} - ${item.description || ""}`)}</option>`,
-      )
-      .join("");
+
+    buildOptions("");
+    if (searchInput && !searchInput._icd10Wired) {
+      searchInput._icd10Wired = true;
+      searchInput.addEventListener("input", () => buildOptions(searchInput.value));
+    }
   }
 
   function renderClaimDiagnoses() {
@@ -3399,9 +3460,9 @@
       ${billingHtml}
       ${invoicesHtml}
       <div style="margin-top:1.25rem;display:flex;flex-direction:column;gap:0.5rem">
-        ${profile.active_claim_id ? `<a href="claim_detail.html?id=${profile.active_claim_id}" class="btn" style="text-align:center;font-size:0.875rem">Open Active Claim</a>` : ""}
-        ${profile.active_claim_id ? `<a href="claim_detail.html?id=${profile.active_claim_id}#diagnoses" class="btn secondary" style="text-align:center;font-size:0.875rem">Jump to Diagnoses</a>` : ""}
-        ${profile.active_claim_id ? `<a href="claim_detail.html?id=${profile.active_claim_id}#attachments" class="btn secondary" style="text-align:center;font-size:0.875rem">Jump to Attachments</a>` : ""}
+        ${(profile.claim_id || profile.active_claim_id) ? `<a href="claim_detail.html?id=${profile.claim_id || profile.active_claim_id}" class="btn" style="text-align:center;font-size:0.875rem">Open Active Claim</a>` : ""}
+        ${(profile.claim_id || profile.active_claim_id) ? `<a href="claim_detail.html?id=${profile.claim_id || profile.active_claim_id}#diagnoses" class="btn secondary" style="text-align:center;font-size:0.875rem">Jump to Diagnoses</a>` : ""}
+        ${(profile.claim_id || profile.active_claim_id) ? `<a href="claim_detail.html?id=${profile.claim_id || profile.active_claim_id}#attachments" class="btn secondary" style="text-align:center;font-size:0.875rem">Jump to Attachments</a>` : ""}
       </div>
     `;
 
@@ -3440,6 +3501,12 @@
   // Expose drawer functions on window so inline onclick handlers work
   window.openPatientProfile = openPatientProfile;
   window.closePatientProfile = closePatientProfile;
+  window._app = {
+    selectProvider(id) {
+      state.selectedProviderId = Number(id);
+      renderProviderWorkspace();
+    },
+  };
   // ===== END PATIENT PROFILE DRAWER =====
 
   // ===== EVIDENCE PACK =====
