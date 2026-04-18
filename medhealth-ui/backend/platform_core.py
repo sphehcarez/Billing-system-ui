@@ -657,6 +657,14 @@ class ClaimRecord(BaseModel):
     previous_version: Optional[int] = None
     scenario_key: str = "clean_success"
     status: str = "draft"
+    eligible_roles: List[str] = Field(default_factory=list)
+    last_completed_role: Optional[str] = None
+    role_action_history: List[Dict[str, Any]] = Field(default_factory=list)
+    affected_roles: List[str] = Field(default_factory=list)
+    state_progression: List[Dict[str, Any]] = Field(default_factory=list)
+    onboarding_status: Optional[str] = None
+    onboarding_blockers: List[Dict[str, Any]] = Field(default_factory=list)
+    onboarding_actions: List[Dict[str, Any]] = Field(default_factory=list)
     claim_number: str
     claim_reference: str
     batch_reference: Optional[str] = None
@@ -2600,11 +2608,244 @@ class PlatformStore:
     def _claim_amount(self, claim: ClaimRecord) -> float:
         return round(sum(item.claimed_amount for item in claim.line_items), 2)
 
+    def _is_onboarding_approved(self, status: Optional[str]) -> bool:
+        return str(status or "").strip().lower() in {"approved", "verified", "active"}
+
+    def _derive_onboarding_context(self, claim: ClaimRecord) -> Dict[str, Any]:
+        provider = self.providers.get(claim.provider_id)
+        blockers: List[Dict[str, Any]] = []
+        actions: List[Dict[str, Any]] = []
+
+        if provider:
+            practice = self.practices.get(provider.practice_id)
+            practice_status = getattr(practice, "onboarding_status", None)
+            if practice and not self._is_onboarding_approved(practice_status):
+                normalized_status = str(practice_status or "pending_review").upper()
+                blockers.append(
+                    {
+                        "type": "PRACTICE_ONBOARDING",
+                        "reason_code": f"PRACTICE_ONBOARDING_{normalized_status}",
+                        "message": f"Practice '{practice.name}' onboarding status is {practice_status or 'pending_review'}.",
+                        "severity": "WARNING" if str(practice_status).lower() == "pending_review" else "INFO",
+                        "affected_field": "provider_id",
+                        "remediation": "Contact practice administration to complete onboarding.",
+                    }
+                )
+                actions.append(
+                    {
+                        "type": "NAVIGATE_PRACTICE_PROFILE",
+                        "target": f"/providers.html?practice_id={practice.id}",
+                        "label": "View Practice Profile",
+                    }
+                )
+
+            provider_status = getattr(provider, "onboarding_status", None)
+            if not self._is_onboarding_approved(provider_status):
+                normalized_status = str(provider_status or "pending_review").upper()
+                blockers.append(
+                    {
+                        "type": "PROVIDER_ONBOARDING",
+                        "reason_code": f"PROVIDER_ONBOARDING_{normalized_status}",
+                        "message": f"Provider '{provider.name}' onboarding status is {provider_status or 'pending_review'}.",
+                        "severity": "WARNING" if str(provider_status).lower() == "pending_review" else "INFO",
+                        "affected_field": "provider_id",
+                        "remediation": "Contact provider administration to complete onboarding.",
+                    }
+                )
+                actions.append(
+                    {
+                        "type": "NAVIGATE_PROVIDER_PROFILE",
+                        "target": f"/providers.html?provider_id={provider.id}",
+                        "label": "View Provider Profile",
+                    }
+                )
+
+        return {
+            "onboarding_status": getattr(provider, "onboarding_status", None) if provider else None,
+            "onboarding_blockers": blockers,
+            "onboarding_actions": actions,
+        }
+
+    def _derive_workflow_roles(self, claim: ClaimRecord) -> Dict[str, Any]:
+        status = str(claim.status or "draft").lower()
+        defaults = {
+            "affected_roles": ["Billing Specialist", "Healthcare Provider"],
+            "eligible_roles": ["Billing Specialist"],
+            "last_completed_role": claim.last_completed_role,
+        }
+        role_map = {
+            "draft": {
+                "affected_roles": ["Billing Specialist", "Healthcare Provider"],
+                "eligible_roles": ["Billing Specialist", "Healthcare Provider"],
+                "last_completed_role": None,
+            },
+            "blocked": {
+                "affected_roles": ["Billing Specialist", "Healthcare Provider"],
+                "eligible_roles": ["Billing Specialist", "Healthcare Provider"],
+                "last_completed_role": "Billing Specialist",
+            },
+            "ready_to_close": {
+                "affected_roles": ["Billing Specialist", "Healthcare Provider"],
+                "eligible_roles": ["Billing Specialist"],
+                "last_completed_role": "Billing Specialist",
+            },
+            "closed": {
+                "affected_roles": ["Billing Specialist", "Compliance Auditor"],
+                "eligible_roles": ["Compliance Auditor", "Billing Specialist"],
+                "last_completed_role": "Billing Specialist",
+            },
+            "validation_exception": {
+                "affected_roles": ["Billing Specialist", "Compliance Auditor"],
+                "eligible_roles": ["Billing Specialist", "Compliance Auditor"],
+                "last_completed_role": "Compliance Auditor",
+            },
+            "ready_to_submit": {
+                "affected_roles": ["Billing Specialist", "Finance Officer"],
+                "eligible_roles": ["Billing Specialist", "Finance Officer"],
+                "last_completed_role": "Compliance Auditor",
+            },
+            "submitted": {
+                "affected_roles": ["Finance Officer", "Compliance Auditor"],
+                "eligible_roles": ["Finance Officer", "Compliance Auditor"],
+                "last_completed_role": "Billing Specialist",
+            },
+            "acknowledged": {
+                "affected_roles": ["Finance Officer", "Compliance Auditor"],
+                "eligible_roles": ["Finance Officer", "Compliance Auditor"],
+                "last_completed_role": "Billing Specialist",
+            },
+            "rejected": {
+                "affected_roles": ["Billing Specialist", "Compliance Auditor"],
+                "eligible_roles": ["Billing Specialist"],
+                "last_completed_role": "Billing Specialist",
+            },
+            "pended": {
+                "affected_roles": ["Billing Specialist", "Healthcare Provider"],
+                "eligible_roles": ["Healthcare Provider", "Billing Specialist"],
+                "last_completed_role": "Billing Specialist",
+            },
+            "paid": {
+                "affected_roles": ["Finance Officer"],
+                "eligible_roles": ["Finance Officer", "Compliance Auditor"],
+                "last_completed_role": "Finance Officer",
+            },
+            "reconciled": {
+                "affected_roles": ["Finance Officer", "Compliance Auditor"],
+                "eligible_roles": ["Compliance Auditor"],
+                "last_completed_role": "Finance Officer",
+            },
+            "exception": {
+                "affected_roles": ["Finance Officer", "Billing Specialist"],
+                "eligible_roles": ["Finance Officer", "Billing Specialist"],
+                "last_completed_role": "Finance Officer",
+            },
+        }
+        return role_map.get(status, defaults)
+
+    def _derive_state_progression(self, claim: ClaimRecord) -> List[Dict[str, Any]]:
+        if claim.state_progression:
+            return [dict(item) for item in claim.state_progression]
+
+        progression = [
+            {
+                "status": "DRAFT",
+                "completed_at": claim.created_at,
+                "completed_by": "system",
+            }
+        ]
+        status = str(claim.status or "draft").lower()
+
+        if claim.readiness_status != "pending" or status in {"blocked", "ready_to_close", "closed", "validation_exception", "ready_to_submit", "submitted", "acknowledged", "rejected", "pended", "paid", "reconciled", "exception"}:
+            progression.append(
+                {
+                    "status": "READINESS_CHECK",
+                    "completed_at": claim.updated_at,
+                    "completed_by": claim.last_completed_role or "Billing Specialist",
+                }
+            )
+        if claim.latest_snapshot_id or status in {"closed", "validation_exception", "ready_to_submit", "submitted", "acknowledged", "rejected", "pended", "paid", "reconciled", "exception"}:
+            progression.append(
+                {
+                    "status": "CLOSED",
+                    "completed_at": claim.updated_at,
+                    "completed_by": claim.last_completed_role or "Billing Specialist",
+                }
+            )
+        if claim.validation_status != "pending" or status in {"validation_exception", "ready_to_submit", "submitted", "acknowledged", "rejected", "pended", "paid", "reconciled", "exception"}:
+            progression.append(
+                {
+                    "status": "POST_CLOSURE_VALIDATION",
+                    "completed_at": claim.updated_at,
+                    "completed_by": claim.last_completed_role or "Compliance Auditor",
+                }
+            )
+        if claim.latest_submission_id or claim.submission_status != "not_submitted" or status in {"submitted", "acknowledged", "rejected", "pended", "paid", "reconciled", "exception"}:
+            progression.append(
+                {
+                    "status": "SUBMITTED",
+                    "completed_at": claim.updated_at,
+                    "completed_by": claim.last_completed_role or "Billing Specialist",
+                }
+            )
+        return progression
+
+    def _claim_workflow_metadata(self, claim: ClaimRecord) -> Dict[str, Any]:
+        roles = self._derive_workflow_roles(claim)
+        onboarding = self._derive_onboarding_context(claim)
+        return {
+            "eligible_roles": list(claim.eligible_roles or roles["eligible_roles"]),
+            "last_completed_role": claim.last_completed_role or roles["last_completed_role"],
+            "role_action_history": [dict(item) for item in (claim.role_action_history or [])],
+            "affected_roles": list(claim.affected_roles or roles["affected_roles"]),
+            "state_progression": self._derive_state_progression(claim),
+            "onboarding_status": onboarding.get("onboarding_status"),
+            "onboarding_blockers": onboarding.get("onboarding_blockers", []),
+            "onboarding_actions": onboarding.get("onboarding_actions", []),
+        }
+
+    def _apply_claim_workflow(
+        self,
+        claim: ClaimRecord,
+        *,
+        actor: str,
+        role: str,
+        action: str,
+        affected_roles: Optional[List[str]] = None,
+        eligible_roles: Optional[List[str]] = None,
+        last_completed_role: Optional[str] = None,
+        state_progression: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        claim.affected_roles = list(affected_roles or claim.affected_roles or self._derive_workflow_roles(claim)["affected_roles"])
+        claim.eligible_roles = list(eligible_roles or claim.eligible_roles or self._derive_workflow_roles(claim)["eligible_roles"])
+        claim.last_completed_role = last_completed_role or role
+        if state_progression is not None:
+            claim.state_progression = [dict(item) for item in state_progression]
+
+        history = list(claim.role_action_history or [])
+        history.append(
+            {
+                "action": action,
+                "actor": actor,
+                "role": role,
+                "status": claim.status,
+                "timestamp": utc_now(),
+                "affected_roles": list(claim.affected_roles),
+            }
+        )
+        claim.role_action_history = history[-20:]
+
+        workflow = self._claim_workflow_metadata(claim)
+        claim.onboarding_status = workflow["onboarding_status"]
+        claim.onboarding_blockers = workflow["onboarding_blockers"]
+        claim.onboarding_actions = workflow["onboarding_actions"]
+        return workflow
+
     def _claim_payload(self, claim: ClaimRecord) -> Dict[str, Any]:
         payload = claim.model_dump()
         payload["amount"] = self._claim_amount(claim)
         payload["scheme"] = claim.scheme_id
         payload["option"] = claim.plan_option_id
+        payload.update(self._claim_workflow_metadata(claim))
         return payload
 
     def _claim_decision_input(self, claim: ClaimRecord) -> Dict[str, Any]:
@@ -3658,6 +3899,22 @@ class PlatformStore:
         if tenant_id and tenant_id not in {provider.tenant_id, patient.tenant_id}:
             raise ValueError("Claim does not belong to the authenticated tenant.")
         claim = self._normalize_claim(data)
+        self._apply_claim_workflow(
+            claim,
+            actor=actor,
+            role=role,
+            action="CLAIM_CREATED",
+            affected_roles=["Billing Specialist", "Healthcare Provider"],
+            eligible_roles=["Billing Specialist", "Healthcare Provider"],
+            last_completed_role=None,
+            state_progression=[
+                {
+                    "status": "DRAFT",
+                    "completed_at": claim.created_at,
+                    "completed_by": actor,
+                }
+            ],
+        )
         self._ensure_claim_line_item_ids(claim)
         self.claims[claim.id] = claim
         self._sync_claim_diagnoses_from_claim(claim, actor, source=claim.source_system)
@@ -3740,6 +3997,14 @@ class PlatformStore:
             next_claim.latest_benefit_route_decision_id = None
             next_claim.latest_costing_preview_id = None
             next_claim.pmb_status = "not_evaluated"
+            next_claim.eligible_roles = []
+            next_claim.last_completed_role = None
+            next_claim.role_action_history = []
+            next_claim.affected_roles = []
+            next_claim.state_progression = []
+            next_claim.onboarding_status = None
+            next_claim.onboarding_blockers = []
+            next_claim.onboarding_actions = []
             for key, value in data.items():
                 if not hasattr(next_claim, key):
                     continue
@@ -3761,6 +4026,22 @@ class PlatformStore:
                     continue
                 setattr(next_claim, key, value)
             next_claim.updated_at = utc_now()
+            self._apply_claim_workflow(
+                next_claim,
+                actor=actor,
+                role=role,
+                action="CLAIM_VERSION_CREATED",
+                affected_roles=["Billing Specialist", "Healthcare Provider"],
+                eligible_roles=["Billing Specialist", "Healthcare Provider"],
+                last_completed_role=None,
+                state_progression=[
+                    {
+                        "status": "DRAFT",
+                        "completed_at": next_claim.created_at,
+                        "completed_by": actor,
+                    }
+                ],
+            )
             self._ensure_claim_line_item_ids(next_claim)
             self.claims[claim_id] = next_claim
             if "diagnoses" in data:
@@ -3782,6 +4063,23 @@ class PlatformStore:
         if "attachments" in data:
             payload["attachments"] = [AttachmentRecord(**item) for item in data["attachments"]]
         updated = ClaimRecord(**payload)
+        if updated.status == "draft" and not updated.state_progression:
+            self._apply_claim_workflow(
+                updated,
+                actor=actor,
+                role=role,
+                action="CLAIM_DRAFT_UPDATED",
+                affected_roles=["Billing Specialist", "Healthcare Provider"],
+                eligible_roles=["Billing Specialist", "Healthcare Provider"],
+                last_completed_role=None,
+                state_progression=[
+                    {
+                        "status": "DRAFT",
+                        "completed_at": updated.created_at,
+                        "completed_by": actor,
+                    }
+                ],
+            )
         self._ensure_claim_line_item_ids(updated)
         self.claims[claim_id] = updated
         if "diagnoses" in data:
@@ -4044,6 +4342,23 @@ class PlatformStore:
         claim.readiness_status = self._compat_status(bundle.outcome, "READINESS")
         claim.status = "ready_to_close" if bundle.outcome in {"PASS", "WARN"} else "blocked"
         claim.updated_at = utc_now()
+        workflow = self._apply_claim_workflow(
+            claim,
+            actor=actor,
+            role=role,
+            action="READINESS_RUN",
+            affected_roles=["Billing Specialist", "Healthcare Provider"],
+            eligible_roles=["Billing Specialist"] if claim.status == "ready_to_close" else ["Billing Specialist", "Healthcare Provider"],
+            last_completed_role=role,
+            state_progression=[
+                {"status": "DRAFT", "completed_at": claim.created_at, "completed_by": "system"},
+                {
+                    "status": "READINESS_CHECK",
+                    "completed_at": claim.updated_at if bundle.outcome in {"PASS", "WARN"} else None,
+                    "completed_by": role,
+                },
+            ],
+        )
 
         items = []
         for hit in bundle.rule_hits:
@@ -4091,6 +4406,14 @@ class PlatformStore:
                 pmb_context["benefit_routing_decision"],
                 pmb_context["costing_preview"],
             ),
+            "affected_roles": workflow["affected_roles"],
+            "eligible_roles": workflow["eligible_roles"],
+            "last_completed_role": workflow["last_completed_role"],
+            "role_action_history": workflow["role_action_history"],
+            "state_progression": workflow["state_progression"],
+            "onboarding_status": workflow["onboarding_status"],
+            "onboarding_blockers": workflow["onboarding_blockers"],
+            "onboarding_actions": workflow["onboarding_actions"],
         }
 
     def close_claim(self, claim_id: int, request: ClaimClosureRequest, actor: str, role: str) -> Dict[str, Any]:
@@ -4099,6 +4422,15 @@ class PlatformStore:
         bundle = self._build_decision_bundle(claim, "CLOSURE_GATE", actor)
         policy = self._resolve_policy(claim.scheme_id, claim.plan_option_id)
         if bundle.outcome == "BLOCK":
+            workflow = self._apply_claim_workflow(
+                claim,
+                actor=actor,
+                role=role,
+                action="CLOSURE_BLOCKED",
+                affected_roles=["Billing Specialist", "Healthcare Provider"],
+                eligible_roles=["Billing Specialist", "Healthcare Provider"],
+                last_completed_role=role,
+            )
             self.add_audit_event(actor, role, "CLOSURE_BLOCKED", "claim", str(claim_id), {"decision_bundle_id": bundle.decision_bundle_id, "reasons": [item.reason_code for item in bundle.rule_hits]}, policy.policy_profile_id, policy.version, {"input_hash": bundle.input_hash})
             return {
                 "claim_id": claim.id,
@@ -4117,8 +4449,25 @@ class PlatformStore:
                     pmb_context["benefit_routing_decision"],
                     pmb_context["costing_preview"],
                 ),
+                "affected_roles": workflow["affected_roles"],
+                "eligible_roles": workflow["eligible_roles"],
+                "last_completed_role": workflow["last_completed_role"],
+                "role_action_history": workflow["role_action_history"],
+                "state_progression": workflow["state_progression"],
+                "onboarding_status": workflow["onboarding_status"],
+                "onboarding_blockers": workflow["onboarding_blockers"],
+                "onboarding_actions": workflow["onboarding_actions"],
             }
         if bundle.outcome == "WARN" and to_bool(policy.runtime_toggles.get("requireSupervisorOverrideOnWarnings")) and not request.supervisor_override:
+            workflow = self._apply_claim_workflow(
+                claim,
+                actor=actor,
+                role=role,
+                action="CLOSURE_OVERRIDE_REQUIRED",
+                affected_roles=["Billing Specialist", "Compliance Auditor"],
+                eligible_roles=["Billing Specialist"],
+                last_completed_role=role,
+            )
             self.add_audit_event(actor, role, "CLOSURE_OVERRIDE_REQUIRED", "claim", str(claim_id), {"decision_bundle_id": bundle.decision_bundle_id}, policy.policy_profile_id, policy.version)
             return {
                 "claim_id": claim.id,
@@ -4137,6 +4486,14 @@ class PlatformStore:
                     pmb_context["benefit_routing_decision"],
                     pmb_context["costing_preview"],
                 ),
+                "affected_roles": workflow["affected_roles"],
+                "eligible_roles": workflow["eligible_roles"],
+                "last_completed_role": workflow["last_completed_role"],
+                "role_action_history": workflow["role_action_history"],
+                "state_progression": workflow["state_progression"],
+                "onboarding_status": workflow["onboarding_status"],
+                "onboarding_blockers": workflow["onboarding_blockers"],
+                "onboarding_actions": workflow["onboarding_actions"],
             }
 
         snapshot = BillingSnapshot(
@@ -4152,6 +4509,20 @@ class PlatformStore:
         claim.latest_snapshot_id = snapshot.snapshot_id
         claim.status = "closed"
         claim.updated_at = utc_now()
+        workflow = self._apply_claim_workflow(
+            claim,
+            actor=actor,
+            role=role,
+            action="CLAIM_CLOSED",
+            affected_roles=["Billing Specialist", "Compliance Auditor", "Finance Officer"],
+            eligible_roles=["Compliance Auditor", "Billing Specialist"],
+            last_completed_role=role,
+            state_progression=[
+                {"status": "DRAFT", "completed_at": claim.created_at, "completed_by": "system"},
+                {"status": "READINESS_CHECK", "completed_at": claim.updated_at, "completed_by": role},
+                {"status": "CLOSED", "completed_at": claim.updated_at, "completed_by": role},
+            ],
+        )
         self._record_claim_version(claim, request.override_note or "Snapshot created and claim closed.")
         self.add_audit_event(actor, role, "SNAPSHOT_CREATED", "claim", str(claim_id), {"snapshot_id": snapshot.snapshot_id, "claim_version": claim.version}, policy.policy_profile_id, policy.version, {"input_hash": snapshot.input_hash})
         return {
@@ -4172,24 +4543,60 @@ class PlatformStore:
                 pmb_context["benefit_routing_decision"],
                 pmb_context["costing_preview"],
             ),
+            "affected_roles": workflow["affected_roles"],
+            "eligible_roles": workflow["eligible_roles"],
+            "last_completed_role": workflow["last_completed_role"],
+            "role_action_history": workflow["role_action_history"],
+            "state_progression": workflow["state_progression"],
+            "onboarding_status": workflow["onboarding_status"],
+            "onboarding_blockers": workflow["onboarding_blockers"],
+            "onboarding_actions": workflow["onboarding_actions"],
         }
 
     def run_post_closure_validation(self, claim_id: int, actor: str, role: str) -> Dict[str, Any]:
         claim = self.claims[claim_id]
         if not claim.latest_snapshot_id:
             error = "Claim must be closed before validation."
+            workflow = self._claim_workflow_metadata(claim)
             return {
                 "claim_id": claim.id,
                 "claim_number": claim.claim_number,
                 "validation_status": "pending",
                 "error": error,
                 "validation_summary": self._validation_summary(None, claim.id, error=error),
+                "affected_roles": workflow["affected_roles"],
+                "eligible_roles": workflow["eligible_roles"],
+                "last_completed_role": workflow["last_completed_role"],
+                "role_action_history": workflow["role_action_history"],
+                "state_progression": workflow["state_progression"],
+                "onboarding_status": workflow["onboarding_status"],
+                "onboarding_blockers": workflow["onboarding_blockers"],
+                "onboarding_actions": workflow["onboarding_actions"],
             }
         pmb_context = self._detect_pmb_and_route(claim, "POST_CLOSURE_VALIDATION", actor, role)
         bundle = self._build_decision_bundle(claim, "POST_CLOSURE_VALIDATION", actor, claim.latest_snapshot_id)
         claim.validation_status = self._compat_status(bundle.outcome, "POST_CLOSURE_VALIDATION")
         claim.status = "validation_exception" if bundle.outcome == "BLOCK" else "ready_to_submit"
         claim.updated_at = utc_now()
+        workflow = self._apply_claim_workflow(
+            claim,
+            actor=actor,
+            role=role,
+            action="POST_CLOSURE_VALIDATION",
+            affected_roles=["Billing Specialist", "Compliance Auditor"],
+            eligible_roles=["Billing Specialist", "Finance Officer"] if claim.status == "ready_to_submit" else ["Billing Specialist", "Compliance Auditor"],
+            last_completed_role=role,
+            state_progression=[
+                {"status": "DRAFT", "completed_at": claim.created_at, "completed_by": "system"},
+                {"status": "READINESS_CHECK", "completed_at": claim.updated_at, "completed_by": "Billing Specialist"},
+                {"status": "CLOSED", "completed_at": claim.updated_at, "completed_by": "Billing Specialist"},
+                {
+                    "status": "POST_CLOSURE_VALIDATION",
+                    "completed_at": claim.updated_at if bundle.outcome in {"PASS", "WARN"} else None,
+                    "completed_by": role,
+                },
+            ],
+        )
         policy = self._resolve_policy(claim.scheme_id, claim.plan_option_id)
         self.add_audit_event(actor, role, "POST_CLOSURE_VALIDATION_DONE", "claim", str(claim_id), {"decision_bundle_id": bundle.decision_bundle_id, "outcome": bundle.outcome}, policy.policy_profile_id, policy.version, {"input_hash": bundle.input_hash})
         return {
@@ -4209,6 +4616,14 @@ class PlatformStore:
                 pmb_context["benefit_routing_decision"],
                 pmb_context["costing_preview"],
             ),
+            "affected_roles": workflow["affected_roles"],
+            "eligible_roles": workflow["eligible_roles"],
+            "last_completed_role": workflow["last_completed_role"],
+            "role_action_history": workflow["role_action_history"],
+            "state_progression": workflow["state_progression"],
+            "onboarding_status": workflow["onboarding_status"],
+            "onboarding_blockers": workflow["onboarding_blockers"],
+            "onboarding_actions": workflow["onboarding_actions"],
         }
 
     def _canonical_claim(self, claim: ClaimRecord, snapshot_id: str) -> Dict[str, Any]:
@@ -4908,6 +5323,27 @@ class PlatformStore:
             claim.submission_status = "pended"
             claim.status = "pended"
 
+        workflow = self._apply_claim_workflow(
+            claim,
+            actor=actor,
+            role=role,
+            action="CLAIM_SUBMITTED",
+            affected_roles=["Finance Officer", "Compliance Auditor", "Billing Specialist"],
+            eligible_roles=(
+                ["Finance Officer", "Compliance Auditor"]
+                if response.status == "ACK"
+                else ["Billing Specialist", "Healthcare Provider"]
+            ),
+            last_completed_role=role,
+            state_progression=[
+                {"status": "DRAFT", "completed_at": claim.created_at, "completed_by": "system"},
+                {"status": "READINESS_CHECK", "completed_at": claim.updated_at, "completed_by": "Billing Specialist"},
+                {"status": "CLOSED", "completed_at": claim.updated_at, "completed_by": "Billing Specialist"},
+                {"status": "POST_CLOSURE_VALIDATION", "completed_at": claim.updated_at, "completed_by": "Compliance Auditor"},
+                {"status": "SUBMITTED", "completed_at": utc_now(), "completed_by": role},
+            ],
+        )
+
         self.add_audit_event(actor, role, "CLAIM_SUBMITTED", "claim", str(claim_id), {"submission_id": submission.submission_id, "channel": channel, "response_status": response.status})
         self.add_audit_event(actor, role, "RESPONSE_RECEIVED", "claim", str(claim_id), {"response_id": response.response_id, "status": response.status})
         return {
@@ -4919,6 +5355,14 @@ class PlatformStore:
             "correlation_id": submission.correlation_id,
             "response": response.model_dump(),
             "transport_logs": [item.model_dump() for item in self.get_transport_logs_for_submission(submission.submission_id)],
+            "affected_roles": workflow["affected_roles"],
+            "eligible_roles": workflow["eligible_roles"],
+            "last_completed_role": workflow["last_completed_role"],
+            "role_action_history": workflow["role_action_history"],
+            "state_progression": workflow["state_progression"],
+            "onboarding_status": workflow["onboarding_status"],
+            "onboarding_blockers": workflow["onboarding_blockers"],
+            "onboarding_actions": workflow["onboarding_actions"],
         }
 
     def get_transport_logs_for_submission(self, submission_id: str) -> List[TransportLog]:
@@ -5157,7 +5601,20 @@ class PlatformStore:
             reasons = [hit.reason_code for bundle in self.get_decision_bundles_for_claim(claim.id) for hit in bundle.rule_hits if bundle.claim_version == claim.version]
             if claim.latest_response_id:
                 reasons.extend(reason.reason_code for reason in self.responses[claim.latest_response_id].reasons)
-            items.append({"claim_id": claim.id, "claim_number": claim.claim_number, "status": claim.status, "reasons": sorted(set(reasons)), "next_action": self._next_action(claim)})
+            workflow = self._claim_workflow_metadata(claim)
+            items.append(
+                {
+                    "claim_id": claim.id,
+                    "claim_number": claim.claim_number,
+                    "status": claim.status,
+                    "reasons": sorted(set(reasons)),
+                    "next_action": self._next_action(claim),
+                    "affected_roles": workflow["affected_roles"],
+                    "eligible_roles": workflow["eligible_roles"],
+                    "onboarding_status": workflow["onboarding_status"],
+                    "onboarding_blockers": workflow["onboarding_blockers"],
+                }
+            )
         return items
 
     def _next_action(self, claim: ClaimRecord) -> str:

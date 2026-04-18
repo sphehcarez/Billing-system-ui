@@ -233,6 +233,7 @@
     highlightedAttachmentTypes: { required: [], recommended: [] },
     icd10Reference: [],
     ediStepperState: { generate: "idle", validate: "idle", submit: "idle", response: "idle" },
+    claimRealtime: { claimId: null, socket: null, pollInterval: null, polling: false },
   };
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -253,6 +254,7 @@
     scheduleConnectionChecks();
     void initializePage();
   });
+  window.addEventListener("beforeunload", clearClaimRealtime);
 
   function getCurrentPage() {
     return location.pathname.split("/").pop() || "index.html";
@@ -1069,15 +1071,30 @@
       tbody.innerHTML = worklist.length
         ? worklist
             .map(
-              (item) => `
+              (item) => {
+                const statusBadges = [
+                  (item.onboarding_blockers || []).length
+                    ? '<span class="badge badge-warning">Onboarding blocked</span>'
+                    : "",
+                  (item.affected_roles || []).length
+                    ? `<span class="badge badge-info">Roles: ${escapeHtml((item.affected_roles || []).join(", "))}</span>`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join("");
+                return `
                 <tr>
                   <td class="code">${escapeHtml(item.claim_number)}</td>
-                  <td>${escapeHtml(item.reasons?.[0] || "-")}</td>
+                  <td>
+                    <div>${escapeHtml(item.reasons?.[0] || "-")}</div>
+                    ${statusBadges ? `<div class="dashboard-worklist-badges">${statusBadges}</div>` : ""}
+                  </td>
                   <td><span class="chip ${statusClass(item.status)}">${escapeHtml(item.status)}</span></td>
                   <td>${escapeHtml(item.next_action || "Review claim")}</td>
                   <td class="row-actions"><a class="chip info" href="claim_detail.html?id=${item.claim_id}">Open</a></td>
                 </tr>
-              `,
+              `;
+              },
             )
             .join("")
         : '<tr><td colspan="5" style="text-align:center;color:#999;">No worklist items in the current role scope.</td></tr>';
@@ -1693,10 +1710,150 @@
       claim.latest_benefit_route_decision,
       claim.latest_costing_preview,
     );
+    renderClaimWorkflowPanels(claim);
     renderSubmissionStepper(state.ediStepperState);
     renderStructuredPayload();
     renderEdiPanel();
     renderTransportTimeline();
+    subscribeClaimRealtimeUpdates(claim.id);
+  }
+
+  function renderClaimWorkflowPanels(claim) {
+    const rolePanel = document.getElementById("roleProgressPanel");
+    const onboardingPanel = document.getElementById("onboardingPanel");
+    const affectedRoles = claim.affected_roles || [];
+    const onboardingBlockers = claim.onboarding_blockers || [];
+
+    if (rolePanel) {
+      rolePanel.style.display = affectedRoles.length || (claim.state_progression || []).length ? "" : "none";
+    }
+    setTextById("currentRoleStatus", upperCaseValue(claim.status || "draft"));
+    setTextById("lastCompletedRole", claim.last_completed_role || "None");
+    setTextById("eligibleRoles", (claim.eligible_roles || []).join(", ") || "None");
+
+    const progressionEl = document.getElementById("stateProgression");
+    if (progressionEl) {
+      progressionEl.innerHTML = (claim.state_progression || [])
+        .map(
+          (item) => `
+            <div class="progression-item">
+              <div class="status">${escapeHtml(item.status || "-")}</div>
+              <div class="timestamp">${item.completed_at ? escapeHtml(formatDateTime(item.completed_at)) : "Pending"}</div>
+            </div>
+          `,
+        )
+        .join("");
+    }
+
+    if (onboardingPanel) {
+      onboardingPanel.style.display = onboardingBlockers.length ? "" : "none";
+    }
+    setTextById("providerOnboardingStatus", claim.onboarding_status || "Unknown");
+
+    const blockersEl = document.getElementById("onboardingBlockers");
+    if (blockersEl) {
+      blockersEl.innerHTML = onboardingBlockers
+        .map(
+          (blocker) => `
+            <div class="blocker ${escapeHtml(blocker.severity || "INFO")}">
+              <div class="reason">${escapeHtml(blocker.reason_code || blocker.type || "ONBOARDING_BLOCKER")}</div>
+              <div class="message">${escapeHtml(blocker.message || "Onboarding attention required.")}</div>
+              <div class="remediation">${escapeHtml(blocker.remediation || "Review the onboarding profile and complete the missing steps.")}</div>
+            </div>
+          `,
+        )
+        .join("");
+    }
+
+    const actionsEl = document.getElementById("onboardingActions");
+    if (actionsEl) {
+      actionsEl.innerHTML = (claim.onboarding_actions || [])
+        .map(
+          (action) => `
+            <a href="${escapeHtml(action.target || "#")}" class="action-button">
+              ${escapeHtml(action.label || "Open")}
+            </a>
+          `,
+        )
+        .join("");
+    }
+  }
+
+  function clearClaimRealtime() {
+    if (state.claimRealtime.socket) {
+      try {
+        state.claimRealtime.socket.onclose = null;
+        state.claimRealtime.socket.close();
+      } catch (_) {
+        // Ignore close errors for stale sockets.
+      }
+    }
+    if (state.claimRealtime.pollInterval) {
+      clearInterval(state.claimRealtime.pollInterval);
+    }
+    state.claimRealtime = { claimId: null, socket: null, pollInterval: null, polling: false };
+  }
+
+  async function refreshClaimDetailFromRealtime(claimId) {
+    if (state.page !== "claim_detail.html" || Number(state.claimId) !== Number(claimId)) {
+      return;
+    }
+    await loadClaimDetail();
+  }
+
+  function fallbackClaimPolling(claimId) {
+    if (state.claimRealtime.polling || state.claimRealtime.claimId !== claimId) {
+      return;
+    }
+    state.claimRealtime.polling = true;
+    state.claimRealtime.pollInterval = window.setInterval(async () => {
+      try {
+        const claim = await window.api.getClaim(claimId);
+        const currentStatus = document.getElementById("currentRoleStatus")?.textContent?.toLowerCase();
+        if (currentStatus !== String(claim.status || "").toLowerCase()) {
+          await refreshClaimDetailFromRealtime(claimId);
+        }
+      } catch (error) {
+        console.error("Claim polling error:", error);
+      }
+    }, 5000);
+  }
+
+  function subscribeClaimRealtimeUpdates(claimId) {
+    const token = localStorage.getItem("api_token");
+    if (!token) {
+      return;
+    }
+    if (state.claimRealtime.claimId === claimId && (state.claimRealtime.socket || state.claimRealtime.pollInterval)) {
+      return;
+    }
+
+    clearClaimRealtime();
+    state.claimRealtime.claimId = claimId;
+
+    const origin = window.api?.origin || `${window.location.protocol}//${window.location.hostname}:8001`;
+    const wsUrl = `${origin.replace(/^http/, "ws")}/ws/claims/${claimId}?token=${encodeURIComponent(`Bearer ${token}`)}`;
+
+    try {
+      const socket = new WebSocket(wsUrl);
+      state.claimRealtime.socket = socket;
+
+      socket.onmessage = async (event) => {
+        const message = JSON.parse(event.data);
+        if (message.type === "claim_update") {
+          await refreshClaimDetailFromRealtime(claimId);
+        }
+      };
+      socket.onerror = () => {
+        fallbackClaimPolling(claimId);
+      };
+      socket.onclose = () => {
+        fallbackClaimPolling(claimId);
+      };
+    } catch (error) {
+      console.warn("Claim realtime subscription failed, falling back to polling:", error);
+      fallbackClaimPolling(claimId);
+    }
   }
 
   function renderDiagnosisReferenceOptions() {

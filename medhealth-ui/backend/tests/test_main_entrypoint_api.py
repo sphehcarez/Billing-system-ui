@@ -221,3 +221,121 @@ class MainEntrypointApiTests(unittest.TestCase):
         self.assertEqual(provider["onboarding_status"], "verified")
         listed = platform_api.list_providers(current_user=current_user)
         self.assertTrue(any(item["id"] == provider["id"] for item in listed))
+
+    def test_get_claim_includes_workflow_and_onboarding_metadata(self) -> None:
+        current_user, claim = self._create_claim(f"CLM-WORKFLOW-{uuid4().hex[:8]}")
+
+        retrieved = platform_api.get_claim(claim["id"], current_user=current_user)
+
+        self.assertIn("eligible_roles", retrieved)
+        self.assertIn("last_completed_role", retrieved)
+        self.assertIn("role_action_history", retrieved)
+        self.assertIn("affected_roles", retrieved)
+        self.assertIn("state_progression", retrieved)
+        self.assertIn("onboarding_status", retrieved)
+        self.assertIn("onboarding_blockers", retrieved)
+        self.assertIn("onboarding_actions", retrieved)
+        self.assertTrue(isinstance(retrieved["state_progression"], list))
+
+    def test_run_readiness_returns_workflow_and_onboarding_metadata(self) -> None:
+        current_user, claim = self._create_claim(f"CLM-READYFLOW-{uuid4().hex[:8]}")
+
+        readiness = platform_api.run_readiness(claim["id"], current_user=current_user)
+
+        self.assertIn("affected_roles", readiness)
+        self.assertIn("state_progression", readiness)
+        self.assertTrue(isinstance(readiness.get("affected_roles"), list))
+        self.assertTrue(isinstance(readiness.get("state_progression"), list))
+        self.assertIn("onboarding_blockers", readiness)
+        self.assertIn("onboarding_actions", readiness)
+
+    def test_provider_onboarding_appears_in_claim_context(self) -> None:
+        current_user = self._current_user()
+        provider = platform_api.create_provider(
+            {
+                "name": "Dr. Test Pending",
+                "npi": f"TEST-{uuid4().hex[:6]}",
+                "hpcsa_number": f"HP-{uuid4().hex[:6]}",
+                "practice_id": current_user.get("practice_id"),
+                "practice_number": "0198765",
+                "email": "test@example.com",
+                "phone": "+27 11 555 0001",
+                "onboarding_status": "pending_review",
+            },
+            current_user=current_user,
+        )
+
+        claim = platform_api.create_claim(
+            {
+                "claim_number": f"CLM-ONBOARD-{uuid4().hex[:8]}",
+                "patient_id": 1,
+                "provider_id": provider["id"],
+                "member_number": "MEM220099",
+                "service_date": "2026-04-16",
+                "diagnoses": [{"seq": 1, "icd10": "I10", "diagnosis_type": "PRIMARY"}],
+                "line_items": [
+                    {
+                        "line_id": "1",
+                        "service_code": "CONS001",
+                        "service_description": "Consultation",
+                        "quantity": 1,
+                        "unit_price": 1500,
+                        "claimed_amount": 1500,
+                        "diagnosis_refs": [1],
+                    }
+                ],
+            },
+            current_user=current_user,
+        )
+
+        retrieved = platform_api.get_claim(claim["id"], current_user=current_user)
+        self.assertTrue(len(retrieved.get("onboarding_blockers", [])) > 0)
+        self.assertTrue(any(item["type"] == "PROVIDER_ONBOARDING" for item in retrieved["onboarding_blockers"]))
+
+    def test_multi_user_claim_update_scenario(self) -> None:
+        user_a_payload = platform_api.login(LoginRequest(username="demo.user", password="password123"))
+        user_b_payload = platform_api.login(LoginRequest(username="finance", password="finance123"))
+        user_a = platform_api.get_current_user(f"Bearer {user_a_payload['access_token']}")
+        user_b = platform_api.get_current_user(f"Bearer {user_b_payload['access_token']}")
+
+        claim = platform_api.create_claim(
+            {
+                "claim_number": f"CLM-MULTI-{uuid4().hex[:8]}",
+                "patient_id": 1,
+                "provider_id": 1,
+                "member_number": "MEM220111",
+                "service_date": "2026-04-16",
+                "diagnoses": [{"seq": 1, "icd10": "I10", "diagnosis_type": "PRIMARY"}],
+                "attachments": [
+                    {
+                        "attachment_type": "MOTIVATION",
+                        "file_name": "motivation.pdf",
+                        "storage_ref": "motivation.pdf",
+                        "file_hash": "demo",
+                        "uploaded_by": "tester",
+                    }
+                ],
+                "line_items": [
+                    {
+                        "line_id": "1",
+                        "service_code": "CONS001",
+                        "service_description": "Consultation",
+                        "quantity": 1,
+                        "unit_price": 750,
+                        "claimed_amount": 750,
+                        "diagnosis_refs": [1],
+                    }
+                ],
+            },
+            current_user=user_a,
+        )
+
+        initial_claim_b = platform_api.get_claim(claim["id"], current_user=user_b)
+        self.assertEqual(initial_claim_b["status"], "draft")
+
+        platform_api.run_readiness(claim["id"], current_user=user_a)
+        platform_api.close_claim(claim["id"], request=ClaimClosureRequest(), current_user=user_a)
+
+        updated_claim_b = platform_api.get_claim(claim["id"], current_user=user_b)
+        self.assertEqual(updated_claim_b["status"], "closed")
+        self.assertTrue(len(updated_claim_b.get("state_progression", [])) > 0)

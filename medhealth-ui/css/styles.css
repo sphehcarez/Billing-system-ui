@@ -2062,3 +2062,138 @@ pre{
 
 /* Attachments summary card */
 #attachments-summary-card .table { margin-top: 8px; }
+
+.dashboard-worklist-badges{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:8px;
+}
+.role-progress-panel,
+.onboarding-panel{
+  margin-top:0;
+}
+.role-progress-panel h3,
+.onboarding-panel h3{
+  margin:0 0 12px;
+  font-size:14px;
+}
+.role-history{
+  display:grid;
+  gap:10px;
+}
+.role-item,
+.onboarding-status{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  font-size:12px;
+}
+.role-item .label,
+.onboarding-status .label{
+  color:var(--ink-500);
+  font-weight:600;
+}
+.role-item .value,
+.onboarding-status .value{
+  color:var(--ink-900);
+  text-align:right;
+}
+.state-progression{
+  margin-top:14px;
+  display:grid;
+  gap:8px;
+}
+.progression-item{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:10px 12px;
+  border-radius:14px;
+  background:rgba(241,245,249,.72);
+  border:1px solid rgba(148,163,184,.16);
+}
+.progression-item .status{
+  font-weight:700;
+  color:var(--brand-700);
+  font-size:12px;
+}
+.progression-item .timestamp{
+  color:var(--ink-500);
+  font-size:11px;
+}
+.onboarding-blockers{
+  margin-top:12px;
+  display:grid;
+  gap:8px;
+}
+.blocker{
+  padding:10px 12px;
+  border-radius:14px;
+  border-left:4px solid #f59e0b;
+  background:#fff7ed;
+  font-size:12px;
+}
+.blocker.WARNING{
+  border-left-color:#f59e0b;
+  background:#fff7ed;
+}
+.blocker.INFO{
+  border-left-color:#38bdf8;
+  background:#eff6ff;
+}
+.blocker .reason{
+  font-weight:700;
+  color:#b45309;
+}
+.blocker.INFO .reason{
+  color:#0f6d88;
+}
+.blocker .message{
+  margin-top:4px;
+  color:var(--ink-700);
+}
+.blocker .remediation{
+  margin-top:4px;
+  font-size:11px;
+  color:var(--ink-500);
+}
+.onboarding-actions{
+  margin-top:12px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.action-button,
+.badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  text-decoration:none;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:700;
+}
+.action-button{
+  padding:8px 12px;
+  color:#fff;
+  background:var(--brand-600);
+  box-shadow:0 8px 18px rgba(10,134,189,.16);
+}
+.action-button:hover{
+  filter:brightness(.95);
+}
+.badge{
+  padding:4px 9px;
+}
+.badge-warning{
+  color:#b45309;
+  background:#fff3e0;
+  border:1px solid rgba(245,158,11,.22);
+}
+.badge-info{
+  color:#0f6d88;
+  background:#e0f2fe;
+  border:1px solid rgba(14,165,233,.2);
+}

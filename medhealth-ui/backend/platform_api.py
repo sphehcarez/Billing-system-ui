@@ -1,8 +1,9 @@
 import os
+import asyncio
 from datetime import UTC, datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from jose import ExpiredSignatureError, JWTError, jwt
@@ -37,6 +38,8 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5500",
     "null",
 ]
+
+_claim_subscribers: dict[int, Set[WebSocket]] = {}
 
 ROLE_PERMISSIONS = {
     "Administrator": {
@@ -190,6 +193,32 @@ def ensure_claim_access(current_user: Dict[str, Any], claim_id: int) -> Dict[str
     provider = db.get_provider(claim["provider_id"])
     ensure_scope_access(current_user, provider.tenant_id)
     return claim
+
+
+async def broadcast_claim_update(claim_id: int, update_data: Dict[str, Any]) -> None:
+    subscribers = _claim_subscribers.get(claim_id)
+    if not subscribers:
+        return
+
+    disconnected: list[WebSocket] = []
+    for websocket in list(subscribers):
+        try:
+            await websocket.send_json(
+                {
+                    "type": "claim_update",
+                    "claim_id": claim_id,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "data": update_data,
+                }
+            )
+        except RuntimeError:
+            disconnected.append(websocket)
+
+    for websocket in disconnected:
+        subscribers.discard(websocket)
+
+    if not subscribers:
+        _claim_subscribers.pop(claim_id, None)
 
 
 @app.get("/")
@@ -397,6 +426,45 @@ def get_claim(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_
     return ensure_claim_access(current_user, claim_id)
 
 
+@app.websocket("/ws/claims/{claim_id}")
+async def websocket_claim_updates(
+    websocket: WebSocket,
+    claim_id: int,
+    token: str | None = Query(default=None),
+) -> None:
+    if not token:
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return
+
+    try:
+        current_user = get_current_user(token)
+    except HTTPException:
+        await websocket.close(code=1008, reason="Invalid authentication token")
+        return
+
+    try:
+        ensure_claim_access(current_user, claim_id)
+    except HTTPException:
+        await websocket.close(code=1008, reason="Unauthorized")
+        return
+
+    await websocket.accept()
+    subscribers = _claim_subscribers.setdefault(claim_id, set())
+    subscribers.add(websocket)
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        subscribers.discard(websocket)
+        if not subscribers:
+            _claim_subscribers.pop(claim_id, None)
+
+
 @app.post("/api/claims")
 def create_claim(payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "write")
@@ -495,7 +563,20 @@ def run_readiness(claim_id: int, current_user: Dict[str, Any] = Depends(get_curr
     require_permission(current_user, "claims", "process")
     ensure_claim_access(current_user, claim_id)
     actor, role = current_identity(current_user)
-    return db.run_readiness(claim_id, actor, role)
+    result = db.run_readiness(claim_id, actor, role)
+    claim = db.get_claim(claim_id)
+    asyncio.run(
+        broadcast_claim_update(
+            claim_id,
+            {
+                "status": claim["status"],
+                "affected_roles": result.get("affected_roles", []),
+                "state_progression": result.get("state_progression", []),
+                "onboarding_blockers": result.get("onboarding_blockers", []),
+            },
+        )
+    )
+    return result
 
 
 @app.post("/api/claims/{claim_id}/readiness/run")
@@ -508,7 +589,20 @@ def close_claim(claim_id: int, request: ClaimClosureRequest | None = None, curre
     require_permission(current_user, "claims", "process")
     ensure_claim_access(current_user, claim_id)
     actor, role = current_identity(current_user)
-    return db.close_claim(claim_id, request or ClaimClosureRequest(), actor, role)
+    result = db.close_claim(claim_id, request or ClaimClosureRequest(), actor, role)
+    claim = db.get_claim(claim_id)
+    asyncio.run(
+        broadcast_claim_update(
+            claim_id,
+            {
+                "status": claim["status"],
+                "affected_roles": result.get("affected_roles", []),
+                "state_progression": result.get("state_progression", []),
+                "onboarding_blockers": result.get("onboarding_blockers", []),
+            },
+        )
+    )
+    return result
 
 
 @app.post("/api/claims/{claim_id}/closure/confirm")
@@ -521,7 +615,20 @@ def post_closure_validate(claim_id: int, current_user: Dict[str, Any] = Depends(
     require_permission(current_user, "claims", "process")
     ensure_claim_access(current_user, claim_id)
     actor, role = current_identity(current_user)
-    return db.run_post_closure_validation(claim_id, actor, role)
+    result = db.run_post_closure_validation(claim_id, actor, role)
+    claim = db.get_claim(claim_id)
+    asyncio.run(
+        broadcast_claim_update(
+            claim_id,
+            {
+                "status": claim["status"],
+                "affected_roles": result.get("affected_roles", []),
+                "state_progression": result.get("state_progression", []),
+                "onboarding_blockers": result.get("onboarding_blockers", []),
+            },
+        )
+    )
+    return result
 
 
 @app.post("/api/claims/{claim_id}/validation/post-closure")
@@ -597,7 +704,20 @@ def submit_claim(claim_id: int, request: ClaimSubmissionRequest, current_user: D
     require_permission(current_user, "claims", "submit")
     ensure_claim_access(current_user, claim_id)
     actor, role = current_identity(current_user)
-    return db.submit_claim(claim_id, request, actor, role)
+    result = db.submit_claim(claim_id, request, actor, role)
+    claim = db.get_claim(claim_id)
+    asyncio.run(
+        broadcast_claim_update(
+            claim_id,
+            {
+                "status": claim["status"],
+                "affected_roles": result.get("affected_roles", []),
+                "state_progression": result.get("state_progression", []),
+                "onboarding_blockers": result.get("onboarding_blockers", []),
+            },
+        )
+    )
+    return result
 
 
 @app.post("/api/submissions/claims/{claim_id}")
