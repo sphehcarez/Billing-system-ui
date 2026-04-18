@@ -23,13 +23,16 @@ from db_schema import (
     claim_drafts,
     claim_versions,
     claims,
+    copay_items,
     costing_previews,
     decision_bundles,
     financial_bundles,
     icd10_pmb_mappings,
     icd10_reference,
     edi_artifacts,
+    invoices,
     ledger_entries,
+    patient_balances,
     patients,
     payloads,
     payments,
@@ -166,6 +169,9 @@ class PersistentPlatformStore(LegacyPlatformStore):
         self.reports: Dict[int, Any] = {}
         self.idempotency_index: Dict[str, str] = {}
         self.ledger_entries: Dict[str, Dict[str, Any]] = {}
+        self.patient_balances: Dict[int, Any] = {}
+        self.invoices: Dict[str, Any] = {}
+        self.copay_items: Dict[str, Any] = {}
         self.settings: Dict[str, Any] = {
             "api_version": "2.0.0",
             "database": "postgresql",
@@ -728,6 +734,31 @@ class PersistentPlatformStore(LegacyPlatformStore):
             )
             self.payments[payment.id] = payment
 
+        for row in self._rows(patient_balances):
+            self.patient_balances[row["patient_id"]] = {
+                "balance_cents": row["balance_cents"],
+                "credit_cents": row["credit_cents"],
+            }
+
+        for row in self._rows(invoices):
+            self.invoices[row["id"]] = {
+                "id": row["id"],
+                "patient_id": row["patient_id"],
+                "claim_id": row["claim_id"],
+                "total_cents": row["total_cents"],
+                "paid_cents": row["paid_cents"],
+                "status": row["status"],
+                "created_at": str(row["created_at"]) if row["created_at"] else None,
+            }
+
+        for row in self._rows(copay_items):
+            self.copay_items[row["id"]] = {
+                "id": row["id"],
+                "invoice_id": row["invoice_id"],
+                "reason_code": row["reason_code"],
+                "amount_cents": row["amount_cents"],
+            }
+
         for row in self._rows(audit_events):
             event = AuditEvent(
                 audit_event_id=row["audit_event_id"],
@@ -796,6 +827,9 @@ class PersistentPlatformStore(LegacyPlatformStore):
             self._insert_rows(reconciliation_exceptions, self._reconciliation_exception_rows())
             self._insert_rows(ledger_entries, self._ledger_entry_rows())
             self._insert_rows(payments, self._payment_rows())
+            self._insert_rows(patient_balances, self._patient_balance_rows())
+            self._insert_rows(invoices, self._invoice_rows())
+            self._insert_rows(copay_items, self._copay_item_rows())
             self._insert_rows(audit_events, self._audit_rows())
             self._insert_rows(reports, self._report_rows())
             self.session.commit()
@@ -1363,6 +1397,30 @@ class PersistentPlatformStore(LegacyPlatformStore):
 
     def _payment_rows(self) -> List[Dict[str, Any]]:
         return [item.model_dump(mode="json") for item in self.payments.values()]
+
+    def _patient_balance_rows(self) -> List[Dict[str, Any]]:
+        rows = []
+        for patient_id, bal in self.patient_balances.items():
+            b = bal if isinstance(bal, dict) else {"balance_cents": getattr(bal, "balance_cents", 0), "credit_cents": getattr(bal, "credit_cents", 0)}
+            rows.append({"patient_id": patient_id, "balance_cents": b.get("balance_cents", 0), "credit_cents": b.get("credit_cents", 0)})
+        return rows
+
+    def _invoice_rows(self) -> List[Dict[str, Any]]:
+        rows = []
+        for inv in self.invoices.values():
+            d = inv if isinstance(inv, dict) else inv.__dict__
+            rows.append({"id": d["id"], "patient_id": d["patient_id"], "claim_id": d["claim_id"],
+                         "total_cents": d["total_cents"], "paid_cents": d.get("paid_cents", 0),
+                         "status": d.get("status", "OPEN"), "created_at": d.get("created_at")})
+        return rows
+
+    def _copay_item_rows(self) -> List[Dict[str, Any]]:
+        rows = []
+        for item in self.copay_items.values():
+            d = item if isinstance(item, dict) else item.__dict__
+            rows.append({"id": d["id"], "invoice_id": d["invoice_id"],
+                         "reason_code": d["reason_code"], "amount_cents": d["amount_cents"]})
+        return rows
 
     def _audit_rows(self) -> List[Dict[str, Any]]:
         return [

@@ -1821,13 +1821,18 @@
   }
 
   function setAttachmentsFeedback(message, tone = "info") {
-    const element = document.getElementById("attachments-feedback");
-    if (!element) {
+    // Legacy element (full attachments card) — fall back to inline banner in new layout
+    const legacy = document.getElementById("attachments-feedback");
+    if (legacy) {
+      legacy.textContent = message || "";
+      legacy.style.color = tone === "error" ? "var(--fail)" : tone === "success" ? "var(--pass)" : "var(--ink-500)";
       return;
     }
-    element.textContent = message || "";
-    element.style.color =
-      tone === "error" ? "var(--fail)" : tone === "success" ? "var(--pass)" : "var(--ink-500)";
+    if (message) {
+      setInlineBanner("attachments-summary", message, tone === "success" ? "success" : tone === "error" ? "error" : "warn");
+    } else {
+      clearInlineBanner("attachments-summary");
+    }
   }
 
   function focusDiagnosisSearchInput() {
@@ -3308,11 +3313,13 @@
   // ===== PATIENT PROFILE DRAWER =====
   async function openPatientProfile(patientId) {
     try {
-      const [profile, balance, invoices] = await Promise.all([
-        window.api.get(`/patients/${patientId}/claim-ready-profile`),
-        window.api.getPatientBalance(patientId),
-        window.api.getPatientInvoices(patientId),
+      const [context, balance, invoices] = await Promise.all([
+        window.api.getPatientClaimContext(patientId),
+        window.api.getPatientBalance(patientId).catch(() => ({ balance_cents: 0, credit_cents: 0 })),
+        window.api.getPatientInvoices(patientId).catch(() => []),
       ]);
+      // Flatten claim_ready_profile up to the top level expected by renderPatientProfileDrawer
+      const profile = context?.claim_ready_profile || context || {};
       renderPatientProfileDrawer(patientId, profile, balance, invoices);
     } catch (e) {
       toastError("Could not load patient profile.");
