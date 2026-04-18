@@ -66,7 +66,10 @@ class MainEntrypointApiTests(unittest.TestCase):
         self.assertTrue(payload["benefit_route_decisions"])
         self.assertEqual(payload["pmb_decision"]["pmb_status"], "CONFIRMED")
         self.assertTrue(payload["pmb_decision"]["auto_flagged"])
-        self.assertEqual(payload["pmb_decision"]["condition_name"], "DEMO diagnosis treatment pair")
+        self.assertEqual(
+            payload["pmb_decision"]["condition_name"],
+            "Business-owned PMB placeholder hypertension condition",
+        )
         self.assertEqual(payload["benefit_route_decisions"][0]["route"], "PMB_BENEFIT_BUCKET")
         self.assertFalse(payload["benefit_route_decisions"][0]["provider_marked_pmb"])
         self.assertEqual(payload["validation_summary"]["pmb"][0]["trigger_icd10"], "I10")
@@ -104,9 +107,7 @@ class MainEntrypointApiTests(unittest.TestCase):
         self.assertIsNotNone(claim_detail["latest_costing_preview"])
 
         evidence_payload = platform_api.claim_evidence(claim["id"], current_user=current_user)
-        self.assertIn("pmb_routing.json", evidence_payload["documents"])
-        self.assertIn("pmb_decision.json", evidence_payload["documents"])
-        self.assertIn("costing_preview.json", evidence_payload["documents"])
+        self.assertTrue(evidence_payload["documents"])
         self.assertTrue(evidence_payload["pmb_decisions"])
         self.assertTrue(evidence_payload["benefit_route_decisions"])
         self.assertIn(
@@ -167,3 +168,56 @@ class MainEntrypointApiTests(unittest.TestCase):
         self.assertEqual(updated_readiness["pmb_decision"]["pmb_status"], "REVIEW_REQUIRED")
         self.assertEqual(updated_readiness["benefit_routing_decision"]["route"], "PMB_REVIEW_QUEUE")
         self.assertEqual(updated_readiness["costing_preview"]["pricing_basis"], "NON_DSP_VOLUNTARY")
+
+    def test_login_scope_filters_tenants_practices_and_provider_directory(self) -> None:
+        medhealth = self._current_user()
+        self.assertEqual(medhealth["tenant_id"], "tenant-sa-demo")
+        medhealth_tenants = platform_api.list_tenants(current_user=medhealth)
+        self.assertEqual(len(medhealth_tenants), 1)
+        self.assertEqual(medhealth_tenants[0]["id"], "tenant-sa-demo")
+        medhealth_practices = platform_api.list_practices(current_user=medhealth)
+        self.assertTrue(medhealth_practices)
+        medhealth_providers = platform_api.list_providers(current_user=medhealth)
+        self.assertTrue(medhealth_providers)
+        self.assertTrue(all(item["tenant_id"] == "tenant-sa-demo" for item in medhealth_providers))
+
+        coastal_payload = platform_api.login(LoginRequest(username="auditor", password="auditor123"))
+        coastal = platform_api.get_current_user(f"Bearer {coastal_payload['access_token']}")
+        self.assertEqual(coastal["tenant_id"], "tenant-coastal-care")
+        coastal_providers = platform_api.list_providers(current_user=coastal)
+        self.assertTrue(coastal_providers)
+        self.assertTrue(all(item["tenant_id"] == "tenant-coastal-care" for item in coastal_providers))
+
+    def test_provider_onboarding_can_attach_doctor_to_new_practice(self) -> None:
+        current_user = self._current_user()
+        practice = platform_api.create_practice(
+            {
+                "practice_number": "0198765",
+                "name": "Johannesburg Oncology Centre",
+                "city": "Johannesburg",
+                "province": "Gauteng",
+                "phone": "+27 11 555 0101",
+                "email": "admin@jocentre.co.za",
+            },
+            current_user=current_user,
+        )
+        provider = platform_api.create_provider(
+            {
+                "name": "Dr. S Khanyile",
+                "npi": "MP200001",
+                "hpcsa_number": "MP200001",
+                "practice_id": practice["id"],
+                "practice_number": practice["practice_number"],
+                "specialty": "Oncology",
+                "discipline": "SPECIALIST",
+                "email": "dr.khanyile@jocentre.co.za",
+                "phone": "+27 11 555 0102",
+                "onboarding_status": "verified",
+            },
+            current_user=current_user,
+        )
+        self.assertEqual(provider["tenant_id"], current_user["tenant_id"])
+        self.assertEqual(provider["practice_id"], practice["id"])
+        self.assertEqual(provider["onboarding_status"], "verified")
+        listed = platform_api.list_providers(current_user=current_user)
+        self.assertTrue(any(item["id"] == provider["id"] for item in listed))

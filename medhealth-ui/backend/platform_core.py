@@ -55,8 +55,35 @@ class LoginRequest(BaseModel):
     role: Optional[str] = None
 
 
+class Tenant(BaseModel):
+    id: str
+    code: str
+    name: str
+    country_code: str = "ZA"
+    timezone: str = "Africa/Johannesburg"
+    currency: str = "ZAR"
+    status: str = "active"
+    created_at: Optional[str] = None
+
+
+class Practice(BaseModel):
+    id: str
+    tenant_id: str
+    practice_number: str
+    name: str
+    city: str
+    province: str
+    phone: str
+    email: str
+    onboarding_status: str = "approved"
+    dispensing_license: bool = False
+    created_at: Optional[str] = None
+
+
 class Patient(BaseModel):
     id: Optional[int] = None
+    tenant_id: str = "tenant-sa-demo"
+    practice_id: Optional[str] = None
     name: str
     mrn: str
     dob: str
@@ -69,8 +96,11 @@ class Patient(BaseModel):
 
 class Provider(BaseModel):
     id: Optional[int] = None
+    tenant_id: str = "tenant-sa-demo"
+    practice_id: str = "practice-hatfield-medical-practice"
     name: str
     npi: str
+    hpcsa_number: Optional[str] = None
     practice_number: str
     specialty: str
     discipline: str = "SPECIALIST"
@@ -78,11 +108,14 @@ class Provider(BaseModel):
     email: str
     phone: str
     status: str = "active"
+    onboarding_status: str = "approved"
     created_at: Optional[str] = None
 
 
 class User(BaseModel):
     id: Optional[int] = None
+    tenant_id: str = "tenant-sa-demo"
+    practice_id: Optional[str] = None
     username: str
     email: str
     role: str
@@ -1137,6 +1170,8 @@ class ClaimReadinessService:
 
 class PlatformStore:
     def __init__(self) -> None:
+        self.tenants: Dict[str, Tenant] = {}
+        self.practices: Dict[str, Practice] = {}
         self.patients: Dict[int, Patient] = {}
         self.providers: Dict[int, Provider] = {}
         self.users: Dict[int, User] = {}
@@ -1197,7 +1232,7 @@ class PlatformStore:
         self.copay_items: Dict[str, Any] = {}
         self.outbox_events: List[Any] = []
         self.idempotency_store: Dict[str, Any] = {}
-        self.counters = {"patient": 1, "provider": 1, "user": 1, "claim": 1, "report": 1, "payment": 1}
+        self.counters = {"patient": 1, "provider": 1, "user": 1, "claim": 1, "report": 1, "payment": 1, "tenant": 1, "practice": 1}
         self.icd10_validation_service = ICD10ValidationService(self)
         self.pmb_detection_service = PMBDetectionService(self)
         self.benefit_routing_service = BenefitRoutingService(self)
@@ -1209,6 +1244,47 @@ class PlatformStore:
         current = self.counters[key]
         self.counters[key] += 1
         return current
+
+    def _slugify(self, value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-") or "unnamed"
+
+    def _tenant_id(self, code: str) -> str:
+        return f"tenant-{self._slugify(code)}"
+
+    def _practice_id(self, practice_number: str) -> str:
+        return f"practice-{self._slugify(practice_number)}"
+
+    def _resolve_scope_ids(
+        self,
+        tenant_id: Optional[str] = None,
+        practice_id: Optional[str] = None,
+    ) -> tuple[str, Optional[str]]:
+        resolved_tenant_id = tenant_id or next(iter(self.tenants))
+        if resolved_tenant_id not in self.tenants:
+            raise ValueError(f"Tenant {resolved_tenant_id} does not exist.")
+        if practice_id is not None:
+            practice = self.practices.get(practice_id)
+            if not practice:
+                raise ValueError(f"Practice {practice_id} does not exist.")
+            if practice.tenant_id != resolved_tenant_id:
+                raise ValueError("Practice does not belong to the selected tenant.")
+        return resolved_tenant_id, practice_id
+
+    def _matches_scope(self, item: Any, tenant_id: Optional[str] = None, practice_id: Optional[str] = None) -> bool:
+        if tenant_id and getattr(item, "tenant_id", None) != tenant_id:
+            return False
+        if practice_id and getattr(item, "practice_id", None) != practice_id:
+            return False
+        return True
+
+    def _claim_matches_tenant(self, claim: Any, tenant_id: Optional[str] = None) -> bool:
+        if not tenant_id:
+            return True
+        provider = self.providers.get(claim.provider_id)
+        patient = self.patients.get(claim.patient_id)
+        provider_tenant = getattr(provider, "tenant_id", None)
+        patient_tenant = getattr(patient, "tenant_id", None)
+        return tenant_id in {provider_tenant, patient_tenant}
 
     def record_patient_payment(
         self,
@@ -1565,16 +1641,76 @@ class PlatformStore:
         diagnoses = self.get_claim_diagnoses(claim_id)
         return len(diagnoses) == 1 and not any(item.is_primary for item in diagnoses)
 
-    def register_user(self, username: str, password: str, role: str, email: str) -> User:
+    def register_tenant(self, code: str, name: str, country_code: str = "ZA") -> Tenant:
+        tenant_id = self._tenant_id(code)
+        tenant = Tenant(
+            id=tenant_id,
+            code=code,
+            name=name,
+            country_code=country_code,
+            created_at=utc_now(),
+        )
+        self.tenants[tenant.id] = tenant
+        return tenant
+
+    def register_practice(
+        self,
+        tenant_id: str,
+        practice_number: str,
+        name: str,
+        city: str,
+        province: str,
+        phone: str,
+        email: str,
+        onboarding_status: str = "approved",
+        dispensing_license: bool = False,
+    ) -> Practice:
+        if tenant_id not in self.tenants:
+            raise ValueError(f"Tenant {tenant_id} does not exist.")
+        practice = Practice(
+            id=self._practice_id(practice_number),
+            tenant_id=tenant_id,
+            practice_number=practice_number,
+            name=name,
+            city=city,
+            province=province,
+            phone=phone,
+            email=email,
+            onboarding_status=onboarding_status,
+            dispensing_license=dispensing_license,
+            created_at=utc_now(),
+        )
+        self.practices[practice.id] = practice
+        return practice
+
+    def register_user(
+        self,
+        username: str,
+        password: str,
+        role: str,
+        email: str,
+        tenant_id: Optional[str] = None,
+        practice_id: Optional[str] = None,
+    ) -> User:
+        resolved_tenant_id, resolved_practice_id = self._resolve_scope_ids(tenant_id=tenant_id, practice_id=practice_id)
         user = User(
             id=self.next_numeric("user"),
+            tenant_id=resolved_tenant_id,
+            practice_id=resolved_practice_id,
             username=username,
             email=email,
             role=role,
             created_at=utc_now(),
         )
         self.users[user.id] = user
-        self.auth_users[username] = {"password": password, "role": role, "user_id": user.id, "email": email}
+        self.auth_users[username] = {
+            "password": password,
+            "role": role,
+            "user_id": user.id,
+            "email": email,
+            "tenant_id": resolved_tenant_id,
+            "practice_id": resolved_practice_id,
+        }
         return user
 
     def _default_schema_registry(self) -> Dict[str, Any]:
@@ -1726,12 +1862,79 @@ class PlatformStore:
         )
         self._seed_coding_and_pmb_reference()
 
-        self.register_user("admin", "admin123", "Administrator", "admin@example.com")
-        self.register_user("demo.user", "password123", "Billing Specialist", "demo.user@example.com")
-        self.register_user("billing", "billing123", "Billing Specialist", "billing@example.com")
-        self.register_user("provider", "provider123", "Healthcare Provider", "provider@example.com")
-        self.register_user("finance", "finance123", "Finance Officer", "finance@example.com")
-        self.register_user("auditor", "auditor123", "Compliance Auditor", "auditor@example.com")
+        medhealth_tenant = self.register_tenant("sa-demo", "Medhealth South Africa Demo")
+        coastal_tenant = self.register_tenant("coastal-care", "Coastal Care Group")
+
+        seeded_practices = [
+            self.register_practice(
+                tenant_id=medhealth_tenant.id,
+                practice_number="0123456",
+                name="Hatfield Medical Practice",
+                city="Pretoria",
+                province="Gauteng",
+                phone="+27 12 362 1122",
+                email="admin@hatfieldmedical.co.za",
+            ),
+            self.register_practice(
+                tenant_id=medhealth_tenant.id,
+                practice_number="0114567",
+                name="Morningside Specialist Centre",
+                city="Sandton",
+                province="Gauteng",
+                phone="+27 11 784 5678",
+                email="admin@morningsidespecialist.co.za",
+            ),
+            self.register_practice(
+                tenant_id=coastal_tenant.id,
+                practice_number="0312456",
+                name="Glenwood Medical Centre",
+                city="Durban",
+                province="KwaZulu-Natal",
+                phone="+27 31 201 4567",
+                email="admin@glenwoodmedical.co.za",
+            ),
+        ]
+
+        self.register_user("admin", "admin123", "Administrator", "admin@example.com", tenant_id=medhealth_tenant.id)
+        self.register_user(
+            "demo.user",
+            "password123",
+            "Billing Specialist",
+            "demo.user@example.com",
+            tenant_id=medhealth_tenant.id,
+            practice_id=seeded_practices[0].id,
+        )
+        self.register_user(
+            "billing",
+            "billing123",
+            "Billing Specialist",
+            "billing@example.com",
+            tenant_id=medhealth_tenant.id,
+            practice_id=seeded_practices[1].id,
+        )
+        self.register_user(
+            "provider",
+            "provider123",
+            "Healthcare Provider",
+            "provider@example.com",
+            tenant_id=medhealth_tenant.id,
+            practice_id=seeded_practices[0].id,
+        )
+        self.register_user(
+            "finance",
+            "finance123",
+            "Finance Officer",
+            "finance@example.com",
+            tenant_id=medhealth_tenant.id,
+        )
+        self.register_user(
+            "auditor",
+            "auditor123",
+            "Compliance Auditor",
+            "auditor@example.com",
+            tenant_id=coastal_tenant.id,
+            practice_id=seeded_practices[2].id,
+        )
 
         patient_names = [
             "Anele Nkosi",
@@ -1746,8 +1949,11 @@ class PlatformStore:
             "Nandi Sibiya",
         ]
         for index, name in enumerate(patient_names, start=1):
+            practice = seeded_practices[2] if index == 7 else seeded_practices[0]
             patient = Patient(
                 id=self.next_numeric("patient"),
+                tenant_id=practice.tenant_id,
+                practice_id=practice.id,
                 name=name,
                 mrn=f"MRN{1200 + index}",
                 dob=f"198{index % 10}-0{(index % 9) + 1}-1{index % 8}",
@@ -1759,24 +1965,28 @@ class PlatformStore:
             self.patients[patient.id] = patient
 
         provider_rows = [
-            ("Cardiology Provider 1", "Cardiology", "SPECIALIST", True),
-            ("General Practice Provider 2", "General Practice", "GP", False),
-            ("Orthopaedics Provider 3", "Orthopaedics", "SPECIALIST", True),
-            ("Hospitalist Provider 4", "Hospital", "SPECIALIST", True),
-            ("Pathology Provider 5", "Pathology", "SPECIALIST", False),
-            ("Dental Surgery Provider 6", "Dental Surgery", "SPECIALIST", True),
+            ("Cardiology Provider 1", "Cardiology", "SPECIALIST", True, seeded_practices[0]),
+            ("General Practice Provider 2", "General Practice", "GP", False, seeded_practices[0]),
+            ("Orthopaedics Provider 3", "Orthopaedics", "SPECIALIST", True, seeded_practices[1]),
+            ("Hospitalist Provider 4", "Hospital", "SPECIALIST", True, seeded_practices[1]),
+            ("Pathology Provider 5", "Pathology", "SPECIALIST", False, seeded_practices[2]),
+            ("Dental Surgery Provider 6", "Dental Surgery", "SPECIALIST", True, seeded_practices[2]),
         ]
-        for index, (name, specialty, discipline, is_dsp_provider) in enumerate(provider_rows, start=1):
+        for index, (name, specialty, discipline, is_dsp_provider, practice) in enumerate(provider_rows, start=1):
             provider = Provider(
                 id=self.next_numeric("provider"),
+                tenant_id=practice.tenant_id,
+                practice_id=practice.id,
                 name=name,
                 npi=f"NPI{9000 + index}",
-                practice_number=f"01234{index:02d}",
+                hpcsa_number=f"MP{100000 + index:06d}",
+                practice_number=practice.practice_number,
                 specialty=specialty,
                 discipline=discipline,
                 is_dsp_provider=is_dsp_provider,
                 email=f"provider{index}@example.com",
                 phone=f"+27-11-700-0{index:02d}",
+                onboarding_status="approved",
                 created_at=utc_now(),
             )
             self.providers[provider.id] = provider
@@ -3106,8 +3316,44 @@ class PlatformStore:
             "impacted_claims": impacted_claims,
         }
 
-    def list_patients(self) -> List[Dict[str, Any]]:
-        return [item.model_dump() for item in self.patients.values()]
+    def list_tenants(self) -> List[Dict[str, Any]]:
+        return [item.model_dump() for item in self.tenants.values()]
+
+    def get_tenant(self, tenant_id: str) -> Tenant:
+        return self.tenants[tenant_id]
+
+    def list_practices(self, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        return [
+            item.model_dump()
+            for item in self.practices.values()
+            if self._matches_scope(item, tenant_id=tenant_id)
+        ]
+
+    def get_practice(self, practice_id: str) -> Practice:
+        return self.practices[practice_id]
+
+    def create_practice(self, data: Dict[str, Any], actor: str, role: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
+        resolved_tenant_id, _ = self._resolve_scope_ids(tenant_id=data.get("tenant_id") or tenant_id)
+        practice = self.register_practice(
+            tenant_id=resolved_tenant_id,
+            practice_number=str(data["practice_number"]),
+            name=data["name"],
+            city=data["city"],
+            province=data.get("province", "Gauteng"),
+            phone=data["phone"],
+            email=data["email"],
+            onboarding_status=data.get("onboarding_status", "pending_review"),
+            dispensing_license=to_bool(data.get("dispensing_license")),
+        )
+        self.add_audit_event(actor, role, "PRACTICE_CREATED", "practice", practice.id, practice.model_dump())
+        return practice.model_dump()
+
+    def list_patients(self, tenant_id: Optional[str] = None, practice_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        return [
+            item.model_dump()
+            for item in self.patients.values()
+            if self._matches_scope(item, tenant_id=tenant_id, practice_id=practice_id)
+        ]
 
     def get_patient(self, patient_id: int) -> Patient:
         return self.patients[patient_id]
@@ -3231,9 +3477,22 @@ class PlatformStore:
             "timeline": timeline,
         }
 
-    def create_patient(self, data: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:
+    def create_patient(
+        self,
+        data: Dict[str, Any],
+        actor: str,
+        role: str,
+        tenant_id: Optional[str] = None,
+        practice_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        resolved_tenant_id, resolved_practice_id = self._resolve_scope_ids(
+            tenant_id=data.get("tenant_id") or tenant_id,
+            practice_id=data.get("practice_id") or practice_id,
+        )
         patient = Patient(
             id=self.next_numeric("patient"),
+            tenant_id=resolved_tenant_id,
+            practice_id=resolved_practice_id,
             name=data["name"],
             mrn=data["mrn"],
             dob=data["dob"],
@@ -3248,7 +3507,10 @@ class PlatformStore:
         return patient.model_dump()
 
     def update_patient(self, patient_id: int, data: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:
-        updated = self.patients[patient_id].model_copy(update={**data, "id": patient_id})
+        payload = {**self.patients[patient_id].model_dump(), **data, "id": patient_id}
+        if payload.get("practice_id"):
+            self._resolve_scope_ids(tenant_id=payload.get("tenant_id"), practice_id=payload.get("practice_id"))
+        updated = Patient(**payload)
         self.patients[patient_id] = updated
         self.add_audit_event(actor, role, "PATIENT_UPDATED", "patient", str(patient_id), updated.model_dump())
         return updated.model_dump()
@@ -3257,23 +3519,64 @@ class PlatformStore:
         del self.patients[patient_id]
         self.add_audit_event(actor, role, "PATIENT_DELETED", "patient", str(patient_id), {})
 
-    def list_providers(self) -> List[Dict[str, Any]]:
-        return [item.model_dump() for item in self.providers.values()]
+    def list_providers(self, tenant_id: Optional[str] = None, practice_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        return [
+            item.model_dump()
+            for item in self.providers.values()
+            if self._matches_scope(item, tenant_id=tenant_id, practice_id=practice_id)
+        ]
 
     def get_provider(self, provider_id: int) -> Provider:
         return self.providers[provider_id]
 
-    def create_provider(self, data: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:
+    def create_provider(
+        self,
+        data: Dict[str, Any],
+        actor: str,
+        role: str,
+        tenant_id: Optional[str] = None,
+        practice_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        resolved_tenant_id, resolved_practice_id = self._resolve_scope_ids(
+            tenant_id=data.get("tenant_id") or tenant_id,
+            practice_id=data.get("practice_id") or practice_id,
+        )
         provider = Provider(
             id=self.next_numeric("provider"),
+            tenant_id=resolved_tenant_id,
+            practice_id=resolved_practice_id or next(
+                (
+                    item.id
+                    for item in self.practices.values()
+                    if item.tenant_id == resolved_tenant_id
+                ),
+                self.create_practice(
+                    {
+                        "tenant_id": resolved_tenant_id,
+                        "practice_number": str(data.get("practice_number") or data["npi"]),
+                        "name": data.get("practice_name") or f"{data['name']} Practice",
+                        "city": data.get("city", "Johannesburg"),
+                        "province": data.get("province", "Gauteng"),
+                        "phone": data["phone"],
+                        "email": data["email"],
+                        "onboarding_status": "pending_review",
+                    },
+                    actor,
+                    role,
+                    tenant_id=resolved_tenant_id,
+                )["id"],
+            ),
             name=data["name"],
             npi=data["npi"],
+            hpcsa_number=data.get("hpcsa_number") or data.get("npi"),
             practice_number=str(data.get("practice_number") or data["npi"]),
             specialty=data.get("specialty", "General Practice"),
             discipline=data.get("discipline", "SPECIALIST"),
+            is_dsp_provider=to_bool(data.get("is_dsp_provider", True)),
             email=data["email"],
             phone=data["phone"],
             status=data.get("status", "active"),
+            onboarding_status=data.get("onboarding_status", "pending_review"),
             created_at=utc_now(),
         )
         self.providers[provider.id] = provider
@@ -3284,6 +3587,7 @@ class PlatformStore:
         payload = {**self.providers[provider_id].model_dump(), **data, "id": provider_id}
         if not payload.get("practice_number"):
             payload["practice_number"] = payload.get("npi")
+        self._resolve_scope_ids(tenant_id=payload.get("tenant_id"), practice_id=payload.get("practice_id"))
         updated = Provider(**payload)
         self.providers[provider_id] = updated
         self.add_audit_event(actor, role, "PROVIDER_UPDATED", "provider", str(provider_id), updated.model_dump())
@@ -3293,20 +3597,40 @@ class PlatformStore:
         del self.providers[provider_id]
         self.add_audit_event(actor, role, "PROVIDER_DELETED", "provider", str(provider_id), {})
 
-    def list_users(self) -> List[Dict[str, Any]]:
-        return [item.model_dump() for item in self.users.values()]
+    def list_users(self, tenant_id: Optional[str] = None, practice_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        return [
+            item.model_dump()
+            for item in self.users.values()
+            if self._matches_scope(item, tenant_id=tenant_id, practice_id=practice_id)
+        ]
 
     def get_user(self, user_id: int) -> User:
         return self.users[user_id]
 
-    def create_user(self, data: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:
-        user = self.register_user(data["username"], data["password"], data["role"], data["email"])
+    def create_user(
+        self,
+        data: Dict[str, Any],
+        actor: str,
+        role: str,
+        tenant_id: Optional[str] = None,
+        practice_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        user = self.register_user(
+            data["username"],
+            data["password"],
+            data["role"],
+            data["email"],
+            tenant_id=data.get("tenant_id") or tenant_id,
+            practice_id=data.get("practice_id") or practice_id,
+        )
         self.add_audit_event(actor, role, "USER_CREATED", "user", str(user.id), user.model_dump())
         return user.model_dump()
 
     def update_user(self, user_id: int, data: Dict[str, Any], actor: str, role: str) -> Dict[str, Any]:
         previous = self.users[user_id]
-        updated = previous.model_copy(update={**data, "id": user_id})
+        payload = {**previous.model_dump(), **data, "id": user_id}
+        self._resolve_scope_ids(tenant_id=payload.get("tenant_id"), practice_id=payload.get("practice_id"))
+        updated = User(**payload)
         self.users[user_id] = updated
         auth_record = self.auth_users.get(previous.username)
         if auth_record:
@@ -3315,6 +3639,8 @@ class PlatformStore:
                 del self.auth_users[previous.username]
             auth_record["role"] = updated.role
             auth_record["email"] = updated.email
+            auth_record["tenant_id"] = updated.tenant_id
+            auth_record["practice_id"] = updated.practice_id
         self.add_audit_event(actor, role, "USER_UPDATED", "user", str(user_id), updated.model_dump())
         return updated.model_dump()
 
@@ -3324,7 +3650,13 @@ class PlatformStore:
         del self.users[user_id]
         self.add_audit_event(actor, role, "USER_DELETED", "user", str(user_id), {})
 
-    def create_claim(self, data: Dict[str, Any], actor: str, role: str) -> ClaimRecord:
+    def create_claim(self, data: Dict[str, Any], actor: str, role: str, tenant_id: Optional[str] = None) -> ClaimRecord:
+        provider = self.providers[data["provider_id"]]
+        patient = self.patients[data["patient_id"]]
+        if provider.tenant_id != patient.tenant_id:
+            raise ValueError("Patient and provider must belong to the same tenant.")
+        if tenant_id and tenant_id not in {provider.tenant_id, patient.tenant_id}:
+            raise ValueError("Claim does not belong to the authenticated tenant.")
         claim = self._normalize_claim(data)
         self._ensure_claim_line_item_ids(claim)
         self.claims[claim.id] = claim
@@ -3333,8 +3665,12 @@ class PlatformStore:
         self.add_audit_event(actor, role, "CLAIM_DRAFT_UPDATED", "claim", str(claim.id), self._claim_payload(claim))
         return claim
 
-    def list_claims(self) -> List[Dict[str, Any]]:
-        return [self._claim_payload(item) for item in sorted(self.claims.values(), key=lambda item: item.id)]
+    def list_claims(self, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        return [
+            self._claim_payload(item)
+            for item in sorted(self.claims.values(), key=lambda item: item.id)
+            if self._claim_matches_tenant(item, tenant_id=tenant_id)
+        ]
 
     def get_claim(self, claim_id: int) -> Dict[str, Any]:
         claim = self.claims[claim_id]
@@ -4811,9 +5147,11 @@ class PlatformStore:
     def get_report(self, report_id: int) -> Dict[str, Any]:
         return self.reports[report_id].model_dump()
 
-    def list_worklist(self) -> List[Dict[str, Any]]:
+    def list_worklist(self, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
         items = []
         for claim in self.claims.values():
+            if not self._claim_matches_tenant(claim, tenant_id=tenant_id):
+                continue
             if claim.status not in {"rejected", "pended", "validation_exception", "blocked", "exception"}:
                 continue
             reasons = [hit.reason_code for bundle in self.get_decision_bundles_for_claim(claim.id) for hit in bundle.rule_hits if bundle.claim_version == claim.version]
@@ -4853,10 +5191,12 @@ class PlatformStore:
         self.add_audit_event(actor, role, "SETTINGS_UPDATED", "settings", "global", payload)
         return self.get_settings()
 
-    def dashboard_summary(self) -> Dict[str, Any]:
-        claims = list(self.claims.values())
+    def dashboard_summary(self, tenant_id: Optional[str] = None) -> Dict[str, Any]:
+        claims = [item for item in self.claims.values() if self._claim_matches_tenant(item, tenant_id=tenant_id)]
         top_rule_hits: Dict[str, int] = {}
         for bundle in self.decision_bundles.values():
+            if not self._claim_matches_tenant(self.claims[bundle.claim_id], tenant_id=tenant_id):
+                continue
             for hit in bundle.rule_hits:
                 top_rule_hits[hit.reason_code] = top_rule_hits.get(hit.reason_code, 0) + 1
         return {
@@ -4865,6 +5205,6 @@ class PlatformStore:
             "rejected_or_pended": sum(1 for item in claims if item.status in {"rejected", "pended"}),
             "reconciliation_exceptions": sum(1 for item in claims if item.reconciliation_status == "exception"),
             "top_rule_hits": top_rule_hits,
-            "worklist": self.list_worklist()[:6],
+            "worklist": self.list_worklist(tenant_id=tenant_id)[:6],
             "active_policy": {"profile": self.settings.get("policy_profile_id"), "version": self.settings.get("policy_version")},
         }

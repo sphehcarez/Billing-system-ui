@@ -56,6 +56,19 @@
     },
   };
 
+  const NAV_ICONS = {
+    dashboard: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v5h-7zM13 11h7v9h-7zM4 13h7v7H4z"/></svg>',
+    patients: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12c2.76 0 5-2.46 5-5.5S14.76 1 12 1 7 3.46 7 6.5 9.24 12 12 12zm0 2c-4.42 0-8 2.91-8 6.5V23h16v-2.5c0-3.59-3.58-6.5-8-6.5z"/></svg>',
+    providers: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3h-3.18C15.4 1.84 14.3 1 13 1h-2c-1.3 0-2.4.84-2.82 2H5a2 2 0 0 0-2 2v15a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3V5a2 2 0 0 0-2-2zm-8 0h2v2h-2zm7 17a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5h2v3h10V5h2zM11 10H9v2h2v2h2v-2h2v-2h-2V8h-2z"/></svg>',
+    claims: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h8l5 5v13a2 2 0 0 1-2 2H7a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3zm7 1.5V8h4.5M8 12h8v2H8zm0 4h8v2H8z"/></svg>',
+    payments: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2H3zm0 4h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm9 1.5c-2.2 0-4 1.34-4 3s1.8 3 4 3 4-1.34 4-3-1.8-3-4-3zm0 1.5c1.1 0 2 .45 2 1s-.9 1-2 1-2-.45-2-1 .9-1 2-1z"/></svg>',
+    reports: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14a2 2 0 0 1 2 2v14l-4-3-4 3-4-3-4 3V5a2 2 0 0 1 2-2zm3 5h8v2H8zm0 4h8v2H8z"/></svg>',
+    audit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c5.5 0 9.5 4.13 10 8.8-.5 4.67-4.5 8.8-10 8.8S2.5 16.47 2 11.8C2.5 7.13 6.5 3 12 3zm0 3.2a5.6 5.6 0 1 0 0 11.2 5.6 5.6 0 0 0 0-11.2zm0 2.2a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 0 1 0-6.8z"/></svg>',
+    users: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4zM8 12a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm0 2c-2.76 0-5 1.79-5 4v2h9v-2c0-2.21-1-4-4-4zm8 0c-2.76 0-5 2.24-5 5v1h10v-1c0-2.76-2.24-5-5-5z"/></svg>',
+    settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94a7.43 7.43 0 0 0 .05-.94 7.43 7.43 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.23 7.23 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54a7.23 7.23 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.66 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.43 7.43 0 0 0-.05.94 7.43 7.43 0 0 0 .05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.23 1.13-.55 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5z"/></svg>',
+    signout: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5v-2H5V6h5zm7.59 7-2.3-2.29L16.7 7.3 21.41 12l-4.71 4.7-1.41-1.41L17.59 13H9v-2z"/></svg>',
+  };
+
   const CREATE_CONFIG = {
     "patients.html": {
       resource: "patients",
@@ -197,9 +210,11 @@
     page: getCurrentPage(),
     role: getStoredRole(),
     claimId: getClaimIdFromLocation(),
+    sidebarOpen: null,
     connection: { status: "checking", message: "Checking API connection..." },
     patients: [],
     providers: [],
+    practices: [],
     claims: [],
     auditLogs: [],
     selectedProviderId: null,
@@ -230,6 +245,7 @@
       return;
     }
 
+    initializeSidebarShell();
     applyRoleToLayout();
     configureTopbar();
     bindGlobalHandlers();
@@ -249,6 +265,205 @@
 
   function getStoredRole() {
     return localStorage.getItem("api_role") || localStorage.getItem("role") || "Billing Specialist";
+  }
+
+  function isNarrowViewport() {
+    return window.matchMedia("(max-width: 980px)").matches;
+  }
+
+  function getStoredSidebarOpen() {
+    const stored = localStorage.getItem("medhealth_sidebar_open");
+    if (stored === "true") return true;
+    if (stored === "false") return false;
+    return !isNarrowViewport();
+  }
+
+  function initializeSidebarShell() {
+    const shell = document.querySelector(".shell");
+    const sidebar = document.querySelector(".sidebar");
+    if (!shell || !sidebar || state.page === "index.html") {
+      return;
+    }
+
+    sidebar.setAttribute("id", "app-sidebar");
+    decorateSidebarNavigation(sidebar);
+
+    let sidebarHead = sidebar.querySelector(".sidebar-head");
+    if (!sidebarHead) {
+      sidebarHead = document.createElement("div");
+      sidebarHead.className = "sidebar-head";
+      const brand = sidebar.querySelector(".brand");
+      if (brand) {
+        brand.parentNode.insertBefore(sidebarHead, brand);
+        sidebarHead.appendChild(brand);
+      } else {
+        sidebar.insertBefore(sidebarHead, sidebar.firstChild);
+      }
+    }
+
+    if (!sidebar.querySelector("[data-sidebar-close]")) {
+      const closeButton = document.createElement("button");
+      closeButton.type = "button";
+      closeButton.className = "sidebar-toggle sidebar-toggle--sidebar";
+      closeButton.setAttribute("data-sidebar-close", "true");
+      closeButton.setAttribute("aria-controls", "app-sidebar");
+      closeButton.setAttribute("aria-label", "Close navigation");
+      closeButton.textContent = "×";
+      closeButton.addEventListener("click", () => setSidebarOpen(false));
+      sidebarHead.appendChild(closeButton);
+    }
+
+    if (!shell.querySelector(".sidebar-backdrop")) {
+      const backdrop = document.createElement("button");
+      backdrop.type = "button";
+      backdrop.className = "sidebar-backdrop";
+      backdrop.setAttribute("aria-label", "Close navigation");
+      backdrop.addEventListener("click", () => setSidebarOpen(false));
+      shell.appendChild(backdrop);
+    }
+
+    mountSidebarToggleButton();
+    state.sidebarOpen = getStoredSidebarOpen();
+    applySidebarState();
+
+    window.addEventListener("resize", handleSidebarResize);
+    document.addEventListener("keydown", handleSidebarEscape);
+  }
+
+  function mountSidebarToggleButton() {
+    if (document.querySelector("[data-sidebar-toggle]")) {
+      return;
+    }
+
+    const target = document.querySelector(".topbar") || document.querySelector(".cockpit-header");
+    if (!target) {
+      return;
+    }
+
+    const heading = target.querySelector(".h1") || target.querySelector(".cockpit-id");
+    if (!heading) {
+      return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = target.classList.contains("cockpit-header") ? "cockpit-topbar-start" : "topbar-start";
+    heading.parentNode.insertBefore(wrapper, heading);
+    wrapper.appendChild(createSidebarToggleButton());
+    wrapper.appendChild(heading);
+  }
+
+  function decorateSidebarNavigation(sidebar) {
+    sidebar.querySelectorAll(".nav a[data-module]").forEach((link) => {
+      if (link.querySelector(".nav-link-icon")) {
+        return;
+      }
+      const badge = link.querySelector(".badge");
+      const badgeClone = badge ? badge.cloneNode(true) : null;
+      const labelText = link.getAttribute("data-nav-label") || link.textContent.replace(badge?.textContent || "", "").trim();
+      const iconName = link.getAttribute("data-module") || "";
+
+      link.textContent = "";
+      link.classList.add("nav-link");
+      link.setAttribute("data-nav-label", labelText);
+      link.setAttribute("aria-label", labelText);
+      link.setAttribute("title", labelText);
+
+      const icon = document.createElement("span");
+      icon.className = "nav-link-icon";
+      icon.innerHTML = NAV_ICONS[iconName] || NAV_ICONS.dashboard;
+
+      const label = document.createElement("span");
+      label.className = "nav-link-label";
+      label.textContent = labelText;
+
+      link.append(icon, label);
+      if (badgeClone) {
+        link.appendChild(badgeClone);
+      }
+    });
+
+    const signout = sidebar.querySelector('.footer a[href="index.html"]');
+    if (signout && !signout.querySelector(".sidebar-signout-icon")) {
+      const labelText = signout.textContent.trim() || "Sign out";
+      signout.textContent = "";
+      signout.classList.add("sidebar-signout");
+      signout.setAttribute("data-nav-label", labelText);
+      signout.setAttribute("aria-label", labelText);
+      signout.setAttribute("title", labelText);
+
+      const icon = document.createElement("span");
+      icon.className = "sidebar-signout-icon";
+      icon.innerHTML = NAV_ICONS.signout;
+
+      const label = document.createElement("span");
+      label.className = "sidebar-signout-label";
+      label.textContent = labelText;
+      signout.append(icon, label);
+    }
+  }
+
+  function createSidebarToggleButton() {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "sidebar-toggle sidebar-toggle--header";
+    button.setAttribute("data-sidebar-toggle", "true");
+    button.setAttribute("aria-controls", "app-sidebar");
+    button.addEventListener("click", () => setSidebarOpen(!state.sidebarOpen));
+    return button;
+  }
+
+  function handleSidebarResize() {
+    if (state.page === "index.html") {
+      return;
+    }
+    if (state.sidebarOpen == null) {
+      state.sidebarOpen = getStoredSidebarOpen();
+    }
+    applySidebarState();
+  }
+
+  function handleSidebarEscape(event) {
+    if (event.key === "Escape" && isNarrowViewport() && state.sidebarOpen) {
+      setSidebarOpen(false);
+    }
+  }
+
+  function setSidebarOpen(isOpen) {
+    state.sidebarOpen = Boolean(isOpen);
+    localStorage.setItem("medhealth_sidebar_open", String(state.sidebarOpen));
+    applySidebarState();
+  }
+
+  function applySidebarState() {
+    const shell = document.querySelector(".shell");
+    const sidebar = document.querySelector(".sidebar");
+    const toggle = document.querySelector("[data-sidebar-toggle]");
+    if (!shell || !sidebar) {
+      return;
+    }
+
+    const sidebarOpen = Boolean(state.sidebarOpen);
+    const narrowViewport = isNarrowViewport();
+
+    shell.classList.toggle("sidebar-open", narrowViewport && sidebarOpen);
+    shell.classList.toggle("sidebar-closed", narrowViewport && !sidebarOpen);
+    shell.classList.toggle("sidebar-collapsed", !narrowViewport && !sidebarOpen);
+    sidebar.setAttribute("aria-hidden", String(narrowViewport ? !sidebarOpen : false));
+
+    const toggleLabel = narrowViewport
+      ? (sidebarOpen ? "Close navigation" : "Open navigation")
+      : (sidebarOpen ? "Collapse navigation" : "Expand navigation");
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", String(sidebarOpen));
+      toggle.setAttribute("aria-label", toggleLabel);
+      toggle.setAttribute("title", toggleLabel);
+      toggle.textContent = narrowViewport ? "☰" : (sidebarOpen ? "⇤" : "⇥");
+    }
+
+    const closeButton = document.querySelector("[data-sidebar-close]");
+    if (closeButton) {
+      closeButton.style.display = isNarrowViewport() ? "" : "none";
+    }
   }
 
   function hasPermission(resource, action) {
@@ -278,6 +493,11 @@
     document.querySelectorAll(".nav a").forEach((link) => {
       const href = link.getAttribute("href");
       link.classList.toggle("active", href === state.page);
+      link.addEventListener("click", () => {
+        if (isNarrowViewport()) {
+          setSidebarOpen(false);
+        }
+      });
     });
   }
 
@@ -930,8 +1150,10 @@
   async function loadProviders() {
     const providers = await window.api.getProviders();
     state.providers = providers;
+    state.practices = state.practices.length ? state.practices : await window.api.getPractices().catch(() => []);
     state.claims = state.claims.length ? state.claims : await window.api.getClaims().catch(() => []);
     state.patients = state.patients.length ? state.patients : await window.api.getPatients().catch(() => []);
+    const practicesById = new Map((state.practices || []).map((practice) => [practice.id, practice]));
     renderTable(
       providers,
       6,
@@ -941,7 +1163,7 @@
             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._app&&window._app.selectProvider(${provider.id});}">
           <td class="code">${escapeHtml(provider.npi)}</td>
           <td>${escapeHtml(provider.name)}</td>
-          <td>${escapeHtml(provider.specialty)}</td>
+          <td>${escapeHtml(practicesById.get(provider.practice_id)?.name || provider.specialty)}</td>
           <td>${escapeHtml(provider.email)}</td>
           <td><span class="chip ${statusClass(provider.status)}">${escapeHtml(provider.status)}</span></td>
           <td class="row-actions" onclick="event.stopPropagation()">${renderProviderActions(provider.id)}</td>
@@ -963,6 +1185,7 @@
       container.innerHTML = '<div class="muted">Select a provider to view details.</div>';
       return;
     }
+    const practice = (state.practices || []).find((item) => item.id === provider.practice_id);
     const providerClaims = (state.claims || []).filter(c => c.provider_id === provider.id);
     const submitted = providerClaims.filter(c => c.status === "submitted").length;
     const closed    = providerClaims.filter(c => c.status === "closed").length;
@@ -979,7 +1202,7 @@
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
           <div>
             <strong style="font-size:1rem;">${escapeHtml(provider.name)}</strong>
-            <div class="muted" style="margin-top:2px;">${escapeHtml(provider.specialty)}</div>
+            <div class="muted" style="margin-top:2px;">${escapeHtml(provider.specialty)}${practice ? ` · ${escapeHtml(practice.name)}` : ""}</div>
           </div>
           <span class="chip ${statusClass(provider.status)}">${escapeHtml(provider.status)}</span>
         </div>

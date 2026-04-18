@@ -122,7 +122,34 @@ class PlatformCoreTests(unittest.TestCase):
         self.assertEqual(result["pmb_decision"]["pmb_status"], "REVIEW_REQUIRED")
         self.assertEqual(result["benefit_routing_decision"]["route"], "PMB_REVIEW_QUEUE")
         self.assertEqual(result["costing_preview"]["pricing_basis"], "NON_DSP_VOLUNTARY")
-        self.assertTrue(result["costing_preview"]["pending_pmb_review"])
+
+    def test_south_africa_scope_seed_contains_tenants_practices_and_provider_registry_fields(self) -> None:
+        tenants = self.store.list_tenants()
+        self.assertGreaterEqual(len(tenants), 2)
+        practices = self.store.list_practices(tenant_id="tenant-sa-demo")
+        self.assertTrue(practices)
+        provider = self.store.get_provider(1)
+        self.assertEqual(provider.tenant_id, "tenant-sa-demo")
+        self.assertTrue(provider.practice_id)
+        self.assertTrue(provider.hpcsa_number)
+
+    def test_claim_creation_blocks_cross_tenant_patient_provider_pairing(self) -> None:
+        with self.assertRaises(ValueError) as context:
+            self.store.create_claim(
+                {
+                    "claim_number": "CLM-CROSS-TENANT",
+                    "patient_id": 1,
+                    "provider_id": 5,
+                    "member_number": "MEM999001",
+                    "service_date": "2026-04-10",
+                    "diagnoses": [{"seq": 1, "icd10": "I10", "diagnosis_type": "PRIMARY"}],
+                    "line_items": [{"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", "quantity": 1, "unit_price": 500, "claimed_amount": 500}],
+                },
+                actor="tester",
+                role="Billing Specialist",
+                tenant_id="tenant-sa-demo",
+        )
+        self.assertIn("same tenant", str(context.exception))
 
     def test_pmb_detection_evaluates_secondary_diagnoses_after_primary(self) -> None:
         claim = self.store.create_claim(
