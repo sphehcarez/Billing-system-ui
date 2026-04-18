@@ -259,30 +259,65 @@ PATIENTS_DATA = _build_patients()
 # ICD-10 codes for claims
 # ---------------------------------------------------------------------------
 ICD10_CODES: Dict[str, str] = {
-    "I10":     "Essential hypertension",
-    "E11.9":   "Type 2 diabetes mellitus, without complications",
-    "J45.909": "Unspecified asthma, uncomplicated",
-    "E78.5":   "Hyperlipidemia, unspecified",
-    "M17.11":  "Primary osteoarthritis, right knee",
-    "J35.03":  "Chronic tonsillitis and adenoiditis",
-    "K02.9":   "Dental caries, unspecified",
-    "J06.9":   "Acute upper respiratory infection, unspecified",
-    "N39.0":   "Urinary tract infection, site not specified",
-    "L20.9":   "Atopic dermatitis, unspecified",
-}
-# Extra ICD codes used by UAT / realistic scenarios
-ICD10_EXTRA: Dict[str, str] = {
-    "J11.1":  "Influenza with respiratory manifestations",
-    "I50.9":  "Unspecified heart failure",
-    "J44.9":  "Chronic obstructive pulmonary disease, unspecified",
-    "F41.1":  "Generalized anxiety disorder",
-    "M79.3":  "Myalgia",
-    "K21.0":  "Gastro-oesophageal reflux disease with oesophagitis",
-    "M54.5":  "Low back pain",
-    "B34.1":  "Respiratory syncytial virus infection",
+    # Cardiovascular
+    "I10":    "Essential hypertension",
+    "I20.9":  "Angina pectoris, unspecified",
     "I21.9":  "Acute myocardial infarction, unspecified",
+    "I25.10": "Atherosclerotic heart disease of native coronary artery without angina",
+    "I48.91": "Unspecified atrial fibrillation",
+    "I50.9":  "Unspecified heart failure",
+    "I63.9":  "Cerebral infarction, unspecified",
+    # Endocrine / metabolic
+    "E11.9":  "Type 2 diabetes mellitus, without complications",
+    "E11.65": "Type 2 diabetes mellitus with hyperglycaemia",
+    "E78.5":  "Hyperlipidaemia, unspecified",
+    "E66.9":  "Obesity, unspecified",
+    "E03.9":  "Hypothyroidism, unspecified",
+    "E05.90": "Thyrotoxicosis, unspecified, without thyrotoxic crisis",
+    # Respiratory
+    "J06.9":  "Acute upper respiratory infection, unspecified",
+    "J11.1":  "Influenza with other respiratory manifestations",
+    "J18.9":  "Pneumonia, unspecified organism",
     "J20.9":  "Acute bronchitis, unspecified",
+    "J44.9":  "Chronic obstructive pulmonary disease, unspecified",
+    "J45.909":"Unspecified asthma, uncomplicated",
+    # Musculoskeletal
+    "M17.11": "Primary osteoarthritis, right knee",
+    "M17.12": "Primary osteoarthritis, left knee",
+    "M54.5":  "Low back pain",
+    "M54.2":  "Cervicalgia",
+    "M79.3":  "Panniculitis",
+    "M06.9":  "Rheumatoid arthritis, unspecified",
+    "M81.0":  "Age-related osteoporosis without current pathological fracture",
+    # Gastrointestinal
+    "K02.9":  "Dental caries, unspecified",
+    "K21.0":  "Gastro-oesophageal reflux disease with oesophagitis",
+    "K25.9":  "Gastric ulcer, unspecified as acute or chronic, without haemorrhage or perforation",
+    "K35.80": "Other and unspecified acute appendicitis without abscess",
+    "K92.1":  "Melaena",
+    # Genitourinary / renal
+    "N18.3":  "Chronic kidney disease, stage 3 (moderate)",
+    "N39.0":  "Urinary tract infection, site not specified",
+    "N40.0":  "Benign prostatic hyperplasia without lower urinary tract symptoms",
+    "N94.3":  "Premenstrual tension syndrome",
+    # Mental health
+    "F32.9":  "Major depressive disorder, single episode, unspecified",
+    "F41.1":  "Generalised anxiety disorder",
+    "F10.20": "Alcohol dependence, uncomplicated",
+    "F43.10": "Post-traumatic stress disorder, unspecified",
+    # Infections / other
+    "A09":    "Other and unspecified gastroenteritis and colitis of infectious origin",
+    "B34.1":  "Respiratory syncytial virus infection",
+    "B20":    "Human immunodeficiency virus disease",
+    "J35.03": "Chronic tonsillitis and adenoiditis",
+    "L20.9":  "Atopic dermatitis, unspecified",
+    "L50.0":  "Allergic urticaria",
+    "C34.90": "Malignant neoplasm of bronchus and lung, unspecified, unspecified side",
+    "Z23":    "Encounter for immunisation",
+    "Z00.00": "Encounter for general adult medical examination without abnormal findings",
 }
+# Extra ICD codes used by UAT / realistic scenarios (kept for backward compat)
+ICD10_EXTRA: Dict[str, str] = {}
 
 # ---------------------------------------------------------------------------
 # Synthetic tariff codes (all amounts in cents)
@@ -508,6 +543,9 @@ def seed_uat_scenarios(store: PersistentPlatformStore) -> Dict[str, Any]:
 
     # Seed 80 bulk claims (the named UAT ones are separate, not counted in the 80)
     _seed_bulk_claims(store)
+
+    # Seed realistic patient balances (~30% outstanding, ~10% credit)
+    _seed_patient_balances(store)
 
     store.save()
 
@@ -843,6 +881,45 @@ def _ensure_tariff_rates(store: PersistentPlatformStore) -> None:
                     effective_from="2026-04-01",
                     source="Synthetic NHRPL tariff rates – is_synthetic=True",
                 )
+
+
+# ---------------------------------------------------------------------------
+# Patient balance seeding
+# ---------------------------------------------------------------------------
+
+def _seed_patient_balances(store: PersistentPlatformStore) -> None:
+    """Seed realistic outstanding balances for ~30% of patients and credit for ~10%."""
+    rng = random.Random(20260301)
+    now = "2026-04-17T00:00:00Z"
+    patient_ids = sorted(store.patients.keys())
+    for i, pid in enumerate(patient_ids):
+        existing = store.patient_balances.get(pid)
+        # Preserve non-zero balances already set by claim reconciliation
+        if existing and (existing.get("balance_cents", 0) > 0 or existing.get("credit_cents", 0) > 0):
+            continue
+        if i % 3 == 0:
+            # Outstanding balance R150–R1 500
+            store.patient_balances[pid] = {
+                "patient_id": pid,
+                "balance_cents": rng.randint(15000, 150000),
+                "credit_cents": 0,
+                "updated_at": now,
+            }
+        elif i % 7 == 0:
+            # Credit R50–R250
+            store.patient_balances[pid] = {
+                "patient_id": pid,
+                "balance_cents": 0,
+                "credit_cents": rng.randint(5000, 25000),
+                "updated_at": now,
+            }
+        else:
+            store.patient_balances[pid] = {
+                "patient_id": pid,
+                "balance_cents": 0,
+                "credit_cents": 0,
+                "updated_at": now,
+            }
 
 
 # ---------------------------------------------------------------------------
