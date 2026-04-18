@@ -677,6 +677,10 @@ button, input, select, textarea{font-family:inherit}
     linear-gradient(180deg, rgba(255,255,255,.88), rgba(249,251,252,.9)),
     radial-gradient(circle at top right, rgba(14,165,233,.08), transparent 32%);
 }
+.login-form-stack-compact{
+  max-width:460px;
+  gap:0;
+}
 .login-compliance-banner{
   margin:0 0 18px;
 }
@@ -877,6 +881,55 @@ button, input, select, textarea{font-family:inherit}
   color:#b91c1c;
   font-size:.9rem;
   font-weight:600;
+}
+.login-quick-access{
+  margin-top:24px;
+  padding-top:18px;
+  border-top:1px solid rgba(148,163,184,.2);
+}
+.login-quick-access-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:14px;
+}
+.login-quick-access-head span{
+  color:#64748b;
+  font-size:.84rem;
+}
+.login-quick-access-list{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:10px;
+}
+.login-quick-access-item{
+  border:1px solid rgba(148,163,184,.2);
+  background:rgba(255,255,255,.72);
+  border-radius:16px;
+  padding:12px 14px;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:4px;
+  text-align:left;
+  cursor:pointer;
+  transition:border-color var(--transition), transform var(--transition), box-shadow var(--transition);
+}
+.login-quick-access-item:hover,
+.login-quick-access-item:focus-visible{
+  border-color:rgba(14,165,233,.4);
+  box-shadow:0 12px 24px rgba(15,23,42,.08);
+  transform:translateY(-1px);
+  outline:none;
+}
+.login-quick-access-item span{
+  color:#526171;
+  font-size:.78rem;
+}
+.login-quick-access-item strong{
+  color:#0f172a;
+  font-size:.92rem;
 }
 .seeded-access{
   margin-top:28px;
@@ -1857,7 +1910,8 @@ pre{
   .landing-compliance-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .landing-metrics,
   .landing-ops-grid,
-  .seeded-access-grid { grid-template-columns: 1fr; }
+  .seeded-access-grid,
+  .login-quick-access-list { grid-template-columns: 1fr; }
   .landing-cta { flex-direction: column; align-items: flex-start; }
   .cockpit-body { grid-template-columns: 1fr; }
   .cockpit-right { position: static; }
