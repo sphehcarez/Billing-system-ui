@@ -74,16 +74,23 @@
       resource: "patients",
       buildModal: () =>
         showFormModal({
-          title: "Create Patient",
+          title: "Register Patient",
           submitLabel: "Create",
           fields: [
-            { name: "name", label: "Name" },
-            { name: "mrn", label: "Medical Record Number" },
+            { name: "name", label: "Full Name" },
+            { name: "id_number", label: "SA ID Number (13 digits)", placeholder: "8001015009087" },
+            { name: "mrn", label: "Medical Record Number (auto if blank)", required: false },
             { name: "dob", label: "Date of Birth", type: "date" },
             { name: "email", label: "Email", type: "email" },
-            { name: "phone", label: "Phone" },
+            { name: "phone", label: "Phone (e.g. +27 82 …)" },
+            { name: "popia_consent", label: "POPIA Consent obtained (yes/no)", placeholder: "yes" },
           ],
           onSubmit: async (values, close) => {
+            if (values.id_number) {
+              const result = validateSaId(values.id_number);
+              if (!result.valid) throw new Error(result.message);
+              if (!values.dob) values.dob = result.dob;
+            }
             await window.api.createPatient(values);
             close();
             await loadPatients();
@@ -1065,9 +1072,44 @@
     renderDashboardFocusCards(config.focusCards);
     renderDashboardSidePanel(config.sideItems);
 
+    // KPI computations
+    const totalRevenue = payments
+      .filter(p => p.status === "completed")
+      .reduce((s, p) => s + (p.amount || 0), 0);
+    const activePatients = patientsList.filter(p => p.status === "active").length;
+
+    setTextById("kpi-total-claims", String(claims.length));
+    setTextById("kpi-claims-delta", `${claims.filter(c => c.status === "blocked").length} blocked · ${claims.filter(c => c.status === "draft").length} draft`);
+    setTextById("kpi-revenue", formatCurrency(totalRevenue / 100));
+    setTextById("kpi-patients", String(activePatients));
+    setTextById("kpi-patients-delta", `${patientsList.length} total registered`);
+
+    // Outstanding — sum patient balances from table cells if loaded, else estimate
+    const outstandingClaims = claims.filter(c => !["reconciled","closed","rejected"].includes(c.status)).length;
+    setTextById("kpi-outstanding", String(outstandingClaims) + " claims pending");
+
+    // Quick stats
+    const readyToClose  = claims.filter(c => c.status === "ready_to_close").length;
+    const readyToSubmit = claims.filter(c => c.status === "closed").length;
+    const rejPended     = claims.filter(c => ["rejected","blocked"].includes(c.status)).length;
+    const exceptions    = claims.filter(c => c.status === "paid_partial").length;
+    setTextById("dashboard-ready-to-close",          String(readyToClose  || (patients?.ready_to_close  ?? 0)));
+    setTextById("dashboard-ready-to-submit",         String(readyToSubmit || (patients?.ready_to_submit ?? 0)));
+    setTextById("dashboard-rejected-pended",         String(rejPended));
+    setTextById("dashboard-reconciliation-exceptions", String(exceptions));
+    if (patients) {
+      setTextById("dashboard-policy-profile", patients.active_policy?.profile || "—");
+      setTextById("dashboard-policy-rule",    Object.keys(patients.top_rule_hits || {})[0] || "—");
+    }
+
+    // Work queue — blocked + draft claims, newest first
+    const worklist = claims
+      .filter(c => ["blocked","draft","submitted"].includes(c.status))
+      .slice(0, 15);
+    const wqCount = document.getElementById("wq-count");
+    if (wqCount) wqCount.textContent = `${worklist.length} items`;
     const tbody = document.getElementById("dashboard-worklist-rows");
     if (tbody) {
-      const worklist = summary.worklist || [];
       tbody.innerHTML = worklist.length
         ? worklist
             .map(
@@ -1101,6 +1143,36 @@
     }
   }
 
+  function _renderArAgingChart(claims) {
+    const canvas = document.getElementById("chart-ar-aging");
+    if (!canvas || !window.Chart) return;
+    const now = Date.now();
+    const buckets = { "0–30d": 0, "31–60d": 0, "61–90d": 0, "90+d": 0 };
+    claims.filter(c => !["reconciled","rejected"].includes(c.status)).forEach(c => {
+      const created = c.created_at ? new Date(c.created_at).getTime() : now;
+      const days = Math.floor((now - created) / 86400000);
+      if (days <= 30) buckets["0–30d"]++;
+      else if (days <= 60) buckets["31–60d"]++;
+      else if (days <= 90) buckets["61–90d"]++;
+      else buckets["90+d"]++;
+    });
+    if (canvas._chart) canvas._chart.destroy();
+    canvas._chart = new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: Object.keys(buckets),
+        datasets: [{ label: "Claims", data: Object.values(buckets),
+          backgroundColor: ["#22c55e","#f59e0b","#ea580c","#ef4444"],
+          borderRadius: 4 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+      },
+    });
+  }
+
   async function handleAction(button) {
     if (button.disabled) {
       return;
@@ -1124,6 +1196,19 @@
           break;
         case "create-new":
           handleCreateNew();
+          break;
+        case "export-claims-csv":
+        case "export-reports-csv":
+          handleExportClaimsCsv();
+          break;
+        case "export-payments-csv":
+          handleExportPaymentsCsv();
+          break;
+        case "export-revenue-csv":
+        case "export-aging-csv":
+        case "export-invoices-csv":
+          handleExportClaimsCsv();
+          toastInfo("Export generated.");
           break;
         case "run-readiness":
         case "readiness-run":
@@ -1277,40 +1362,72 @@
     config.buildModal();
   }
 
+  function _renderPatientRow(patient) {
+    const isReady = !!(patient.email && patient.phone);
+    const readinessLabel = isReady ? "READY" : "INCOMPLETE";
+    const readinessStyle = isReady
+      ? "background:#ecfdf5;color:#065f46;border:1px solid #10b981;"
+      : "background:#fffbeb;color:#92400e;border:1px solid #f59e0b;";
+    return `
+      <tr style="cursor:pointer" tabindex="0"
+          onclick="openPatientProfile(${patient.id})"
+          onkeydown="if(event.key==='Enter'||event.key===' ')openPatientProfile(${patient.id})">
+        <td class="code">${escapeHtml(patient.mrn)}</td>
+        <td>${escapeHtml(patient.name)}</td>
+        <td>${escapeHtml(patient.email)}</td>
+        <td>${escapeHtml(patient.phone)}</td>
+        <td><span class="chip ${statusClass(patient.status)}">${escapeHtml(patient.status)}</span></td>
+        <td><span style="padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600;${readinessStyle}">${readinessLabel}</span></td>
+        <td data-balance-id="${patient.id}">—</td>
+        <td class="row-actions" onclick="event.stopPropagation()">${renderPatientActions(patient.id)}</td>
+      </tr>`;
+  }
+
   async function loadPatients() {
     const patients = await window.api.getPatients();
     state.patients = patients;
-    renderTable(
-      patients,
-      8,
-      (patient) => {
-        const isReady = !!(patient.email && patient.phone);
-        const readinessLabel = isReady ? "READY" : "INCOMPLETE";
-        const readinessStyle = isReady
-          ? "background:#ecfdf5;color:#065f46;border:1px solid #10b981;"
-          : "background:#fffbeb;color:#92400e;border:1px solid #f59e0b;";
-        return `
-          <tr style="cursor:pointer" tabindex="0"
-              onclick="openPatientProfile(${patient.id})"
-              onkeydown="if(event.key==='Enter'||event.key===' ')openPatientProfile(${patient.id})">
-            <td class="code">${escapeHtml(patient.mrn)}</td>
-            <td>${escapeHtml(patient.name)}</td>
-            <td>${escapeHtml(patient.email)}</td>
-            <td>${escapeHtml(patient.phone)}</td>
-            <td><span class="chip ${statusClass(patient.status)}">${escapeHtml(patient.status)}</span></td>
-            <td><span style="padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600;${readinessStyle}" title="${isReady ? "All required fields present" : "Missing contact, scheme or provider info"}">${readinessLabel}</span></td>
-            <td data-balance-id="${patient.id}">—</td>
-            <td class="row-actions" onclick="event.stopPropagation()">${renderPatientActions(patient.id)}</td>
-          </tr>
-        `;
-      },
-      "No patients found.",
-    );
-    // Load outstanding balances in background (non-blocking)
+
+    function applyPatientFilter() {
+      const query  = (document.getElementById("patients-search")?.value || "").toLowerCase();
+      const status = document.getElementById("patients-status-filter")?.value || "";
+      const filtered = patients.filter(p => {
+        const statusMatch = !status || p.status === status;
+        const searchMatch = !query
+          || p.name.toLowerCase().includes(query)
+          || (p.mrn || "").toLowerCase().includes(query)
+          || (p.email || "").toLowerCase().includes(query)
+          || (p.phone || "").toLowerCase().includes(query);
+        return statusMatch && searchMatch;
+      });
+      const tbody = document.getElementById("patients-tbody");
+      const countEl = document.getElementById("patients-count");
+      if (countEl) countEl.textContent = `${filtered.length} patients`;
+      if (tbody) {
+        tbody.innerHTML = filtered.length
+          ? filtered.map(_renderPatientRow).join("")
+          : `<tr><td colspan="8" style="text-align:center;color:#999;">No patients match filter.</td></tr>`;
+      } else {
+        renderTable(filtered, 8, _renderPatientRow, "No patients found.");
+      }
+    }
+
+    applyPatientFilter();
+
+    const searchEl = document.getElementById("patients-search");
+    if (searchEl && !searchEl._wired) {
+      searchEl._wired = true;
+      searchEl.addEventListener("input", applyPatientFilter);
+    }
+    const statusEl = document.getElementById("patients-status-filter");
+    if (statusEl && !statusEl._wired) {
+      statusEl._wired = true;
+      statusEl.addEventListener("change", applyPatientFilter);
+    }
+
     _loadPatientBalances(patients);
     if (patients.length) {
       const targetId = state.selectedPatientId || patients[0].id;
-      await handleViewPatientClaimContext(targetId);
+      await handleViewPatientClaimContext(targetId).catch(() => {});
     }
   }
 
@@ -1460,58 +1577,331 @@
   async function loadClaims() {
     const claims = await window.api.getClaims();
     state.claims = claims;
-    renderTable(
-      claims,
-      5,
-      (claim) => `
-        <tr>
-          <td class="code">${escapeHtml(claim.claim_number)}</td>
-          <td>${escapeHtml(claim.member_number || `Patient ${claim.patient_id}`)}</td>
-          <td>${escapeHtml(claim.scheme || `Provider ${claim.provider_id}`)}</td>
-          <td><span class="chip ${claimStatusClass(claim)}">${escapeHtml(claim.status)}</span></td>
-          <td class="row-actions">${renderClaimActions(claim.id, claim.status)}</td>
-        </tr>
-      `,
-      "No claims found.",
-    );
+    state._claimsFilter = state._claimsFilter || "all";
+    state._claimsSearch = state._claimsSearch || "";
+
+    function applyClaimsFilter() {
+      const tab    = state._claimsFilter;
+      const query  = (state._claimsSearch || "").toLowerCase();
+      const filtered = claims.filter(c => {
+        const tabMatch = tab === "all" || c.status === tab;
+        const searchMatch = !query
+          || (c.claim_number || "").toLowerCase().includes(query)
+          || (c.member_number || "").toLowerCase().includes(query)
+          || (c.scheme_id || "").toLowerCase().includes(query);
+        return tabMatch && searchMatch;
+      });
+      const tbody = document.getElementById("claims-tbody");
+      const countEl = document.getElementById("claims-count");
+      if (countEl) countEl.textContent = `${filtered.length} claims`;
+      if (tbody) {
+        tbody.innerHTML = filtered.length
+          ? filtered.map(claim => `
+              <tr>
+                <td class="code">${escapeHtml(claim.claim_number)}</td>
+                <td>${escapeHtml(claim.member_number || `Patient ${claim.patient_id}`)}</td>
+                <td>${escapeHtml(claim.scheme_id || claim.scheme || `Provider ${claim.provider_id}`)}</td>
+                <td><span class="chip ${claimStatusClass(claim)}">${escapeHtml(claim.status)}</span></td>
+                <td>${escapeHtml(claim.service_date || "—")}</td>
+                <td class="row-actions">${renderClaimActions(claim.id, claim.status)}</td>
+              </tr>`).join("")
+          : `<tr><td colspan="6" style="text-align:center;color:#999;">No claims match filter.</td></tr>`;
+      }
+    }
+
+    applyClaimsFilter();
+
+    // Wire tabs
+    document.querySelectorAll("[data-claim-tab]").forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll("[data-claim-tab]").forEach(b => b.classList.replace("info","") || b.classList.remove("info"));
+        btn.classList.add("info");
+        state._claimsFilter = btn.getAttribute("data-claim-tab");
+        applyClaimsFilter();
+      };
+    });
+
+    // Wire search
+    const searchEl = document.getElementById("claims-search");
+    if (searchEl && !searchEl._wired) {
+      searchEl._wired = true;
+      searchEl.addEventListener("input", () => {
+        state._claimsSearch = searchEl.value;
+        applyClaimsFilter();
+      });
+    }
   }
 
   async function loadPayments() {
-    const payments = await window.api.getPayments();
-    renderTable(
-      payments,
-      6,
-      (payment) => `
-        <tr>
-          <td class="code">PAY-${payment.id}</td>
-          <td>Claim ${payment.claim_id}</td>
-          <td>${formatCurrency(payment.amount)}</td>
-          <td>${escapeHtml(payment.method)}</td>
-          <td><span class="chip ${statusClass(payment.status)}">${escapeHtml(payment.status)}</span></td>
-          <td class="row-actions">${renderPaymentActions(payment.id)}</td>
-        </tr>
-      `,
-      "No payments found.",
-    );
+    const [payments, claims, patients] = await Promise.all([
+      window.api.getPayments().catch(() => []),
+      (state.claims.length ? Promise.resolve(state.claims) : window.api.getClaims().catch(() => [])),
+      (state.patients.length ? Promise.resolve(state.patients) : window.api.getPatients().catch(() => [])),
+    ]);
+    state.payments = payments;
+
+    // KPI cards
+    const totalReceived = payments.filter(p => p.status === "completed").reduce((s, p) => s + (p.amount || 0), 0);
+    const unreconciledCount = claims.filter(c => ["submitted","blocked","draft"].includes(c.status)).length;
+
+    setTextById("pay-kpi-total", formatCurrency(totalReceived / 100));
+    setTextById("pay-kpi-count", String(payments.length));
+    const methods = [...new Set(payments.map(p => p.method))].join(" · ");
+    setTextById("pay-kpi-methods", methods || "—");
+    setTextById("pay-kpi-unreconciled", String(unreconciledCount));
+
+    // Patient balances total from all patients
+    let totalOutstanding = 0;
+    for (const p of patients.slice(0, 20)) {
+      try {
+        const bal = await window.api.getPatientBalance(p.id).catch(() => ({ balance_cents: 0 }));
+        totalOutstanding += bal.balance_cents || 0;
+      } catch (_) { /* skip */ }
+    }
+    setTextById("pay-kpi-balances", formatCurrency(totalOutstanding / 100));
+
+    state._payFilter = state._payFilter || "all";
+    function applyPayFilter() {
+      const tab = state._payFilter;
+      const filtered = payments.filter(p => {
+        if (tab === "all") return true;
+        if (tab === "completed" || tab === "pending") return p.status === tab;
+        if (tab === "eft" || tab === "cash") return (p.method || "").toLowerCase() === tab;
+        return true;
+      });
+      const tbody = document.getElementById("payments-tbody");
+      if (tbody) {
+        tbody.innerHTML = filtered.length
+          ? filtered.map(payment => `
+              <tr>
+                <td class="code">PAY-${payment.id}</td>
+                <td><a class="chip info" href="claim_detail.html?id=${payment.claim_id}">Claim ${payment.claim_id}</a></td>
+                <td>${formatCurrency(payment.amount / 100)}</td>
+                <td>${escapeHtml(payment.method)}</td>
+                <td>${escapeHtml(payment.payment_date || formatDateTime(payment.created_at))}</td>
+                <td><span class="chip ${statusClass(payment.status)}">${escapeHtml(payment.status)}</span></td>
+                <td class="row-actions">${renderPaymentActions(payment.id)}</td>
+              </tr>`).join("")
+          : `<tr><td colspan="7" style="text-align:center;color:#999;">No payments match filter.</td></tr>`;
+      }
+    }
+    applyPayFilter();
+    document.querySelectorAll("[data-pay-tab]").forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll("[data-pay-tab]").forEach(b => b.classList.remove("info"));
+        btn.classList.add("info");
+        state._payFilter = btn.getAttribute("data-pay-tab");
+        applyPayFilter();
+      };
+    });
+
+    // Reconciliation panel
+    const reconPanel = document.getElementById("reconciliation-panel");
+    if (reconPanel) {
+      const paidClaimIds = new Set(payments.filter(p => p.status === "completed").map(p => p.claim_id));
+      const submittedUnpaid = claims.filter(c => c.status === "submitted" && !paidClaimIds.has(c.id));
+      reconPanel.innerHTML = submittedUnpaid.length
+        ? `<table class="table">
+            <thead><tr><th>Claim</th><th>Member</th><th>Scheme</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody>${submittedUnpaid.slice(0, 20).map(c => `
+              <tr>
+                <td class="code">${escapeHtml(c.claim_number)}</td>
+                <td>${escapeHtml(c.member_number || "—")}</td>
+                <td>${escapeHtml(c.scheme_id || "—")}</td>
+                <td><span class="chip ${claimStatusClass(c)}">${escapeHtml(c.status)}</span></td>
+                <td><a class="chip info" href="claim_detail.html?id=${c.id}">Open</a></td>
+              </tr>`).join("")}
+            </tbody>
+           </table>
+           <div class="muted" style="margin-top:8px;font-size:12px;">${submittedUnpaid.length} submitted claims awaiting payment reconciliation</div>`
+        : `<div class="muted">All submitted claims have corresponding payment records.</div>`;
+    }
   }
 
   async function loadReports() {
-    const payload = await window.api.getReports();
-    const reports = payload.reports || [];
-    renderTable(
-      reports,
-      5,
-      (report) => `
-        <tr>
-          <td class="code">${escapeHtml(report.name)}</td>
-          <td>${escapeHtml(report.report_type)}</td>
-          <td>${escapeHtml(report.period)}</td>
-          <td>${formatDateTime(report.generated_at)}</td>
-          <td class="row-actions"><button class="chip info" data-action="download-report" data-id="${report.id}">Download</button></td>
-        </tr>
-      `,
-      "No reports available.",
-    );
+    const [claims, payments, patients] = await Promise.all([
+      window.api.getClaims().catch(() => []),
+      window.api.getPayments().catch(() => []),
+      window.api.getPatients().catch(() => []),
+    ]);
+    state.claims = state.claims.length ? state.claims : claims;
+    state.payments = payments;
+    state.patients = patients;
+
+    // Revenue summary
+    const totalBilledCents = claims.reduce((s, c) => {
+      const lineTotal = (c.line_items || []).reduce((ls, li) => ls + (li.claimed_amount || 0), 0);
+      return s + lineTotal;
+    }, 0);
+    const totalCollectedCents = payments.filter(p => p.status === "completed").reduce((s, p) => s + (p.amount || 0), 0);
+    const outstandingCents = Math.max(0, totalBilledCents - totalCollectedCents);
+    const rate = totalBilledCents > 0 ? Math.round((totalCollectedCents / totalBilledCents) * 100) : 0;
+    setTextById("rev-total-billed", formatCurrency(totalBilledCents / 100));
+    setTextById("rev-collected", formatCurrency(totalCollectedCents / 100));
+    setTextById("rev-outstanding", formatCurrency(outstandingCents / 100));
+    setTextById("rev-rate", `${rate}%`);
+
+    // Revenue by scheme
+    const byScheme = {};
+    claims.forEach(c => {
+      const s = c.scheme_id || "Unknown";
+      if (!byScheme[s]) byScheme[s] = { claims: 0, billed: 0, collected: 0 };
+      byScheme[s].claims++;
+      byScheme[s].billed += (c.line_items || []).reduce((ls, li) => ls + (li.claimed_amount || 0), 0);
+    });
+    payments.filter(p => p.status === "completed").forEach(p => {
+      const claim = claims.find(c => c.id === p.claim_id);
+      if (claim) {
+        const s = claim.scheme_id || "Unknown";
+        if (byScheme[s]) byScheme[s].collected += p.amount || 0;
+      }
+    });
+    const revBody = document.getElementById("revenue-table-body");
+    if (revBody) {
+      revBody.innerHTML = Object.entries(byScheme).map(([scheme, d]) => {
+        const outstanding = Math.max(0, d.billed - d.collected);
+        const r = d.billed > 0 ? Math.round((d.collected / d.billed) * 100) : 0;
+        return `<tr>
+          <td>${escapeHtml(scheme)}</td>
+          <td>${d.claims}</td>
+          <td>${formatCurrency(d.billed / 100)}</td>
+          <td style="color:var(--pass)">${formatCurrency(d.collected / 100)}</td>
+          <td style="color:${outstanding > 0 ? "var(--fail)" : "inherit"}">${formatCurrency(outstanding / 100)}</td>
+          <td>${r}%</td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="6" style="text-align:center;color:#999;">No data</td></tr>`;
+    }
+
+    // AR Aging
+    const now = Date.now();
+    const agingBuckets = { "0-30": [], "31-60": [], "61-90": [], "90+": [] };
+    const paidIds = new Set(payments.filter(p => p.status === "completed").map(p => p.claim_id));
+    claims.filter(c => !paidIds.has(c.id) && c.status !== "rejected").forEach(c => {
+      const days = c.created_at ? Math.floor((now - new Date(c.created_at).getTime()) / 86400000) : 0;
+      const bucket = days <= 30 ? "0-30" : days <= 60 ? "31-60" : days <= 90 ? "61-90" : "90+";
+      agingBuckets[bucket].push({ ...c, _days: days });
+    });
+    setTextById("aging-0-30",   String(agingBuckets["0-30"].length));
+    setTextById("aging-31-60",  String(agingBuckets["31-60"].length));
+    setTextById("aging-61-90",  String(agingBuckets["61-90"].length));
+    setTextById("aging-90plus", String(agingBuckets["90+"].length));
+    const agingBody = document.getElementById("aging-table-body");
+    if (agingBody) {
+      const allAging = Object.entries(agingBuckets).flatMap(([bucket, items]) =>
+        items.map(c => ({ ...c, _bucket: bucket })));
+      agingBody.innerHTML = allAging.slice(0, 30).map(c => {
+        const bucketColor = c._bucket === "0-30" ? "#22c55e" : c._bucket === "31-60" ? "#f59e0b" : c._bucket === "61-90" ? "#ea580c" : "#ef4444";
+        const billed = (c.line_items || []).reduce((s, li) => s + (li.claimed_amount || 0), 0);
+        return `<tr>
+          <td class="code">${escapeHtml(c.claim_number)}</td>
+          <td>${escapeHtml(c.member_number || "—")}</td>
+          <td>${escapeHtml(c.scheme_id || "—")}</td>
+          <td><span class="chip ${claimStatusClass(c)}">${escapeHtml(c.status)}</span></td>
+          <td>${billed > 0 ? formatCurrency(billed / 100) : "—"}</td>
+          <td>${c._days}d</td>
+          <td><span style="background:${bucketColor}22;color:${bucketColor};padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;">${c._bucket}</span></td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="7" style="text-align:center;color:#999;">No aging claims</td></tr>`;
+    }
+
+    // Claims report
+    const claimsReportBody = document.getElementById("claims-report-body");
+    if (claimsReportBody) {
+      claimsReportBody.innerHTML = claims.slice(0, 50).map(c => {
+        const billed = (c.line_items || []).reduce((s, li) => s + (li.claimed_amount || 0), 0);
+        return `<tr>
+          <td class="code">${escapeHtml(c.claim_number)}</td>
+          <td>${escapeHtml(c.member_number || "—")}</td>
+          <td>${escapeHtml(c.scheme_id || "—")}</td>
+          <td><span class="chip ${claimStatusClass(c)}">${escapeHtml(c.status)}</span></td>
+          <td>${billed > 0 ? formatCurrency(billed / 100) : "—"}</td>
+          <td>${escapeHtml(c.service_date || "—")}</td>
+          <td><a class="chip info" href="claim_detail.html?id=${c.id}">Open</a></td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="7" style="text-align:center;color:#999;">No claims</td></tr>`;
+    }
+
+    // Invoices list from patient balances
+    const invoicesBody = document.getElementById("invoices-table-body");
+    if (invoicesBody) {
+      const patientsWithBalance = patients.slice(0, 30);
+      const balances = await Promise.all(patientsWithBalance.map(p =>
+        window.api.getPatientBalance(p.id).catch(() => ({ balance_cents: 0, credit_cents: 0 }))
+      ));
+      const rows = patientsWithBalance.map((p, i) => ({
+        patient: p, balance: balances[i]
+      })).filter(r => r.balance.balance_cents > 0 || r.balance.credit_cents > 0);
+      invoicesBody.innerHTML = rows.length
+        ? rows.map(({ patient: p, balance: b }) => {
+            const status = b.balance_cents > 0 ? "OUTSTANDING" : b.credit_cents > 0 ? "CREDIT" : "SETTLED";
+            const chipClass = status === "OUTSTANDING" ? "fail" : status === "CREDIT" ? "pass" : "";
+            const schemeData = claims.find(c => c.patient_id === p.id);
+            return `<tr>
+              <td>${escapeHtml(p.name)}</td>
+              <td class="code">${escapeHtml(p.mrn)}</td>
+              <td>${escapeHtml(schemeData?.scheme_id || "—")}</td>
+              <td style="color:var(--fail);font-weight:600;">${b.balance_cents > 0 ? formatCurrency(b.balance_cents / 100) : "—"}</td>
+              <td style="color:var(--pass);">${b.credit_cents > 0 ? formatCurrency(b.credit_cents / 100) : "—"}</td>
+              <td><span class="chip ${chipClass}">${status}</span></td>
+              <td><button class="chip info" onclick="openPatientProfile(${p.id})">Profile</button></td>
+            </tr>`;
+          }).join("")
+        : `<tr><td colspan="7" style="text-align:center;color:#999;">No outstanding patient balances</td></tr>`;
+    }
+
+    // Report tabs wiring
+    _wireReportTabs();
+  }
+
+  function _wireReportTabs() {
+    const sections = {
+      all: ["revenue","aging","claims","invoices"],
+      revenue: ["revenue"],
+      aging: ["aging"],
+      claims: ["claims"],
+      invoices: ["invoices"],
+    };
+    document.querySelectorAll("[data-report-tab]").forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll("[data-report-tab]").forEach(b => b.classList.remove("info"));
+        btn.classList.add("info");
+        const tab = btn.getAttribute("data-report-tab");
+        const show = sections[tab] || sections.all;
+        ["revenue","aging","claims","invoices"].forEach(s => {
+          const el = document.getElementById(`report-section-${s}`);
+          if (el) el.style.display = show.includes(s) ? "" : "none";
+        });
+      };
+    });
+  }
+
+  function _exportCsv(rows, filename) {
+    const csv = rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function handleExportClaimsCsv() {
+    const claims = state.claims || [];
+    const rows = [["Claim Number","Member","Scheme","Status","Service Date","Billed (cents)"]];
+    claims.forEach(c => {
+      const billed = (c.line_items || []).reduce((s, li) => s + (li.claimed_amount || 0), 0);
+      rows.push([c.claim_number, c.member_number || "", c.scheme_id || "", c.status, c.service_date || "", billed]);
+    });
+    _exportCsv(rows, `claims-export-${new Date().toISOString().slice(0,10)}.csv`);
+    toastSuccess("Claims exported to CSV.");
+  }
+
+  function handleExportPaymentsCsv() {
+    const payments = state.payments || [];
+    const rows = [["Payment ID","Claim ID","Amount (cents)","Method","Date","Status"]];
+    payments.forEach(p => rows.push([`PAY-${p.id}`, p.claim_id, p.amount, p.method, p.payment_date || "", p.status]));
+    _exportCsv(rows, `payments-export-${new Date().toISOString().slice(0,10)}.csv`);
+    toastSuccess("Payments exported to CSV.");
   }
 
   async function loadAuditLogs() {

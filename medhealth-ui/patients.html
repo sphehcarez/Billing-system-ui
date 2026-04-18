@@ -45,22 +45,29 @@
         <div class="actions">
           <div class="pill">
             <span class="code">Search</span>
-            <input placeholder="Claim ID, member number, batch ref..." />
+            <input id="patients-search" placeholder="Name, MRN, email, phone…" style="min-width:200px;" />
           </div>
+          <select class="input" id="patients-status-filter" style="padding:4px 8px;font-size:13px;width:auto;">
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
           <button class="btn secondary" data-action="open-api-docs">API Docs</button>
-          <button class="btn" data-action="create-new">New</button>
+          <button class="btn" data-action="create-new">New Patient</button>
         </div>
       </div>
 
-      
 <div class="card">
-  <h3>Patient registry</h3>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <h3 style="margin:0;">Patient registry</h3>
+    <span class="chip" id="patients-count">—</span>
+  </div>
   <table class="table">
     <thead>
       <tr><th>MRN</th><th>Name</th><th>Email</th><th>Phone</th><th>Status</th><th>Readiness</th><th>Balance</th><th>Actions</th></tr>
     </thead>
-    <tbody>
-      <tr><td colspan="8" style="text-align:center;color:#999;">Loading patients...</td></tr>
+    <tbody id="patients-tbody">
+      <tr><td colspan="8" style="text-align:center;color:#999;">Loading patients…</td></tr>
     </tbody>
   </table>
 </div>

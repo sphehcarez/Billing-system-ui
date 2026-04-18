@@ -586,7 +586,7 @@ def _ensure_reference_versions(store: PersistentPlatformStore) -> None:
     store.reference_versions["icd10_mit"] = ReferenceVersion(
         reference_key="icd10_mit",
         version="ICD10-ZA-2026-Q2",
-        effective_from="2026-04-01",
+        effective_from="2024-01-01",
     )
     for key, version in {
         "pmb":               "PMB-ZA-2026-Q2",
@@ -595,7 +595,7 @@ def _ensure_reference_versions(store: PersistentPlatformStore) -> None:
         "nappi":             "NAPPI-2026-Q2",
     }.items():
         store.reference_versions[key] = ReferenceVersion(
-            reference_key=key, version=version, effective_from="2026-04-01"
+            reference_key=key, version=version, effective_from="2024-01-01"
         )
 
 
@@ -719,7 +719,7 @@ def _ensure_policy_profiles(store: PersistentPlatformStore) -> None:
                 scheme_id=scheme_id,
                 plan_option_id=option_id,
                 version=1,
-                effective_from="2026-04-01",
+                effective_from="2024-01-01",
                 status="ACTIVE",
                 approved_by="admin",
                 approved_at=utc_now(),
@@ -757,7 +757,7 @@ def _ensure_icd10_codes(store: PersistentPlatformStore) -> None:
             description=description,
             version=version,
             active=True,
-            effective_from="2026-04-01",
+            effective_from="2024-01-01",
             source="Synthetic SA medical scheme reference data – ICD-10-CM",
             status="ACTIVE",
         )
@@ -777,7 +777,7 @@ def _ensure_pmb_data(store: PersistentPlatformStore) -> None:
         evidence_requirements=["MOTIVATION"],
         confirmation_flags=["icd10_match", "treatment_protocol_met"],
         active=True,
-        effective_from="2026-04-01",
+        effective_from="2024-01-01",
         source="Prescribed Minimum Benefits framework – MSA 1998 Schedule 1",
         status="ACTIVE",
     )
@@ -791,7 +791,7 @@ def _ensure_pmb_data(store: PersistentPlatformStore) -> None:
         evidence_requirements=["MOTIVATION"],
         confirmation_flags=["icd10_match", "cdl_condition_confirmed"],
         active=True,
-        effective_from="2026-04-01",
+        effective_from="2024-01-01",
         source="Prescribed Minimum Benefits framework – MSA 1998 Schedule 1",
         status="ACTIVE",
     )
@@ -814,7 +814,7 @@ def _ensure_pmb_data(store: PersistentPlatformStore) -> None:
             pmb_condition_id=cond,
             match_type=match,
             version=1,
-            effective_from="2026-04-01",
+            effective_from="2024-01-01",
             confidence="HIGH",
             auto_route_allowed=auto,
             required_evidence_types=["MOTIVATION"],
@@ -838,7 +838,7 @@ def _ensure_pmb_data(store: PersistentPlatformStore) -> None:
             route_when_missing_evidence="PMB_REVIEW_QUEUE",
             auto_route_possible_matches=False,
             active=True,
-            effective_from="2026-04-01",
+            effective_from="2024-01-01",
             source="MSA 1998 scheme benefit routing rules",
         )
         store.pmb_payment_policies[f"{key}_PMB_POL"] = PMBPaymentPolicy(
@@ -849,7 +849,7 @@ def _ensure_pmb_data(store: PersistentPlatformStore) -> None:
             voluntary_non_dsp_rate_mode="DSP_RATE",
             involuntary_non_dsp_no_copay=True,
             active=True,
-            effective_from="2026-04-01",
+            effective_from="2024-01-01",
             source="MSA 1998 scheme benefit payment policies",
         )
 
@@ -878,7 +878,7 @@ def _ensure_tariff_rates(store: PersistentPlatformStore) -> None:
                     rate_amount=rate_cents,  # stored as integer cents via float field
                     unit="PER_SERVICE",
                     active=True,
-                    effective_from="2026-04-01",
+                    effective_from="2024-01-01",
                     source="Synthetic NHRPL tariff rates – is_synthetic=True",
                 )
 

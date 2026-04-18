@@ -53,13 +53,94 @@
       </div>
 
       
-<div class="card">
-  <h3>Reports</h3>
+<!-- Report filter tabs -->
+<div class="card" style="padding-bottom:0;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <h3 style="margin:0;">Report Catalog</h3>
+    <button class="btn secondary" data-action="export-reports-csv" style="font-size:12px;">Export CSV</button>
+  </div>
+  <div id="report-tabs" style="display:flex;gap:4px;border-bottom:1px solid var(--line-200);padding-bottom:0;margin:0 -20px;padding:0 20px;">
+    <button class="chip info" data-report-tab="all" style="border-radius:6px 6px 0 0;border-bottom:none;">All</button>
+    <button class="chip" data-report-tab="revenue" style="border-radius:6px 6px 0 0;border-bottom:none;">Revenue</button>
+    <button class="chip" data-report-tab="aging" style="border-radius:6px 6px 0 0;border-bottom:none;">AR Aging</button>
+    <button class="chip" data-report-tab="claims" style="border-radius:6px 6px 0 0;border-bottom:none;">Claims</button>
+    <button class="chip" data-report-tab="invoices" style="border-radius:6px 6px 0 0;border-bottom:none;">Invoices</button>
+  </div>
+</div>
+
+<!-- Revenue Summary -->
+<div class="card" id="report-section-revenue">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <h3 style="margin:0;">Revenue Summary</h3>
+    <button class="chip" data-action="export-revenue-csv">Export CSV</button>
+  </div>
+  <div class="grid" style="margin-bottom:12px;">
+    <div class="card" style="grid-column:span 3;box-shadow:none;border:1px solid var(--line-200);">
+      <div class="kpi"><div class="muted">Total Billed</div><div class="value" id="rev-total-billed">—</div></div>
+    </div>
+    <div class="card" style="grid-column:span 3;box-shadow:none;border:1px solid var(--line-200);">
+      <div class="kpi"><div class="muted">Collected</div><div class="value" id="rev-collected" style="color:var(--pass)">—</div></div>
+    </div>
+    <div class="card" style="grid-column:span 3;box-shadow:none;border:1px solid var(--line-200);">
+      <div class="kpi"><div class="muted">Outstanding</div><div class="value" id="rev-outstanding" style="color:var(--fail)">—</div></div>
+    </div>
+    <div class="card" style="grid-column:span 3;box-shadow:none;border:1px solid var(--line-200);">
+      <div class="kpi"><div class="muted">Collection Rate</div><div class="value" id="rev-rate">—</div></div>
+    </div>
+  </div>
   <table class="table">
-    <thead><tr><th>Report Name</th><th>Type</th><th>Period</th><th>Generated</th><th>Actions</th></tr></thead>
-    <tbody>
-      <tr><td colspan="5" style="text-align:center;color:#999;">Loading reports...</td></tr>
-    </tbody>
+    <thead><tr><th>Scheme</th><th>Claims</th><th>Billed</th><th>Collected</th><th>Outstanding</th><th>Rate</th></tr></thead>
+    <tbody id="revenue-table-body"><tr><td colspan="6" style="text-align:center;color:#999;">Loading…</td></tr></tbody>
+  </table>
+</div>
+
+<!-- AR Aging -->
+<div class="card" id="report-section-aging">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <h3 style="margin:0;">AR Aging Report</h3>
+    <button class="chip" data-action="export-aging-csv">Export CSV</button>
+  </div>
+  <div class="grid" style="margin-bottom:12px;">
+    <div class="card" style="grid-column:span 3;box-shadow:none;border:1px solid var(--line-200);">
+      <div class="kpi"><div class="muted">Current (0–30d)</div><div class="value" id="aging-0-30">—</div></div>
+    </div>
+    <div class="card" style="grid-column:span 3;box-shadow:none;border:1px solid var(--line-200);">
+      <div class="kpi"><div class="muted">31–60 days</div><div class="value" id="aging-31-60" style="color:#d97706">—</div></div>
+    </div>
+    <div class="card" style="grid-column:span 3;box-shadow:none;border:1px solid var(--line-200);">
+      <div class="kpi"><div class="muted">61–90 days</div><div class="value" id="aging-61-90" style="color:#ea580c">—</div></div>
+    </div>
+    <div class="card" style="grid-column:span 3;box-shadow:none;border:1px solid var(--line-200);">
+      <div class="kpi"><div class="muted">90+ days</div><div class="value" id="aging-90plus" style="color:var(--fail)">—</div></div>
+    </div>
+  </div>
+  <table class="table">
+    <thead><tr><th>Claim</th><th>Member</th><th>Scheme</th><th>Status</th><th>Billed</th><th>Days</th><th>Bucket</th></tr></thead>
+    <tbody id="aging-table-body"><tr><td colspan="7" style="text-align:center;color:#999;">Loading…</td></tr></tbody>
+  </table>
+</div>
+
+<!-- Claims Report -->
+<div class="card" id="report-section-claims">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <h3 style="margin:0;">Claims Report</h3>
+    <button class="chip" data-action="export-claims-csv">Export CSV</button>
+  </div>
+  <table class="table">
+    <thead><tr><th>Claim Number</th><th>Member</th><th>Scheme</th><th>Status</th><th>Billed</th><th>Service Date</th><th>Action</th></tr></thead>
+    <tbody id="claims-report-body"><tr><td colspan="7" style="text-align:center;color:#999;">Loading…</td></tr></tbody>
+  </table>
+</div>
+
+<!-- Invoice List -->
+<div class="card" id="report-section-invoices">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <h3 style="margin:0;">Patient Invoices &amp; Balances</h3>
+    <button class="chip" data-action="export-invoices-csv">Export CSV</button>
+  </div>
+  <table class="table">
+    <thead><tr><th>Patient</th><th>MRN</th><th>Scheme</th><th>Outstanding</th><th>Credit</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody id="invoices-table-body"><tr><td colspan="7" style="text-align:center;color:#999;">Loading…</td></tr></tbody>
   </table>
 </div>
 

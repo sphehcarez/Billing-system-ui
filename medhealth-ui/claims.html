@@ -47,49 +47,41 @@
         <div class="actions">
           <div class="pill">
             <span class="code">Search</span>
-            <input placeholder="Claim ID, member number, batch ref..." />
+            <input id="claims-search" placeholder="Claim number, member, scheme…" style="min-width:200px;" />
           </div>
+          <button class="btn secondary" data-action="export-claims-csv">Export CSV</button>
           <button class="btn secondary" data-action="open-api-docs">API Docs</button>
-          <button class="btn" data-action="create-new">New</button>
+          <button class="btn" data-action="create-new">New Claim</button>
         </div>
       </div>
 
-      
-    <div class="card">
-      <h3>Claims list</h3>
-      <table class="table">
-        <thead>
-          <tr><th>Claim</th><th>Member</th><th>Scheme</th><th>Status</th><th>Actions</th></tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td class="code">CLM-001</td><td>12345677</td><td>SCHEMEA</td>
-            <td><span class="chip pass">Ready to Close</span></td>
-            <td class="row-actions">
-              <a class="chip info" href="claim_detail.html">Open</a>
-              <button class="chip" data-action="run-readiness">Run readiness</button>
-              <button class="chip" data-action="close-file">Close file</button>
-            </td>
-          </tr>
-          <tr>
-            <td class="code">CLM-002</td><td>12345679</td><td>SCHEMEA</td>
-            <td><span class="chip fail">Blocked</span></td>
-            <td class="row-actions">
-              <a class="chip info" href="claim_detail.html">Open</a>
-              <button class="chip" data-action="run-readiness">Run readiness</button>
-            </td>
-          </tr>
-          <tr>
-            <td class="code">CLM-003</td><td>ABC123</td><td>SCHEMEA</td>
-            <td><span class="chip warn">Validation Exception</span></td>
-            <td class="row-actions">
-              <a class="chip info" href="claim_detail.html">Open</a>
-              <button class="chip" data-action="post-closure-validate">Post-closure validate</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      <div class="card" style="padding-bottom:0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <h3 style="margin:0;">Claims list</h3>
+          <span class="chip" id="claims-count">—</span>
+        </div>
+        <!-- Status filter tabs -->
+        <div id="claims-tabs" style="display:flex;gap:4px;border-bottom:1px solid var(--line-200);margin:0 -20px;padding:0 20px;">
+          <button class="chip info" data-claim-tab="all" style="border-radius:6px 6px 0 0;">All</button>
+          <button class="chip" data-claim-tab="draft" style="border-radius:6px 6px 0 0;">Draft</button>
+          <button class="chip" data-claim-tab="blocked" style="border-radius:6px 6px 0 0;">Blocked</button>
+          <button class="chip" data-claim-tab="submitted" style="border-radius:6px 6px 0 0;">Submitted</button>
+          <button class="chip" data-claim-tab="closed" style="border-radius:6px 6px 0 0;">Closed</button>
+          <button class="chip" data-claim-tab="reconciled" style="border-radius:6px 6px 0 0;">Reconciled</button>
+          <button class="chip" data-claim-tab="rejected" style="border-radius:6px 6px 0 0;">Rejected</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <table class="table">
+          <thead>
+            <tr><th>Claim</th><th>Member</th><th>Scheme</th><th>Status</th><th>Service Date</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="claims-tbody">
+            <tr><td colspan="6" style="text-align:center;color:#999;">Loading claims…</td></tr>
+          </tbody>
+        </table>
+      </div>
     
     </main>
   </div>
