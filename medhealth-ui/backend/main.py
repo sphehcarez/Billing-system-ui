@@ -1,12 +1,17 @@
 """Compatibility entrypoint for the current claims-platform API."""
 
+from runtime_config import get_runtime_settings, load_local_env
+
+load_local_env()
+
 from platform_api import app
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    runtime_settings = get_runtime_settings()
+    uvicorn.run(app, host=runtime_settings.host, port=runtime_settings.port)
 
 '''
 from fastapi import FastAPI, Depends, HTTPException, status

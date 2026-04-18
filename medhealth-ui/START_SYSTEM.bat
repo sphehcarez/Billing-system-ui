@@ -1,70 +1,67 @@
 @echo off
-REM Med Directory Billing System - Startup Script for Windows
+setlocal
+REM Medhealth Claims Platform - Local startup script for Windows
 
 echo ============================================================================
-echo Med Directory Billing System - FULL SYSTEM STARTUP
+echo Medhealth Claims Platform - LOCAL STARTUP
 echo ============================================================================
 echo.
 
-REM Check if Python is installed
-python --version >nul 2>&1
+set "ROOT=%~dp0"
+set "BACKEND_DIR=%ROOT%backend"
+set "PYTHON_CMD=python"
+
+REM Preferred interpreter: workspace virtual environment one level above medhealth-ui
+if exist "%ROOT%..\.venv\Scripts\python.exe" (
+    set "PYTHON_CMD=%ROOT%..\.venv\Scripts\python.exe"
+)
+
+"%PYTHON_CMD%" --version >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Python is not installed or not in PATH
-    echo Please install Python 3.8+ from python.org
+    echo ERROR: Python is not available.
+    echo Expected either `python` on PATH or `.venv\Scripts\python.exe` one level above this folder.
     pause
     exit /b 1
 )
 
-echo [1/4] Installing backend dependencies...
-cd /d "%~dp0backend"
-pip install -r requirements.txt
+echo [1/4] Verifying core backend dependencies...
+"%PYTHON_CMD%" -c "import fastapi, uvicorn, jose, pydantic" >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Failed to install dependencies
+    echo ERROR: Core backend dependencies are missing for the selected Python interpreter.
+    echo Install FastAPI, Uvicorn, python-jose and Pydantic, then rerun this script.
     pause
     exit /b 1
 )
 
-echo.
-echo [2/4] Starting backend API server on port 8001...
-echo.
-start "Backend - FastAPI Server" python main.py
+echo [2/4] Starting backend API on http://localhost:8001 ...
+start "Medhealth Backend" cmd /k "cd /d \"%BACKEND_DIR%\" && \"%PYTHON_CMD%\" main.py"
 
-REM Wait for backend to start
-echo.
-echo [3/4] Waiting for backend to initialize...
-timeout /t 3 /nobreak
+echo [3/4] Starting frontend on http://localhost:8000 ...
+start "Medhealth Frontend" cmd /k "cd /d \"%ROOT%\" && \"%PYTHON_CMD%\" -m http.server 8000"
 
-echo.
-echo [4/4] Backend API is starting up at http://localhost:8001
+echo [4/4] Waiting for services to initialize...
+timeout /t 3 /nobreak >nul
+
 echo.
 echo ============================================================================
-echo SETUP COMPLETE
+echo SERVICES
 echo ============================================================================
-echo.
-echo Frontend:   http://localhost:8000
+echo Frontend:    http://localhost:8000
 echo Backend API: http://localhost:8001
-echo API Docs:   http://localhost:8001/docs
-echo API Info:   http://localhost:8001/api/docs
+echo Health:      http://localhost:8001/health
+echo API Docs:    http://localhost:8001/docs
 echo.
-echo Demo Credentials:
-echo   - username: demo.user or admin
-echo   - password: password123 or admin123
+echo Runtime notes:
+echo - Local-only runtime overrides can be placed in `backend\.env.local`.
+echo - Example: `MEDHEALTH_STORE_MODE=inmemory` for localhost UI testing.
 echo.
-echo The frontend (port 8000) should already be running in another terminal.
-echo If not, open another terminal and run:
-echo   python -m http.server 8000
+echo Demo credentials:
+echo - admin / admin123
+echo - demo.user / password123
+echo - billing / billing123
+echo - provider / provider123
+echo - finance / finance123
+echo - auditor / auditor123
 echo.
-echo Press any key to view the system...
-pause
 
 start http://localhost:8000
-
-echo.
-echo System is ready! You can now:
-echo 1. Login with demo credentials
-echo 2. Create/view patients, providers, claims
-echo 3. Run readiness checks and close claims
-echo 4. Generate reports
-echo.
-echo Keep both terminal windows open while using the system.
-echo Close this script to stop the servers.

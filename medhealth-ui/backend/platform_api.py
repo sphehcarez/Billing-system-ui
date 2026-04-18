@@ -7,8 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from jose import ExpiredSignatureError, JWTError, jwt
 
-from db_runtime import database_healthcheck
-from postgres_store import PersistentPlatformStore
+from runtime_config import get_runtime_settings
+from store_provider import StoreProvider
 from platform_core import (
     ClaimClosureRequest,
     ClaimReadinessService,
@@ -86,25 +86,37 @@ ROLE_PERMISSIONS = {
 }
 
 class StoreProxy:
+    def __init__(self) -> None:
+        self._provider = StoreProvider()
+
+    def runtime_mode(self) -> str:
+        return self._provider.runtime_mode()
+
+    def runtime_message(self) -> str:
+        return self._provider.runtime_message()
+
     def __getattr__(self, name: str):
         def call(*args, **kwargs):
-            store = PersistentPlatformStore()
+            store, should_close = self._provider.get_store()
             try:
                 return getattr(store, name)(*args, **kwargs)
             finally:
-                store.close()
+                if should_close:
+                    store.close()
 
-        store = PersistentPlatformStore()
+        store, should_close = self._provider.get_store()
         try:
             attribute = getattr(store, name)
             if callable(attribute):
                 return call
             return attribute
         finally:
-            store.close()
+            if should_close:
+                store.close()
 
 
 db = StoreProxy()
+runtime_settings = get_runtime_settings()
 app = FastAPI(title="Medhealth Claims Rules Platform", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -167,7 +179,18 @@ def root() -> Dict[str, str]:
 
 @app.get("/health")
 def health() -> Dict[str, str]:
-    return database_healthcheck()
+    if db.runtime_mode() == "postgresql":
+        from db_runtime import database_healthcheck
+
+        health_status = database_healthcheck()
+        health_status["runtime"] = "postgresql"
+        return health_status
+    return {
+        "status": "ok",
+        "db": "in-memory",
+        "runtime": "in-memory",
+        "detail": db.runtime_message(),
+    }
 
 
 @app.post("/api/auth/login")
@@ -829,6 +852,6 @@ if __name__ == "__main__":
 
     uvicorn.run(
         app,
-        host=os.getenv("MEDHEALTH_HOST", "0.0.0.0"),
-        port=int(os.getenv("MEDHEALTH_PORT", "8001")),
+        host=runtime_settings.host,
+        port=runtime_settings.port,
     )
