@@ -1,8 +1,19 @@
 # Implementation Checklist: Claim Role Handoff + Onboarding Workflow Integration
 
-**Status:** Ready for implementation
-**Target Files:** 6 backend & frontend files + 3 test files
-**Estimated Scope:** 1-2 days development + testing
+**Status:** Implemented and verified on 2026-04-18
+**Target Files:** Backend core/API, claim detail UI, dashboard UI, CSS, and backend tests
+**Actual Outcome:** Workflow metadata, onboarding context, realtime claim updates, UI panels, and regression tests are present in the repository
+
+## Current Stop Point
+
+Implementation work for this checklist is already in the codebase. The most recent verified state is:
+
+- Backend parse check passed for `medhealth-ui/backend/platform_core.py` and `medhealth-ui/backend/platform_api.py`
+- Frontend syntax check passed for `medhealth-ui/js/app.js`
+- Focused regression suite passed:
+  `.\.venv\Scripts\python.exe -B -m unittest medhealth-ui.backend.tests.test_platform_core medhealth-ui.backend.tests.test_main_entrypoint_api -v`
+
+If work is continuing from here, the next step is not this checklist item set; it is a new scope on top of the completed claim role handoff and onboarding workflow integration.
 
 ---
 
