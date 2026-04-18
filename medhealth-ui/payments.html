@@ -55,14 +55,56 @@
       </div>
 
       
+<!-- Payment KPI row -->
+<div class="grid">
+  <div class="card" style="grid-column:span 3;">
+    <div class="kpi"><div class="muted">Total Received</div><div class="value" id="pay-kpi-total">—</div><div class="delta">All completed payments</div></div>
+  </div>
+  <div class="card" style="grid-column:span 3;">
+    <div class="kpi"><div class="muted">Payments Count</div><div class="value" id="pay-kpi-count">—</div><div class="delta" id="pay-kpi-methods">—</div></div>
+  </div>
+  <div class="card" style="grid-column:span 3;">
+    <div class="kpi"><div class="muted">Unreconciled Claims</div><div class="value" id="pay-kpi-unreconciled" style="color:var(--fail)">—</div><div class="delta">Submitted, awaiting payment</div></div>
+  </div>
+  <div class="card" style="grid-column:span 3;">
+    <div class="kpi"><div class="muted">Patient Balances</div><div class="value" id="pay-kpi-balances" style="color:#d97706">—</div><div class="delta">Total outstanding owed</div></div>
+  </div>
+</div>
+
+<!-- Payment filter tabs -->
+<div class="card" style="padding-bottom:0;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <h3 style="margin:0;">Payment Batches</h3>
+    <div style="display:flex;gap:8px;">
+      <button class="chip" data-action="export-payments-csv" style="font-size:12px;">Export CSV</button>
+      <button class="btn" data-action="create-new" style="font-size:12px;">Record payment</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:4px;border-bottom:1px solid var(--line-200);margin:0 -20px;padding:0 20px;">
+    <button class="chip info" data-pay-tab="all" style="border-radius:6px 6px 0 0;">All</button>
+    <button class="chip" data-pay-tab="completed" style="border-radius:6px 6px 0 0;">Completed</button>
+    <button class="chip" data-pay-tab="pending" style="border-radius:6px 6px 0 0;">Pending</button>
+    <button class="chip" data-pay-tab="eft" style="border-radius:6px 6px 0 0;">EFT</button>
+    <button class="chip" data-pay-tab="cash" style="border-radius:6px 6px 0 0;">Cash</button>
+  </div>
+</div>
+
 <div class="card">
-  <h3>Payment batches</h3>
-  <table class="table">
-    <thead><tr><th>Payment ID</th><th>Claim</th><th>Amount</th><th>Method</th><th>Status</th><th>Actions</th></tr></thead>
-    <tbody>
-      <tr><td colspan="6" style="text-align:center;color:#999;">Loading payments...</td></tr>
+  <table class="table" id="payments-table">
+    <thead><tr><th>Payment ID</th><th>Claim</th><th>Amount</th><th>Method</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
+    <tbody id="payments-tbody">
+      <tr><td colspan="7" style="text-align:center;color:#999;">Loading payments…</td></tr>
     </tbody>
   </table>
+</div>
+
+<!-- Reconciliation panel -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <h3 style="margin:0;">Reconciliation Dashboard</h3>
+    <a class="chip info" href="reports.html">Full AR Report</a>
+  </div>
+  <div id="reconciliation-panel" class="muted">Loading reconciliation data…</div>
 </div>
 
     </main>
