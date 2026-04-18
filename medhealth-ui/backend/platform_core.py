@@ -1812,7 +1812,7 @@ class PlatformStore:
                 code=code,
                 description=description,
                 version=mit_version,
-                effective_from="2026-01-01",
+                effective_from="2024-01-01",
                 source="development_placeholder_business_owned_required",
             )
 
