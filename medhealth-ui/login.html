@@ -68,8 +68,8 @@
       <section class="login-panel-modern login-panel-modern-elite">
         <div class="login-panel-head">
           <span>Authentication</span>
-          <h2>Secure sign-in with local seeded access</h2>
-          <p>Select a role, use one of the listed access profiles, and continue into the operational dashboard.</p>
+          <h2>Role-based secure access</h2>
+          <p>Choose the workspace you are entering, confirm your access profile, and continue into a dashboard shaped for that role.</p>
         </div>
 
         <div class="login-compliance-banner">
@@ -79,63 +79,113 @@
           </span>
         </div>
 
-        <div class="field">
-          <div class="label">Role</div>
-          <select id="role" class="input">
-            <option>Administrator</option>
-            <option selected>Billing Specialist</option>
-            <option>Healthcare Provider</option>
-            <option>Finance Officer</option>
-            <option>Compliance Auditor</option>
-          </select>
+        <div class="login-role-directory">
+          <button type="button" class="login-role-tile is-active" data-login-role="Administrator">
+            <span class="login-role-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 2l7 3v5c0 4.8-3.05 9.23-7 10-3.95-.77-7-5.2-7-10V5l7-3zm0 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 5c-1.86 0-3.5.76-4.67 2.01l1.37 1.36A4.6 4.6 0 0 1 12 14c1.3 0 2.48.54 3.3 1.38l1.37-1.36A6.4 6.4 0 0 0 12 12z"/></svg>
+            </span>
+            <strong>Administrator</strong>
+            <span>Platform command</span>
+          </button>
+          <button type="button" class="login-role-tile" data-login-role="Billing Specialist">
+            <span class="login-role-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 4h16v3H4zm1 5h14v11H5zm3 2v2h8v-2zm0 4v2h5v-2z"/></svg>
+            </span>
+            <strong>Billing Specialist</strong>
+            <span>Claims flow</span>
+          </button>
+          <button type="button" class="login-role-tile" data-login-role="Healthcare Provider">
+            <span class="login-role-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M10 3h4v4h4v4h-4v4h-4v-4H6V7h4zM5 19h14v2H5z"/></svg>
+            </span>
+            <strong>Healthcare Provider</strong>
+            <span>Clinical oversight</span>
+          </button>
+          <button type="button" class="login-role-tile" data-login-role="Finance Officer">
+            <span class="login-role-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M3 6h18v12H3zm2 2v8h14V8zm4 2h6v2H9zm-2 3h10v2H7z"/></svg>
+            </span>
+            <strong>Finance Officer</strong>
+            <span>Cash and remits</span>
+          </button>
+          <button type="button" class="login-role-tile" data-login-role="Compliance Auditor">
+            <span class="login-role-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M11 2h2v4h-2zm6.36 2.64 1.41 1.41-2.83 2.83-1.41-1.41zM4.23 6.05l1.41-1.41 2.83 2.83-1.41 1.41zM12 8a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm-7 4h2v2H5zm12 0h2v2h-2zm-8.18 6.95 1.41 1.41-2.83 2.83-1.41-1.41zm6.36 1.41 1.41-1.41 2.83 2.83-1.41 1.41z"/></svg>
+            </span>
+            <strong>Compliance Auditor</strong>
+            <span>Evidence and controls</span>
+          </button>
         </div>
-        <div class="field">
-          <div class="label">Username</div>
-          <input id="user" class="input" placeholder="e.g. demo.user" />
-        </div>
-        <div class="field">
-          <div class="label">Password</div>
-          <input type="password" id="pass" class="input" placeholder="Enter password" />
-        </div>
-        <button class="btn login-submit" id="login">Continue to dashboard</button>
-        <div id="login-error" class="login-error"></div>
 
-        <div class="seeded-access seeded-access-elite">
-          <div class="seeded-access-head">
-            <strong>Seeded access directory</strong>
-            <span>Visible in localhost mode</span>
+        <div class="login-role-summary" id="login-role-summary">
+          <div>
+            <span class="login-role-summary-label">Selected workspace</span>
+            <strong id="login-role-summary-title">Administrator</strong>
           </div>
-          <div class="seeded-access-grid">
-            <article class="seeded-access-card" data-seed-user="admin" data-seed-pass="admin123" data-seed-role="Administrator">
-              <span>Administrator</span>
-              <strong>admin</strong>
-              <p>Password: <code>admin123</code></p>
-            </article>
-            <article class="seeded-access-card" data-seed-user="demo.user" data-seed-pass="password123" data-seed-role="Billing Specialist">
-              <span>Billing Specialist</span>
-              <strong>demo.user</strong>
-              <p>Password: <code>password123</code></p>
-            </article>
-            <article class="seeded-access-card" data-seed-user="billing" data-seed-pass="billing123" data-seed-role="Billing Specialist">
-              <span>Billing Specialist</span>
-              <strong>billing</strong>
-              <p>Password: <code>billing123</code></p>
-            </article>
-            <article class="seeded-access-card" data-seed-user="provider" data-seed-pass="provider123" data-seed-role="Healthcare Provider">
-              <span>Healthcare Provider</span>
-              <strong>provider</strong>
-              <p>Password: <code>provider123</code></p>
-            </article>
-            <article class="seeded-access-card" data-seed-user="finance" data-seed-pass="finance123" data-seed-role="Finance Officer">
-              <span>Finance Officer</span>
-              <strong>finance</strong>
-              <p>Password: <code>finance123</code></p>
-            </article>
-            <article class="seeded-access-card" data-seed-user="auditor" data-seed-pass="auditor123" data-seed-role="Compliance Auditor">
-              <span>Compliance Auditor</span>
-              <strong>auditor</strong>
-              <p>Password: <code>auditor123</code></p>
-            </article>
+          <p id="login-role-summary-copy">Full tenant, practice, user, claim and policy administration with platform-wide oversight.</p>
+        </div>
+
+        <div class="login-form-grid">
+          <div class="login-form-stack">
+            <div class="field">
+              <div class="label">Role</div>
+              <select id="role" class="input">
+                <option>Administrator</option>
+                <option selected>Billing Specialist</option>
+                <option>Healthcare Provider</option>
+                <option>Finance Officer</option>
+                <option>Compliance Auditor</option>
+              </select>
+            </div>
+            <div class="field">
+              <div class="label">Username</div>
+              <input id="user" class="input" placeholder="e.g. demo.user" />
+            </div>
+            <div class="field">
+              <div class="label">Password</div>
+              <input type="password" id="pass" class="input" placeholder="Enter password" />
+            </div>
+            <button class="btn login-submit" id="login">Continue to dashboard</button>
+            <div id="login-error" class="login-error"></div>
+          </div>
+
+          <div class="seeded-access seeded-access-elite">
+            <div class="seeded-access-head">
+              <strong>Local access profiles</strong>
+              <span>Tap a card to preload credentials</span>
+            </div>
+            <div class="seeded-access-grid">
+              <article class="seeded-access-card" data-seed-user="admin" data-seed-pass="admin123" data-seed-role="Administrator">
+                <span>Administrator</span>
+                <strong>admin</strong>
+                <p><code>admin123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="demo.user" data-seed-pass="password123" data-seed-role="Billing Specialist">
+                <span>Billing Specialist</span>
+                <strong>demo.user</strong>
+                <p><code>password123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="billing" data-seed-pass="billing123" data-seed-role="Billing Specialist">
+                <span>Billing Specialist</span>
+                <strong>billing</strong>
+                <p><code>billing123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="provider" data-seed-pass="provider123" data-seed-role="Healthcare Provider">
+                <span>Healthcare Provider</span>
+                <strong>provider</strong>
+                <p><code>provider123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="finance" data-seed-pass="finance123" data-seed-role="Finance Officer">
+                <span>Finance Officer</span>
+                <strong>finance</strong>
+                <p><code>finance123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="auditor" data-seed-pass="auditor123" data-seed-role="Compliance Auditor">
+                <span>Compliance Auditor</span>
+                <strong>auditor</strong>
+                <p><code>auditor123</code></p>
+              </article>
+            </div>
           </div>
         </div>
       </section>
@@ -144,6 +194,14 @@
 
   <script src="js/api-client.js"></script>
   <script>
+    const ROLE_SUMMARIES = {
+      Administrator: "Full tenant, practice, user, claim and policy administration with platform-wide oversight.",
+      "Billing Specialist": "Submission, rejection recovery, payment tracking and day-to-day claims throughput for South African billing teams.",
+      "Healthcare Provider": "Patient, diagnosis and provider context focused on care delivery and coding readiness before submission.",
+      "Finance Officer": "Remittance, variance, reconciliation and payment review workflows for finance and collections teams.",
+      "Compliance Auditor": "Audit evidence, archive controls, rule posture and governance reviews across the full platform footprint."
+    };
+
     function showLoginError(message) {
       const el = document.getElementById("login-error");
       el.textContent = message;
@@ -154,6 +212,15 @@
       const el = document.getElementById("login-error");
       el.textContent = "";
       el.style.display = "none";
+    }
+
+    function syncRoleSelection(role) {
+      document.getElementById("role").value = role;
+      document.querySelectorAll("[data-login-role]").forEach((tile) => {
+        tile.classList.toggle("is-active", tile.dataset.loginRole === role);
+      });
+      document.getElementById("login-role-summary-title").textContent = role;
+      document.getElementById("login-role-summary-copy").textContent = ROLE_SUMMARIES[role] || "";
     }
 
     async function submitLogin() {
@@ -183,18 +250,28 @@
     }
 
     document.getElementById("login").addEventListener("click", submitLogin);
+    document.getElementById("role").addEventListener("change", (event) => syncRoleSelection(event.target.value));
     document.getElementById("pass").addEventListener("keydown", (event) => {
       if (event.key === "Enter") submitLogin();
+    });
+
+    document.querySelectorAll("[data-login-role]").forEach((tile) => {
+      tile.addEventListener("click", () => {
+        syncRoleSelection(tile.dataset.loginRole);
+        clearLoginError();
+      });
     });
 
     document.querySelectorAll("[data-seed-user]").forEach((card) => {
       card.addEventListener("click", () => {
         document.getElementById("user").value = card.dataset.seedUser;
         document.getElementById("pass").value = card.dataset.seedPass;
-        document.getElementById("role").value = card.dataset.seedRole;
+        syncRoleSelection(card.dataset.seedRole);
         clearLoginError();
       });
     });
+
+    syncRoleSelection(document.getElementById("role").value);
   </script>
 </body>
 </html>

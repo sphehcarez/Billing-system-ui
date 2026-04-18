@@ -6,7 +6,7 @@
   <title>Dashboard</title>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
-<body>
+<body class="dashboard-page">
   <div class="shell">
     <aside class="sidebar">
       <div class="brand">
@@ -39,70 +39,73 @@
     <main class="main">
       <div class="topbar">
         <div class="h1">
-          <h1>Dashboard</h1>
-          <p>Operational overview across readiness, submissions, payments, and exceptions.</p>
+          <h1 id="dashboard-page-title">Dashboard</h1>
+          <p id="dashboard-page-subtitle">Operational overview across readiness, submissions, payments, and exceptions.</p>
         </div>
         <div class="actions">
           <div class="pill">
             <span class="code">Search</span>
-            <input placeholder="Claim ID, member number, batch ref..." />
+            <input id="dashboard-search-input" placeholder="Claim ID, member number, batch ref..." />
           </div>
           <button class="btn secondary" data-action="open-api-docs">API Docs</button>
-          <button class="btn" data-action="create-new">New</button>
+          <button class="btn" data-action="create-new" id="dashboard-create-button">New</button>
         </div>
       </div>
 
-      
-    <div class="grid">
-      <div class="card" style="grid-column: span 3">
-        <div class="kpi">
-          <div class="muted">Ready to close</div>
-          <div class="value" id="dashboard-ready-to-close">0</div>
-          <div class="delta">Live count from persisted readiness runs</div>
-        </div>
-      </div>
-      <div class="card" style="grid-column: span 3">
-        <div class="kpi">
-          <div class="muted">Ready to submit</div>
-          <div class="value" id="dashboard-ready-to-submit">0</div>
-          <div class="delta">Closed and validated versions awaiting or after payload</div>
-        </div>
-      </div>
-      <div class="card" style="grid-column: span 3">
-        <div class="kpi">
-          <div class="muted">Pended / Rejected</div>
-          <div class="value" id="dashboard-rejected-pended">0</div>
-          <div class="delta" id="dashboard-top-rule-hit">Top reasons loading...</div>
-        </div>
-      </div>
-      <div class="card" style="grid-column: span 3">
-        <div class="kpi">
-          <div class="muted">Reconciliation exceptions</div>
-          <div class="value" id="dashboard-reconciliation-exceptions">0</div>
-          <div class="delta">Totals mismatch and partial-payment review queue</div>
-        </div>
-      </div>
+      <section class="dashboard-hero">
+        <article class="dashboard-hero-card dashboard-hero-card-primary">
+          <span class="dashboard-role-badge" id="dashboard-role-badge">Workspace</span>
+          <h2 id="dashboard-role-heading">Role-led command view</h2>
+          <p id="dashboard-role-copy">The dashboard adapts its priorities, actions and signal density to the signed-in role.</p>
+          <div class="dashboard-hero-tags" id="dashboard-hero-tags"></div>
+        </article>
+        <article class="dashboard-hero-card dashboard-hero-card-secondary">
+          <div class="dashboard-hero-status">
+            <span>Priority focus</span>
+            <strong id="dashboard-priority-label">Claims flow</strong>
+          </div>
+          <div class="dashboard-hero-status">
+            <span>Tenant scope</span>
+            <strong id="dashboard-tenant-scope">Scoped workspace</strong>
+          </div>
+          <div class="dashboard-hero-status">
+            <span>Compliance posture</span>
+            <strong id="dashboard-compliance-state">Controls active</strong>
+          </div>
+          <div class="dashboard-hero-accent" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+        </article>
+      </section>
 
-      <div class="card" style="grid-column: span 8">
-        <h3>Work queue</h3>
-        <table class="table">
-          <thead><tr><th>Claim</th><th>Primary reason</th><th>Status</th><th>Next action</th><th></th></tr></thead>
-          <tbody id="dashboard-worklist-rows">
-            <tr><td colspan="5" style="text-align:center;color:#999;">Loading worklist...</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <section class="dashboard-focus-grid" id="dashboard-focus-grid"></section>
 
-      <div class="card" style="grid-column: span 4">
-        <h3>Rules engine activity</h3>
-        <div class="panel">
-          <div class="kv"><span>Policy profile</span><strong id="dashboard-policy-profile">SCHEME_A:OPTION_X</strong></div>
-          <div class="kv"><span>Policy version</span><strong id="dashboard-policy-version">2</strong></div>
-          <div class="kv"><span>Top rule hits</span><strong id="dashboard-policy-rule">ICD_MISSING</strong></div>
+      <div class="grid dashboard-grid">
+        <div class="card dashboard-worklist-card" style="grid-column: span 8">
+          <div class="dashboard-section-head">
+            <div>
+              <h3 id="dashboard-worklist-title">Work queue</h3>
+              <p id="dashboard-worklist-copy" class="muted">Live role-specific queue from persisted lifecycle data.</p>
+            </div>
+            <span class="chip info" id="dashboard-worklist-chip">Live queue</span>
+          </div>
+          <table class="table">
+            <thead><tr><th>Claim</th><th>Primary reason</th><th>Status</th><th>Next action</th><th></th></tr></thead>
+            <tbody id="dashboard-worklist-rows">
+              <tr><td colspan="5" style="text-align:center;color:#999;">Loading worklist...</td></tr>
+            </tbody>
+          </table>
         </div>
-        <div class="muted" style="margin-top:10px">Live dashboard built from persisted lifecycle artifacts.</div>
+        <div class="card dashboard-side-card" style="grid-column: span 4">
+          <div class="dashboard-section-head">
+            <div>
+              <h3 id="dashboard-side-panel-title">Role intelligence</h3>
+              <p id="dashboard-side-panel-copy" class="muted">Signals and controls selected for the signed-in role.</p>
+            </div>
+          </div>
+          <div id="dashboard-side-panel-body" class="dashboard-side-panel-body"></div>
+        </div>
       </div>
-    </div>
     
     </main>
   </div>
