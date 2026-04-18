@@ -240,8 +240,8 @@
       return;
     }
 
-    if (state.page !== "index.html" && !window.api.isAuthenticated()) {
-      location.href = "index.html";
+    if (!["index.html", "login.html"].includes(state.page) && !window.api.isAuthenticated()) {
+      location.href = "login.html";
       return;
     }
 
@@ -281,7 +281,7 @@
   function initializeSidebarShell() {
     const shell = document.querySelector(".shell");
     const sidebar = document.querySelector(".sidebar");
-    if (!shell || !sidebar || state.page === "index.html") {
+    if (!shell || !sidebar || ["index.html", "login.html"].includes(state.page)) {
       return;
     }
 
@@ -382,8 +382,9 @@
       }
     });
 
-    const signout = sidebar.querySelector('.footer a[href="index.html"]');
+    const signout = sidebar.querySelector('.footer a[href="index.html"], .footer a[href="login.html"]');
     if (signout && !signout.querySelector(".sidebar-signout-icon")) {
+      signout.setAttribute("href", "login.html");
       const labelText = signout.textContent.trim() || "Sign out";
       signout.textContent = "";
       signout.classList.add("sidebar-signout");
@@ -413,7 +414,7 @@
   }
 
   function handleSidebarResize() {
-    if (state.page === "index.html") {
+    if (["index.html", "login.html"].includes(state.page)) {
       return;
     }
     if (state.sidebarOpen == null) {
@@ -485,7 +486,7 @@
     });
 
     const pageModule = state.page === "claim_detail.html" ? "claims" : state.page.replace(".html", "");
-    if (state.page !== "index.html" && state.page !== "dashboard.html" && !allowedModules.has(pageModule)) {
+    if (!["index.html", "login.html", "dashboard.html"].includes(state.page) && !allowedModules.has(pageModule)) {
       location.href = "dashboard.html";
       return;
     }
@@ -559,7 +560,7 @@
   }
 
   function scheduleConnectionChecks() {
-    if (state.page === "index.html") {
+    if (["index.html", "login.html"].includes(state.page)) {
       return;
     }
     window.setInterval(() => {
@@ -781,8 +782,9 @@
       void handleAction(actionButton);
     });
 
-    const logoutLink = document.querySelector("a[href='index.html']");
+    const logoutLink = document.querySelector("a[href='index.html'], a[href='login.html']");
     if (logoutLink) {
+      logoutLink.setAttribute("href", "login.html");
       logoutLink.addEventListener("click", () => {
         window.api.logout();
       });

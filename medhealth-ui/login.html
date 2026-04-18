@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Medhealth South Africa | Secure Login</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="login-page-body">
+  <div class="landing-orb landing-orb-three"></div>
+  <div class="landing-orb landing-orb-four"></div>
+  <div class="landing-gridlines"></div>
+
+  <div class="login-page-shell login-page-shell-elite">
+    <aside class="login-showcase">
+      <div class="login-showcase-card login-showcase-card-elite">
+        <a class="login-back-link" href="index.html">&larr; Back to website</a>
+        <img class="logo" src="assets/MedhealthLogo.png" alt="Medhealth South Africa" />
+        <span class="landing-kicker">Secure compliance workspace</span>
+        <h1>Enter a platform that visibly owns privacy, integrity, coding and archive governance.</h1>
+        <p>
+          The login environment repeats the same compliance language and iconography carried across the public site
+          so trust signals remain consistent from first impression to operational use.
+        </p>
+
+        <div class="compliance-seal-stack">
+          <article class="compliance-seal-inline">
+            <span class="compliance-seal-icon small">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8 3v6c0 5.25-3.44 10.06-8 11-4.56-.94-8-5.75-8-11V5l8-3zm-1 12 5-5-1.41-1.41L11 11.17l-1.59-1.59L8 11l3 3z"/></svg>
+            </span>
+            <div>
+              <strong>POPIA 2026</strong>
+              <span>256-bit encryption and audit logs active.</span>
+            </div>
+          </article>
+          <article class="compliance-seal-inline">
+            <span class="compliance-seal-icon small">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H4zm2 2v8h12V6zm-1 12h14v2H5z"/></svg>
+            </span>
+            <div>
+              <strong>ECT Act</strong>
+              <span>Immutable backup posture and integrity evidence owned.</span>
+            </div>
+          </article>
+          <article class="compliance-seal-inline">
+            <span class="compliance-seal-icon small">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4h10v2H10zm0 5h10v2H10zm0 5h7v2h-7zM4 3h4v4H4zm0 5h4v4H4zm0 5h4v4H4z"/></svg>
+            </span>
+            <div>
+              <strong>ICD-10 MIT 2026</strong>
+              <span>Coding browser and controlled reference workflows present.</span>
+            </div>
+          </article>
+          <article class="compliance-seal-inline">
+            <span class="compliance-seal-icon small">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1a5 5 0 0 1 5 5v2h1a2 2 0 0 1 2 2v9a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-9a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5zm3 7V6a3 3 0 1 0-6 0v2z"/></svg>
+            </span>
+            <div>
+              <strong>HPCSA Booklet 9</strong>
+              <span>6-year to 25-year archive logic enforced.</span>
+            </div>
+          </article>
+        </div>
+      </div>
+    </aside>
+
+    <main class="login-workspace">
+      <section class="login-panel-modern login-panel-modern-elite">
+        <div class="login-panel-head">
+          <span>Authentication</span>
+          <h2>Secure sign-in with local seeded access</h2>
+          <p>Select a role, use one of the listed access profiles, and continue into the operational dashboard.</p>
+        </div>
+
+        <div class="login-compliance-banner">
+          <span class="compliance-chip compact">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8 3v6c0 5.25-3.44 10.06-8 11-4.56-.94-8-5.75-8-11V5l8-3z"/></svg>
+            Fully compliant platform posture
+          </span>
+        </div>
+
+        <div class="field">
+          <div class="label">Role</div>
+          <select id="role" class="input">
+            <option>Administrator</option>
+            <option selected>Billing Specialist</option>
+            <option>Healthcare Provider</option>
+            <option>Finance Officer</option>
+            <option>Compliance Auditor</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="label">Username</div>
+          <input id="user" class="input" placeholder="e.g. demo.user" />
+        </div>
+        <div class="field">
+          <div class="label">Password</div>
+          <input type="password" id="pass" class="input" placeholder="Enter password" />
+        </div>
+        <button class="btn login-submit" id="login">Continue to dashboard</button>
+        <div id="login-error" class="login-error"></div>
+
+        <div class="seeded-access seeded-access-elite">
+          <div class="seeded-access-head">
+            <strong>Seeded access directory</strong>
+            <span>Visible in localhost mode</span>
+          </div>
+          <div class="seeded-access-grid">
+            <article class="seeded-access-card" data-seed-user="admin" data-seed-pass="admin123" data-seed-role="Administrator">
+              <span>Administrator</span>
+              <strong>admin</strong>
+              <p>Password: <code>admin123</code></p>
+            </article>
+            <article class="seeded-access-card" data-seed-user="demo.user" data-seed-pass="password123" data-seed-role="Billing Specialist">
+              <span>Billing Specialist</span>
+              <strong>demo.user</strong>
+              <p>Password: <code>password123</code></p>
+            </article>
+            <article class="seeded-access-card" data-seed-user="billing" data-seed-pass="billing123" data-seed-role="Billing Specialist">
+              <span>Billing Specialist</span>
+              <strong>billing</strong>
+              <p>Password: <code>billing123</code></p>
+            </article>
+            <article class="seeded-access-card" data-seed-user="provider" data-seed-pass="provider123" data-seed-role="Healthcare Provider">
+              <span>Healthcare Provider</span>
+              <strong>provider</strong>
+              <p>Password: <code>provider123</code></p>
+            </article>
+            <article class="seeded-access-card" data-seed-user="finance" data-seed-pass="finance123" data-seed-role="Finance Officer">
+              <span>Finance Officer</span>
+              <strong>finance</strong>
+              <p>Password: <code>finance123</code></p>
+            </article>
+            <article class="seeded-access-card" data-seed-user="auditor" data-seed-pass="auditor123" data-seed-role="Compliance Auditor">
+              <span>Compliance Auditor</span>
+              <strong>auditor</strong>
+              <p>Password: <code>auditor123</code></p>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/api-client.js"></script>
+  <script>
+    function showLoginError(message) {
+      const el = document.getElementById("login-error");
+      el.textContent = message;
+      el.style.display = "block";
+    }
+
+    function clearLoginError() {
+      const el = document.getElementById("login-error");
+      el.textContent = "";
+      el.style.display = "none";
+    }
+
+    async function submitLogin() {
+      const username = document.getElementById("user").value.trim();
+      const password = document.getElementById("pass").value;
+      const role = document.getElementById("role").value;
+      const loginBtn = document.getElementById("login");
+
+      clearLoginError();
+      if (!username || !password) {
+        showLoginError("Please enter both username and password.");
+        return;
+      }
+
+      loginBtn.disabled = true;
+      loginBtn.textContent = "Authenticating...";
+      try {
+        const response = await window.api.login(username, password, role);
+        localStorage.setItem("role", response.role);
+        location.href = "dashboard.html";
+      } catch (error) {
+        showLoginError("Authentication failed: " + error.message);
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = "Continue to dashboard";
+      }
+    }
+
+    document.getElementById("login").addEventListener("click", submitLogin);
+    document.getElementById("pass").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") submitLogin();
+    });
+
+    document.querySelectorAll("[data-seed-user]").forEach((card) => {
+      card.addEventListener("click", () => {
+        document.getElementById("user").value = card.dataset.seedUser;
+        document.getElementById("pass").value = card.dataset.seedPass;
+        document.getElementById("role").value = card.dataset.seedRole;
+        clearLoginError();
+      });
+    });
+  </script>
+</body>
+</html>
