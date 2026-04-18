@@ -828,24 +828,240 @@
     }
   }
 
+  function formatDashboardCount(value) {
+    return String(value || 0);
+  }
+
+  function getDashboardTopRuleNames(summary) {
+    return Object.keys(summary.top_rule_hits || {}).slice(0, 2);
+  }
+
+  function renderDashboardHeroTags(tags) {
+    const container = document.getElementById("dashboard-hero-tags");
+    if (!container) {
+      return;
+    }
+    container.innerHTML = (tags || [])
+      .map((tag) => `<span class="dashboard-hero-tag">${escapeHtml(tag)}</span>`)
+      .join("");
+  }
+
+  function renderDashboardFocusCards(cards) {
+    const container = document.getElementById("dashboard-focus-grid");
+    if (!container) {
+      return;
+    }
+    container.innerHTML = (cards || [])
+      .map(
+        (card) => `
+          <article class="dashboard-focus-card dashboard-focus-card-${escapeHtml(card.tone || "default")}">
+            <span class="dashboard-focus-label">${escapeHtml(card.label)}</span>
+            <strong>${escapeHtml(card.value)}</strong>
+            <p>${escapeHtml(card.copy)}</p>
+          </article>
+        `,
+      )
+      .join("");
+  }
+
+  function renderDashboardSidePanel(items) {
+    const container = document.getElementById("dashboard-side-panel-body");
+    if (!container) {
+      return;
+    }
+    container.innerHTML = (items || [])
+      .map(
+        (item) => `
+          <article class="dashboard-side-item">
+            <span>${escapeHtml(item.label)}</span>
+            <strong>${escapeHtml(item.value)}</strong>
+            <p>${escapeHtml(item.copy)}</p>
+          </article>
+        `,
+      )
+      .join("");
+  }
+
+  function getDashboardRoleConfig(summary) {
+    const topRules = getDashboardTopRuleNames(summary);
+    const topRuleText = topRules.join(", ") || "No rule pressure";
+    const activePolicy = summary.active_policy?.profile || "SCHEME_A:OPTION_X";
+    const activeVersion = `v${summary.active_policy?.version || 1}`;
+
+    const roleConfigs = {
+      Administrator: {
+        pageTitle: "Administrator Command",
+        pageSubtitle: "Platform-wide control across tenants, practices, rules, users and claim flow.",
+        searchPlaceholder: "Search tenant, user, claim or provider...",
+        createLabel: "New tenant object",
+        badge: "Administrator",
+        heading: "Platform command across every operational surface.",
+        copy: "Monitor governance, throughput and configuration drift from one executive workspace built for South African medical operations.",
+        tags: ["Tenant-aware access", "POPIA controls active", "Policy governance live"],
+        priorityLabel: "Governance and scale",
+        tenantScope: "Cross-tenant oversight",
+        complianceState: "Audit and archive controls active",
+        worklistTitle: "Platform intervention queue",
+        worklistCopy: "Items that need configuration, escalation or administrator attention first.",
+        worklistChip: "Admin priority",
+        sideTitle: "Governance snapshot",
+        sideCopy: "High-level controls and policy posture for platform operators.",
+        focusCards: [
+          { label: "Ready to submit", value: formatDashboardCount(summary.ready_to_submit), copy: "Claims clear for downstream submission.", tone: "teal" },
+          { label: "Rejection pressure", value: formatDashboardCount(summary.rejected_or_pended), copy: `Top friction: ${topRuleText}.`, tone: "amber" },
+          { label: "Reconciliation exceptions", value: formatDashboardCount(summary.reconciliation_exceptions), copy: "Finance variances still requiring review.", tone: "slate" },
+        ],
+        sideItems: [
+          { label: "Active policy", value: activePolicy, copy: `Current scheme profile ${activeVersion}.` },
+          { label: "Top rules", value: topRuleText, copy: "Live signals from readiness and lifecycle checks." },
+          { label: "Control posture", value: "POPIA, ECT, HPCSA", copy: "Privacy, integrity and archive controls carried through the workflow." },
+        ],
+      },
+      "Billing Specialist": {
+        pageTitle: "Billing Operations",
+        pageSubtitle: "Submission readiness, rejection recovery and payment follow-through for the active billing team.",
+        searchPlaceholder: "Search claim, member, batch or scheme...",
+        createLabel: "New billing item",
+        badge: "Billing Specialist",
+        heading: "Claims flow shaped around throughput and recovery.",
+        copy: "This workspace keeps the queue centered on what can close, what can submit, and which exceptions are slowing cash movement.",
+        tags: ["Scheme routing", "ICD-10 coding", "Submission ready"],
+        priorityLabel: "Submission throughput",
+        tenantScope: "Practice-scoped billing",
+        complianceState: "Coding and audit controls active",
+        worklistTitle: "Claims work queue",
+        worklistCopy: "Claims closest to closure, submission or rejection recovery for the current practice scope.",
+        worklistChip: "Billing live queue",
+        sideTitle: "Submission intelligence",
+        sideCopy: "The controls and policy signals that drive everyday claim action.",
+        focusCards: [
+          { label: "Ready to close", value: formatDashboardCount(summary.ready_to_close), copy: "Files closeable after current readiness checks.", tone: "teal" },
+          { label: "Ready to submit", value: formatDashboardCount(summary.ready_to_submit), copy: "Validated claims waiting for payload or dispatch.", tone: "blue" },
+          { label: "Rejected or pended", value: formatDashboardCount(summary.rejected_or_pended), copy: `Primary recovery drivers: ${topRuleText}.`, tone: "amber" },
+        ],
+        sideItems: [
+          { label: "Active scheme profile", value: activePolicy, copy: `Billing logic currently on ${activeVersion}.` },
+          { label: "Top rule pattern", value: topRuleText, copy: "Use this to target fixes before resubmission." },
+          { label: "Remit exceptions", value: formatDashboardCount(summary.reconciliation_exceptions), copy: "Partial pay and mismatch review still open." },
+        ],
+      },
+      "Healthcare Provider": {
+        pageTitle: "Clinical Claim Readiness",
+        pageSubtitle: "Provider-facing claim readiness with emphasis on diagnosis completeness, coding and clinical follow-up.",
+        searchPlaceholder: "Search patient, claim or provider...",
+        createLabel: "New clinical item",
+        badge: "Healthcare Provider",
+        heading: "Clinical visibility before claims leave the practice.",
+        copy: "The provider dashboard prioritizes diagnosis quality, patient context and the claim actions that most affect medical scheme acceptance.",
+        tags: ["Clinical coding", "Patient context", "Provider evidence"],
+        priorityLabel: "Diagnosis readiness",
+        tenantScope: "Provider practice scope",
+        complianceState: "Clinical audit trail active",
+        worklistTitle: "Clinical review queue",
+        worklistCopy: "Claims and patient-linked items where provider input most affects readiness and PMB quality.",
+        worklistChip: "Clinical action",
+        sideTitle: "Clinical quality signals",
+        sideCopy: "Coding and readiness indicators surfaced for provider review.",
+        focusCards: [
+          { label: "Ready to close", value: formatDashboardCount(summary.ready_to_close), copy: "Encounters nearing billing completion.", tone: "blue" },
+          { label: "Coding friction", value: formatDashboardCount(summary.rejected_or_pended), copy: `Leading coding issues: ${topRuleText}.`, tone: "amber" },
+          { label: "Submission-ready claims", value: formatDashboardCount(summary.ready_to_submit), copy: "Claims clinically complete and ready for billing handoff.", tone: "teal" },
+        ],
+        sideItems: [
+          { label: "Active coding profile", value: activePolicy, copy: `Readiness checks running on ${activeVersion}.` },
+          { label: "Primary rule trigger", value: topRules[0] || "No rule pressure", copy: "The strongest current clinical or coding blocker." },
+          { label: "Archive posture", value: "HPCSA archive logic", copy: "Record retention and evidence posture remain enforced." },
+        ],
+      },
+      "Finance Officer": {
+        pageTitle: "Finance and Remittance",
+        pageSubtitle: "Collections, remittance and reconciliation monitoring for scheme receipts and downstream finance review.",
+        searchPlaceholder: "Search remittance, claim or payment reference...",
+        createLabel: "New finance record",
+        badge: "Finance Officer",
+        heading: "Cash posture and reconciliation in one finance view.",
+        copy: "Track what is ready to convert into cash, what was paid short, and which reconciliation gaps need immediate finance follow-up.",
+        tags: ["Remittance control", "Collections visibility", "Variance monitoring"],
+        priorityLabel: "Cash conversion",
+        tenantScope: "Finance practice scope",
+        complianceState: "Integrity controls active",
+        worklistTitle: "Finance exception queue",
+        worklistCopy: "Claims and remittance items most likely to affect collections, reconciliation or follow-up.",
+        worklistChip: "Finance review",
+        sideTitle: "Collections signals",
+        sideCopy: "Core financial indicators driven from the same persisted claim lifecycle.",
+        focusCards: [
+          { label: "Ready to submit", value: formatDashboardCount(summary.ready_to_submit), copy: "Claim volume positioned to convert into receivables.", tone: "teal" },
+          { label: "Reconciliation exceptions", value: formatDashboardCount(summary.reconciliation_exceptions), copy: "Variance, mismatch and partial-pay items still open.", tone: "amber" },
+          { label: "Rejected or pended", value: formatDashboardCount(summary.rejected_or_pended), copy: "Claims at risk of slowing collections.", tone: "slate" },
+        ],
+        sideItems: [
+          { label: "Finance control", value: "ECT integrity posture", copy: "Immutable backup and traceability controls remain in force." },
+          { label: "Top claim risk", value: topRuleText, copy: "Primary reasons behind delayed cash flow." },
+          { label: "Scheme profile", value: activePolicy, copy: `Remittance context currently aligned to ${activeVersion}.` },
+        ],
+      },
+      "Compliance Auditor": {
+        pageTitle: "Compliance Oversight",
+        pageSubtitle: "Audit evidence, control posture and rule outcomes surfaced for governance and assurance teams.",
+        searchPlaceholder: "Search control, claim, evidence or audit item...",
+        createLabel: "New audit item",
+        badge: "Compliance Auditor",
+        heading: "Evidence-led oversight across privacy, coding and archive controls.",
+        copy: "Review live operational outputs through a control lens, with rule trends, policy versions and archive posture visible in one dashboard.",
+        tags: ["POPIA posture", "HPCSA archive", "Evidence visibility"],
+        priorityLabel: "Control assurance",
+        tenantScope: "Governance scoped access",
+        complianceState: "Compliance controls active",
+        worklistTitle: "Control review queue",
+        worklistCopy: "Operational items that deserve audit attention because they affect policy, coding or evidence posture.",
+        worklistChip: "Audit focus",
+        sideTitle: "Control evidence",
+        sideCopy: "Key controls and the signals that show whether governance remains intact.",
+        focusCards: [
+          { label: "Rule-driven exceptions", value: formatDashboardCount(summary.rejected_or_pended), copy: `Leading exceptions: ${topRuleText}.`, tone: "amber" },
+          { label: "Policy version", value: activeVersion, copy: `Active profile ${activePolicy}.`, tone: "blue" },
+          { label: "Reconciliation exceptions", value: formatDashboardCount(summary.reconciliation_exceptions), copy: "Financial integrity items open for evidence review.", tone: "slate" },
+        ],
+        sideItems: [
+          { label: "Privacy control", value: "POPIA audit logs", copy: "Access and workflow activity remain visible for review." },
+          { label: "Coding control", value: topRules[0] || "No ICD pressure", copy: "Current rule pattern most relevant to coding oversight." },
+          { label: "Archive control", value: "6 to 25 year retention", copy: "HPCSA-aligned record retention logic enforced by workflow." },
+        ],
+      },
+    };
+
+    return roleConfigs[state.role] || roleConfigs["Billing Specialist"];
+  }
+
   async function loadDashboardSummary() {
     const summary = await window.api.getDashboardSummary();
-    setTextById("dashboard-ready-to-close", String(summary.ready_to_close || 0));
-    setTextById("dashboard-ready-to-submit", String(summary.ready_to_submit || 0));
-    setTextById("dashboard-rejected-pended", String(summary.rejected_or_pended || 0));
-    setTextById("dashboard-reconciliation-exceptions", String(summary.reconciliation_exceptions || 0));
-    setTextById(
-      "dashboard-top-rule-hit",
-      `Top reasons: ${Object.keys(summary.top_rule_hits || {})
-        .slice(0, 2)
-        .join(", ") || "None"}`,
-    );
-    setTextById("dashboard-policy-profile", summary.active_policy?.profile || "SCHEME_A:OPTION_X");
-    setTextById("dashboard-policy-version", String(summary.active_policy?.version || 1));
-    setTextById(
-      "dashboard-policy-rule",
-      Object.keys(summary.top_rule_hits || {})[0] || "No hits yet",
-    );
+    const config = getDashboardRoleConfig(summary);
+
+    document.body?.setAttribute("data-dashboard-role", state.role.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+    setTextById("dashboard-page-title", config.pageTitle);
+    setTextById("dashboard-page-subtitle", config.pageSubtitle);
+    setTextById("dashboard-role-badge", config.badge);
+    setTextById("dashboard-role-heading", config.heading);
+    setTextById("dashboard-role-copy", config.copy);
+    setTextById("dashboard-priority-label", config.priorityLabel);
+    setTextById("dashboard-tenant-scope", config.tenantScope);
+    setTextById("dashboard-compliance-state", config.complianceState);
+    setTextById("dashboard-worklist-title", config.worklistTitle);
+    setTextById("dashboard-worklist-copy", config.worklistCopy);
+    setTextById("dashboard-worklist-chip", config.worklistChip);
+    setTextById("dashboard-side-panel-title", config.sideTitle);
+    setTextById("dashboard-side-panel-copy", config.sideCopy);
+    setTextById("dashboard-create-button", config.createLabel);
+
+    const searchInput = document.getElementById("dashboard-search-input");
+    if (searchInput) {
+      searchInput.placeholder = config.searchPlaceholder;
+    }
+
+    renderDashboardHeroTags(config.tags);
+    renderDashboardFocusCards(config.focusCards);
+    renderDashboardSidePanel(config.sideItems);
 
     const tbody = document.getElementById("dashboard-worklist-rows");
     if (tbody) {
@@ -864,7 +1080,7 @@
               `,
             )
             .join("")
-        : '<tr><td colspan="5" style="text-align:center;color:#999;">No worklist items.</td></tr>';
+        : '<tr><td colspan="5" style="text-align:center;color:#999;">No worklist items in the current role scope.</td></tr>';
     }
   }
 
