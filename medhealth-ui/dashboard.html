@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Dashboard</title>
   <link rel="stylesheet" href="css/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div class="shell">
@@ -53,54 +54,85 @@
       </div>
 
       
+    <!-- KPI Row -->
     <div class="grid">
-      <div class="card" style="grid-column: span 3">
+      <div class="card" style="grid-column:span 3;">
         <div class="kpi">
-          <div class="muted">Ready to close</div>
-          <div class="value" id="dashboard-ready-to-close">0</div>
-          <div class="delta">Live count from persisted readiness runs</div>
+          <div class="muted">Total Claims</div>
+          <div class="value" id="kpi-total-claims">—</div>
+          <div class="delta" id="kpi-claims-delta">Loading…</div>
         </div>
       </div>
-      <div class="card" style="grid-column: span 3">
+      <div class="card" style="grid-column:span 3;">
         <div class="kpi">
-          <div class="muted">Ready to submit</div>
-          <div class="value" id="dashboard-ready-to-submit">0</div>
-          <div class="delta">Closed and validated versions awaiting or after payload</div>
+          <div class="muted">Revenue Collected</div>
+          <div class="value" id="kpi-revenue">—</div>
+          <div class="delta">From completed payments</div>
         </div>
       </div>
-      <div class="card" style="grid-column: span 3">
+      <div class="card" style="grid-column:span 3;">
         <div class="kpi">
-          <div class="muted">Pended / Rejected</div>
-          <div class="value" id="dashboard-rejected-pended">0</div>
-          <div class="delta" id="dashboard-top-rule-hit">Top reasons loading...</div>
+          <div class="muted">Outstanding Balance</div>
+          <div class="value" id="kpi-outstanding" style="color:var(--fail)">—</div>
+          <div class="delta">Across all patients</div>
         </div>
       </div>
-      <div class="card" style="grid-column: span 3">
+      <div class="card" style="grid-column:span 3;">
         <div class="kpi">
-          <div class="muted">Reconciliation exceptions</div>
-          <div class="value" id="dashboard-reconciliation-exceptions">0</div>
-          <div class="delta">Totals mismatch and partial-payment review queue</div>
+          <div class="muted">Active Patients</div>
+          <div class="value" id="kpi-patients">—</div>
+          <div class="delta" id="kpi-patients-delta">Registered in system</div>
         </div>
       </div>
+    </div>
 
-      <div class="card" style="grid-column: span 8">
-        <h3>Work queue</h3>
+    <!-- Charts Row -->
+    <div class="grid" style="margin-top:16px;">
+      <div class="card" style="grid-column:span 4;">
+        <h3>Claims by Status</h3>
+        <div style="position:relative;height:200px;">
+          <canvas id="chart-claims-status"></canvas>
+        </div>
+        <div id="chart-claims-legend" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;font-size:12px;"></div>
+      </div>
+      <div class="card" style="grid-column:span 8;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <h3 style="margin:0;">AR Aging</h3>
+          <span class="muted" style="font-size:12px;">Claims outstanding by age bucket</span>
+        </div>
+        <div style="position:relative;height:200px;">
+          <canvas id="chart-ar-aging"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Work queue + Quick stats -->
+    <div class="grid" style="margin-top:16px;">
+      <div class="card" style="grid-column:span 8;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <h3 style="margin:0;">Work queue</h3>
+          <div style="display:flex;gap:8px;">
+            <span class="chip" id="wq-count">Loading…</span>
+            <a class="chip info" href="claims.html">View all claims</a>
+          </div>
+        </div>
         <table class="table">
-          <thead><tr><th>Claim</th><th>Primary reason</th><th>Status</th><th>Next action</th><th></th></tr></thead>
+          <thead><tr><th>Claim</th><th>Member</th><th>Status</th><th>Scheme</th><th>Action</th></tr></thead>
           <tbody id="dashboard-worklist-rows">
-            <tr><td colspan="5" style="text-align:center;color:#999;">Loading worklist...</td></tr>
+            <tr><td colspan="5" style="text-align:center;color:#999;">Loading worklist…</td></tr>
           </tbody>
         </table>
       </div>
-
-      <div class="card" style="grid-column: span 4">
-        <h3>Rules engine activity</h3>
-        <div class="panel">
-          <div class="kv"><span>Policy profile</span><strong id="dashboard-policy-profile">SCHEME_A:OPTION_X</strong></div>
-          <div class="kv"><span>Policy version</span><strong id="dashboard-policy-version">2</strong></div>
-          <div class="kv"><span>Top rule hits</span><strong id="dashboard-policy-rule">ICD_MISSING</strong></div>
+      <div class="card" style="grid-column:span 4;">
+        <h3>Quick stats</h3>
+        <div class="panel" style="display:grid;gap:6px;">
+          <div class="kv"><span>Ready to close</span><strong id="dashboard-ready-to-close">—</strong></div>
+          <div class="kv"><span>Ready to submit</span><strong id="dashboard-ready-to-submit">—</strong></div>
+          <div class="kv"><span>Rejected / pended</span><strong id="dashboard-rejected-pended" style="color:var(--fail)">—</strong></div>
+          <div class="kv"><span>Reconciliation exceptions</span><strong id="dashboard-reconciliation-exceptions">—</strong></div>
+          <div class="kv"><span>Top rule hit</span><strong id="dashboard-policy-rule" style="font-size:12px;">—</strong></div>
+          <div class="kv"><span>Active policy</span><strong id="dashboard-policy-profile" style="font-size:12px;">—</strong></div>
         </div>
-        <div class="muted" style="margin-top:10px">Live dashboard built from persisted lifecycle artifacts.</div>
       </div>
     </div>
     
