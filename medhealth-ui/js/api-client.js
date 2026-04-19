@@ -40,7 +40,7 @@ class BillingAPI {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
         body: JSON.stringify({ username, password, role }),
       });
 
@@ -105,7 +105,9 @@ class BillingAPI {
   }
 
   async _request(endpoint, method = "GET", body = null) {
-    const headers = {};
+    const headers = {
+      "ngrok-skip-browser-warning": "true",
+    };
 
     if (this.token) {
       headers.Authorization = `Bearer ${this.token}`;
@@ -444,7 +446,7 @@ class BillingAPI {
   }
 
   async _requestWithHeaders(endpoint, method, body, extraHeaders) {
-    const headers = {};
+    const headers = { "ngrok-skip-browser-warning": "true" };
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     if (body !== null) headers["Content-Type"] = "application/json";
     Object.assign(headers, extraHeaders);
