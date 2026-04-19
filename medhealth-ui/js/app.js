@@ -1094,34 +1094,42 @@
           <article class="dashboard-flow-card ${stage.active ? "is-active" : ""}">
             <div class="dashboard-flow-label">
               <span>${escapeHtml(stage.label)}</span>
-              <span class="chip ${stage.active ? "info" : ""}">${escapeHtml(stage.state)}</span>
+              <span class="chip ${stage.active ? "info" : ""}">${escapeHtml(stage.state || (stage.active ? "Live" : "Tracked"))}</span>
             </div>
-            <strong class="dashboard-flow-value">${escapeHtml(stage.value)}</strong>
-            <span class="dashboard-flow-role">${escapeHtml(stage.owner)}</span>
-            <p class="dashboard-flow-copy">${escapeHtml(stage.copy)}</p>
+            <strong class="dashboard-flow-value">${escapeHtml(stage.value || formatDashboardCount(stage.count || 0))}</strong>
+            <span class="dashboard-flow-role">${escapeHtml(stage.owner || ((stage.statuses || []).join(", ") || "Role-owned stage"))}</span>
+            <p class="dashboard-flow-copy">${escapeHtml(stage.copy || `${stage.count || 0} claims currently sitting in this stage.`)}</p>
           </article>
         `,
       )
       .join("");
   }
 
-  function renderDashboardOwnershipBoard(claims) {
+  function renderDashboardOwnershipBoard(claimsOrBoard) {
     const container = document.getElementById("dashboard-ownership-board");
     if (!container) {
       return;
     }
 
     const roles = ["Billing Specialist", "Healthcare Provider", "Finance Officer", "Compliance Auditor", "Administrator"];
-    const items = (claims || [])
-      .filter((claim) => {
-        const status = String(claim.status || "").toLowerCase();
-        return !["paid", "reconciled"].includes(status) || status === "reconciled" && getClaimCurrentOwner(claim) === "Compliance Auditor";
-      })
-      .sort((left, right) => Number(right.id || 0) - Number(left.id || 0));
+    const isServerBoard = Array.isArray(claimsOrBoard) && claimsOrBoard[0] && Object.prototype.hasOwnProperty.call(claimsOrBoard[0], "claims");
+    const board = isServerBoard
+      ? claimsOrBoard
+      : roles.map((role) => {
+          const items = (claimsOrBoard || [])
+            .filter((claim) => {
+              const status = String(claim.status || "").toLowerCase();
+              return !["paid", "reconciled"].includes(status) || status === "reconciled" && getClaimCurrentOwner(claim) === "Compliance Auditor";
+            })
+            .sort((left, right) => Number(right.id || 0) - Number(left.id || 0));
+          const owned = items.filter((claim) => getClaimCurrentOwner(claim) === role).slice(0, 5);
+          return { role, count: owned.length, claims: owned };
+        });
 
-    container.innerHTML = roles
-      .map((role) => {
-        const owned = items.filter((claim) => getClaimCurrentOwner(claim) === role).slice(0, 5);
+    container.innerHTML = board
+      .map((column) => {
+        const owned = column.claims || [];
+        const role = column.role;
         return `
           <section class="dashboard-owner-column">
             <div class="dashboard-owner-head">
@@ -1135,12 +1143,12 @@
                       .map((claim) => `
                         <article class="dashboard-owner-card">
                           <div class="dashboard-owner-meta">
-                            <span class="code">${escapeHtml(claim.claim_number || `Claim ${claim.id}`)}</span>
+                            <span class="code">${escapeHtml(claim.claim_number || `Claim ${claim.id || claim.claim_id}`)}</span>
                             <span class="chip ${statusClass(claim.status)}">${escapeHtml(humanizeStatus(claim.status))}</span>
                           </div>
-                          <div class="dashboard-owner-copy">${escapeHtml(getDashboardNextAction(claim))}</div>
-                          <div class="dashboard-owner-watchers">Support: ${escapeHtml(getClaimSupportRoles(claim).join(", ") || "None")}</div>
-                          <div class="row-actions"><a class="chip info" href="claim_detail.html?id=${claim.id}">Open</a></div>
+                          <div class="dashboard-owner-copy">${escapeHtml(claim.next_action || getDashboardNextAction(claim))}</div>
+                          <div class="dashboard-owner-watchers">Support: ${escapeHtml((claim.support_roles || getClaimSupportRoles(claim)).join(", ") || "None")}</div>
+                          <div class="row-actions"><a class="chip info" href="claim_detail.html?id=${claim.id || claim.claim_id}">Open</a></div>
                         </article>
                       `)
                       .join("")
@@ -1249,6 +1257,18 @@
   }
 
   function buildDashboardWorklist(summary, claims) {
+    if (Array.isArray(summary?.worklist) && summary.worklist.length) {
+      return summary.worklist.map((item) => ({
+        claim_id: item.claim_id,
+        claim_number: item.claim_number,
+        status: item.status,
+        reason: item.reasons?.[0] || `${humanizeStatus(item.status)} requires attention.`,
+        next_action: item.next_action || "Review claim",
+        current_owner: item.current_owner || item.eligible_roles?.[0] || "Unassigned",
+        affected_roles: item.affected_roles || [],
+        onboarding_blockers: item.onboarding_blockers || [],
+      }));
+    }
     const priorities = getDashboardRolePriorities();
     const priorityRank = new Map(priorities.map((status, index) => [status, index]));
     const summaryWorklist = new Map((summary.worklist || []).map((item) => [item.claim_id, item]));
@@ -1547,7 +1567,11 @@
     const scopedClaims = getRoleScopedClaims(claims);
     const worklist = buildDashboardWorklist(summary, claims);
     const priorityStatuses = new Set(getDashboardRolePriorities().slice(0, 3));
-    const priorityCount = scopedClaims.filter((claim) => priorityStatuses.has(String(claim.status || "").toLowerCase())).length;
+    const roleQueueCount = Object.values(summary.role_queue_counts || {}).reduce((total, value) => total + Number(value || 0), 0);
+    const priorityCount = Object.entries(summary.role_queue_counts || {})
+      .filter(([status]) => priorityStatuses.has(String(status || "").toLowerCase()))
+      .reduce((total, [, value]) => total + Number(value || 0), 0) || scopedClaims.filter((claim) => priorityStatuses.has(String(claim.status || "").toLowerCase())).length;
+    const financials = summary.financials || {};
 
     document.body?.setAttribute("data-dashboard-role", state.role.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
     setTextById("dashboard-page-title", config.pageTitle);
@@ -1581,8 +1605,8 @@
     renderDashboardHeroTags(config.tags);
     renderDashboardFocusCards(config.focusCards);
     renderDashboardSidePanel(config.sideItems);
-    renderDashboardWorkflow(buildDashboardWorkflow(summary, claims));
-    renderDashboardOwnershipBoard(claims);
+    renderDashboardWorkflow(summary.workflow?.length ? summary.workflow : buildDashboardWorkflow(summary, claims));
+    renderDashboardOwnershipBoard(summary.ownership_board?.length ? summary.ownership_board : claims);
     renderDashboardKpis([
       {
         valueId: "dashboard-kpi-total-claims",
@@ -1593,7 +1617,7 @@
       {
         valueId: "dashboard-kpi-role-queue",
         copyId: "dashboard-kpi-role-copy",
-        value: formatDashboardCount(scopedClaims.length),
+        value: formatDashboardCount(roleQueueCount || scopedClaims.length),
         copy: `${worklist.length} priority items currently surfaced for ${state.role.toLowerCase()}.`,
       },
       {
@@ -1606,7 +1630,9 @@
         valueId: "dashboard-kpi-control-count",
         copyId: "dashboard-kpi-control-copy",
         value: formatDashboardCount(summary.reconciliation_exceptions + summary.rejected_or_pended),
-        copy: `${getDashboardTopRuleNames(summary).join(", ") || "No dominant rule pressure"} in the active tenant scope.`,
+        copy: financials.outstanding_member_liability_cents
+          ? `Outstanding member liability ${formatCurrency((financials.outstanding_member_liability_cents || 0) / 100)} with ${financials.remittance_exception_count || 0} remittance exceptions.`
+          : `${getDashboardTopRuleNames(summary).join(", ") || "No dominant rule pressure"} in the active tenant scope.`,
       },
     ]);
 

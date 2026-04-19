@@ -389,6 +389,31 @@ class PaymentResponse(BaseModel):
     received_at: str
 
 
+class PatientPaymentRecord(BaseModel):
+    payment_id: str
+    patient_id: int
+    invoice_ids: List[str] = Field(default_factory=list)
+    allocations: List[Dict[str, Any]] = Field(default_factory=list)
+    amount_cents: int
+    unallocated_cents: int = 0
+    method: str
+    status: str
+    received_at: str
+
+
+class PatientStatement(BaseModel):
+    statement_id: str
+    patient_id: int
+    generated_at: str
+    opening_balance_cents: int = 0
+    closing_balance_cents: int = 0
+    credit_cents: int = 0
+    totals: Dict[str, int] = Field(default_factory=dict)
+    invoices: List[Dict[str, Any]] = Field(default_factory=list)
+    payments: List[Dict[str, Any]] = Field(default_factory=list)
+    line_items: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class ClaimReadyItem(BaseModel):
     code: str
     label: str
@@ -607,6 +632,18 @@ class ReconciliationRecord(BaseModel):
     status: Literal["RECONCILED", "PARTIAL", "EXCEPTION"]
     exception_reasons: List[str] = Field(default_factory=list)
     created_at: str
+
+
+class ReconciliationExceptionAction(BaseModel):
+    action_id: str
+    claim_id: int
+    reconciliation_id: Optional[str] = None
+    resolution: Literal["RETURN_TO_BILLING", "RAISE_PATIENT_RESPONSIBILITY", "WRITE_OFF_SHORTFALL", "MARK_RECONCILED"]
+    note: Optional[str] = None
+    write_off_cents: int = 0
+    created_at: str
+    created_by: str
+    created_role: str
 
 
 class AuditEvent(BaseModel):
@@ -1237,9 +1274,24 @@ class PlatformStore:
         }
         self.patient_balances: Dict[int, Any] = {}
         self.invoices: Dict[str, Any] = {}
+        self.patient_payment_records: Dict[str, PatientPaymentRecord] = {}
+        self.patient_statements: Dict[str, PatientStatement] = {}
         self.copay_items: Dict[str, Any] = {}
+        self.reconciliation_exception_actions: Dict[str, ReconciliationExceptionAction] = {}
         self.outbox_events: List[Any] = []
         self.idempotency_store: Dict[str, Any] = {}
+        self.integration_settings: Dict[str, Any] = {
+            "switch": {
+                "provider": "PHISC_SANDBOX_PLACEHOLDER",
+                "mode": "stub",
+                "endpoint": "https://switch-gateway.invalid/phisc",
+                "timeout_seconds": 30,
+            },
+            "direct": {
+                "mode": "stub",
+                "endpoint": "internal://direct-adjudication",
+            },
+        }
         self.counters = {"patient": 1, "provider": 1, "user": 1, "claim": 1, "report": 1, "payment": 1, "tenant": 1, "practice": 1}
         self.icd10_validation_service = ICD10ValidationService(self)
         self.pmb_detection_service = PMBDetectionService(self)
@@ -1330,6 +1382,8 @@ class PlatformStore:
 
         remaining = amount_cents
         allocated_invoice_id = None
+        allocated_invoice_ids: List[str] = []
+        allocations: List[Dict[str, Any]] = []
         for inv in open_invoices:
             if remaining <= 0:
                 break
@@ -1338,13 +1392,18 @@ class PlatformStore:
                 apply = min(remaining, shortfall)
                 inv.paid_cents += apply
                 inv.status = "PAID" if inv.paid_cents >= inv.total_cents else "PARTIAL"
+                invoice_id = inv.id
             else:
                 shortfall = inv.get("total_cents", 0) - inv.get("paid_cents", 0)
                 apply = min(remaining, shortfall)
                 inv["paid_cents"] = inv.get("paid_cents", 0) + apply
                 inv["status"] = "PAID" if inv["paid_cents"] >= inv.get("total_cents", 0) else "PARTIAL"
+                invoice_id = inv.get("id")
             remaining -= apply
-            allocated_invoice_id = inv.id if hasattr(inv, "id") else inv.get("id")
+            allocated_invoice_id = invoice_id
+            if invoice_id:
+                allocated_invoice_ids.append(invoice_id)
+                allocations.append({"invoice_id": invoice_id, "amount_cents": apply})
             # Update balance
             bal = self.patient_balances.get(
                 patient_id, {"balance_cents": 0, "credit_cents": 0, "updated_at": now}
@@ -1364,11 +1423,27 @@ class PlatformStore:
                 bal["updated_at"] = now
                 self.patient_balances[patient_id] = bal
 
+        payment_record = PatientPaymentRecord(
+            payment_id=payment_id,
+            patient_id=patient_id,
+            invoice_ids=allocated_invoice_ids,
+            allocations=allocations,
+            amount_cents=amount_cents,
+            unallocated_cents=remaining,
+            method=method,
+            status="SUCCESS",
+            received_at=now,
+        )
+        self.patient_payment_records[payment_id] = payment_record
+
         response = {
             "payment_id": payment_id,
             "patient_id": patient_id,
             "invoice_id": allocated_invoice_id,
+            "invoice_ids": allocated_invoice_ids,
+            "allocations": allocations,
             "amount_cents": amount_cents,
+            "unallocated_cents": remaining,
             "method": method,
             "status": "SUCCESS",
             "received_at": now,
@@ -1393,6 +1468,83 @@ class PlatformStore:
         })
 
         return response
+
+    def list_patient_payments(self, patient_id: int) -> List[Dict[str, Any]]:
+        return [
+            item.model_dump()
+            for item in sorted(
+                (record for record in self.patient_payment_records.values() if record.patient_id == patient_id),
+                key=lambda record: record.received_at,
+                reverse=True,
+            )
+        ]
+
+    def generate_patient_statement(self, patient_id: int, actor: str, role: str) -> Dict[str, Any]:
+        invoices = [
+            inv.model_dump() if hasattr(inv, "model_dump") else dict(inv)
+            for inv in self.invoices.values()
+            if (inv.patient_id if hasattr(inv, "patient_id") else inv.get("patient_id")) == patient_id
+        ]
+        invoices.sort(key=lambda item: item.get("created_at", ""))
+        payments = self.list_patient_payments(patient_id)
+        balance = self.patient_balances.get(patient_id, {"balance_cents": 0, "credit_cents": 0, "updated_at": utc_now()})
+        balance_cents = balance.get("balance_cents", 0) if isinstance(balance, dict) else getattr(balance, "balance_cents", 0)
+        credit_cents = balance.get("credit_cents", 0) if isinstance(balance, dict) else getattr(balance, "credit_cents", 0)
+        total_invoiced_cents = sum(int(item.get("total_cents", 0)) for item in invoices)
+        total_paid_cents = sum(int(item.get("amount_cents", 0)) for item in payments)
+        opening_balance_cents = max(0, total_invoiced_cents - total_paid_cents)
+        statement = PatientStatement(
+            statement_id=new_ref("stmt"),
+            patient_id=patient_id,
+            generated_at=utc_now(),
+            opening_balance_cents=opening_balance_cents,
+            closing_balance_cents=balance_cents,
+            credit_cents=credit_cents,
+            totals={
+                "invoiced_cents": total_invoiced_cents,
+                "paid_cents": total_paid_cents,
+                "outstanding_cents": balance_cents,
+                "credit_cents": credit_cents,
+            },
+            invoices=invoices,
+            payments=payments,
+            line_items=[
+                {
+                    "type": "INVOICE",
+                    "reference": item.get("id"),
+                    "claim_id": item.get("claim_id"),
+                    "amount_cents": item.get("total_cents", 0),
+                    "paid_cents": item.get("paid_cents", 0),
+                    "status": item.get("status", "OPEN"),
+                    "created_at": item.get("created_at"),
+                }
+                for item in invoices
+            ] + [
+                {
+                    "type": "PAYMENT",
+                    "reference": item.get("payment_id"),
+                    "invoice_ids": item.get("invoice_ids", []),
+                    "amount_cents": item.get("amount_cents", 0),
+                    "status": item.get("status", "SUCCESS"),
+                    "created_at": item.get("received_at"),
+                }
+                for item in payments
+            ],
+        )
+        self.patient_statements[statement.statement_id] = statement
+        self.add_audit_event(
+            actor,
+            role,
+            "PATIENT_STATEMENT_GENERATED",
+            "patient",
+            str(patient_id),
+            {
+                "statement_id": statement.statement_id,
+                "outstanding_cents": balance_cents,
+                "credit_cents": credit_cents,
+            },
+        )
+        return statement.model_dump()
 
     def add_audit_event(
         self,
@@ -5352,6 +5504,265 @@ class PlatformStore:
 
         return record
 
+    def _ensure_patient_responsibility_invoice(self, claim: ClaimRecord, actor: str, role: str) -> Optional[str]:
+        bundle = self.financial_bundles.get(claim.latest_financial_bundle_id) if claim.latest_financial_bundle_id else None
+        remittance = self.remittances.get(claim.latest_remittance_id) if claim.latest_remittance_id else None
+        if not bundle or not remittance:
+            return None
+        member_liability_cents = max(0, round((bundle.totals.get("claimed", 0.0) - remittance.totals.get("paid", 0.0)) * 100))
+        if member_liability_cents <= 0:
+            return None
+        existing_invoice = next(
+            (
+                inv for inv in self.invoices.values()
+                if (inv.claim_id if hasattr(inv, "claim_id") else inv.get("claim_id")) == claim.id
+            ),
+            None,
+        )
+        if existing_invoice:
+            return existing_invoice.id if hasattr(existing_invoice, "id") else existing_invoice.get("id")
+        invoice_id = new_ref("inv")
+        invoice = Invoice(
+            id=invoice_id,
+            patient_id=claim.patient_id,
+            claim_id=claim.id,
+            total_cents=member_liability_cents,
+            paid_cents=0,
+            status="OPEN",
+            created_at=utc_now(),
+        )
+        self.invoices[invoice_id] = invoice
+        bal = self.patient_balances.get(claim.patient_id, {"balance_cents": 0, "credit_cents": 0, "updated_at": utc_now()})
+        if isinstance(bal, dict):
+            bal["balance_cents"] = bal.get("balance_cents", 0) + member_liability_cents
+            bal["updated_at"] = utc_now()
+        else:
+            bal = {
+                "balance_cents": getattr(bal, "balance_cents", 0) + member_liability_cents,
+                "credit_cents": getattr(bal, "credit_cents", 0),
+                "updated_at": utc_now(),
+            }
+        self.patient_balances[claim.patient_id] = bal
+        self.add_audit_event(
+            actor,
+            role,
+            "PATIENT_RESPONSIBILITY_INVOICED",
+            "invoice",
+            invoice_id,
+            {"claim_id": claim.id, "patient_id": claim.patient_id, "amount_cents": member_liability_cents},
+        )
+        return invoice_id
+
+    def list_reconciliation_exceptions(
+        self,
+        tenant_id: Optional[str] = None,
+        role: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        claims = [
+            claim
+            for claim in self.claims.values()
+            if self._claim_matches_tenant(claim, tenant_id=tenant_id)
+            and str(claim.reconciliation_status or "").lower() in {"exception", "partial"}
+            and self._claim_in_role_scope(claim, role)
+        ]
+        items: List[Dict[str, Any]] = []
+        for claim in claims:
+            workflow = self._claim_workflow_metadata(claim)
+            remittance = self.get_claim_remittance(claim.id)
+            reconciliation = self.get_claim_reconciliation(claim.id)
+            items.append(
+                {
+                    "claim_id": claim.id,
+                    "claim_number": claim.claim_number,
+                    "status": claim.status,
+                    "reconciliation_status": claim.reconciliation_status,
+                    "current_owner": workflow["eligible_roles"][0] if workflow["eligible_roles"] else None,
+                    "affected_roles": workflow["affected_roles"],
+                    "next_action": self._next_action(claim),
+                    "remittance": remittance.get("remittance"),
+                    "reconciliation": reconciliation.get("reconciliation"),
+                }
+            )
+        return sorted(items, key=lambda item: -int(item["claim_id"]))
+
+    def resolve_reconciliation_exception(
+        self,
+        claim_id: int,
+        resolution: str,
+        actor: str,
+        role: str,
+        note: Optional[str] = None,
+        write_off_cents: int = 0,
+    ) -> Dict[str, Any]:
+        claim = self.claims[claim_id]
+        if str(claim.reconciliation_status or "").lower() not in {"exception", "partial"}:
+            raise ValueError("No active reconciliation exception exists for this claim.")
+        if resolution not in {"RETURN_TO_BILLING", "RAISE_PATIENT_RESPONSIBILITY", "WRITE_OFF_SHORTFALL", "MARK_RECONCILED"}:
+            raise ValueError("Unsupported reconciliation resolution.")
+        reconciliation = self.reconciliations.get(claim.latest_reconciliation_id) if claim.latest_reconciliation_id else None
+        action = ReconciliationExceptionAction(
+            action_id=new_ref("rex"),
+            claim_id=claim_id,
+            reconciliation_id=reconciliation.reconciliation_id if reconciliation else None,
+            resolution=resolution,  # type: ignore[arg-type]
+            note=note,
+            write_off_cents=write_off_cents,
+            created_at=utc_now(),
+            created_by=actor,
+            created_role=role,
+        )
+        self.reconciliation_exception_actions[action.action_id] = action
+
+        invoice_id = None
+        if resolution == "RETURN_TO_BILLING":
+            claim.status = "ready_to_submit"
+            claim.reconciliation_status = "exception"
+            workflow = self._apply_claim_workflow(
+                claim,
+                actor=actor,
+                role=role,
+                action="RECONCILIATION_RETURNED_TO_BILLING",
+                affected_roles=["Billing Specialist", "Finance Officer"],
+                eligible_roles=["Billing Specialist", "Finance Officer"],
+                last_completed_role=role,
+            )
+        elif resolution == "RAISE_PATIENT_RESPONSIBILITY":
+            invoice_id = self._ensure_patient_responsibility_invoice(claim, actor, role)
+            claim.status = "exception"
+            workflow = self._apply_claim_workflow(
+                claim,
+                actor=actor,
+                role=role,
+                action="PATIENT_RESPONSIBILITY_RAISED",
+                affected_roles=["Finance Officer", "Billing Specialist"],
+                eligible_roles=["Finance Officer", "Billing Specialist"],
+                last_completed_role=role,
+            )
+        else:
+            claim.reconciliation_status = "reconciled"
+            claim.status = "reconciled"
+            workflow = self._apply_claim_workflow(
+                claim,
+                actor=actor,
+                role=role,
+                action="RECONCILIATION_RESOLVED",
+                affected_roles=["Finance Officer", "Compliance Auditor"],
+                eligible_roles=["Compliance Auditor"],
+                last_completed_role=role,
+            )
+
+        if reconciliation:
+            resolution_label = resolution.replace("_", " ").title()
+            reconciliation.exception_reasons = [
+                *reconciliation.exception_reasons,
+                f"Resolution applied: {resolution_label}",
+            ]
+            reconciliation.status = "RECONCILED" if claim.status == "reconciled" else reconciliation.status
+
+        self.add_audit_event(
+            actor,
+            role,
+            "RECONCILIATION_EXCEPTION_RESOLVED",
+            "claim",
+            str(claim_id),
+            {
+                "resolution": resolution,
+                "note": note,
+                "write_off_cents": write_off_cents,
+                "invoice_id": invoice_id,
+                "action_id": action.action_id,
+            },
+        )
+        return {
+            "claim_id": claim_id,
+            "resolution": resolution,
+            "invoice_id": invoice_id,
+            "workflow": workflow,
+            "reconciliation": self.get_claim_reconciliation(claim_id),
+        }
+
+    def get_switch_integration_profile(self) -> Dict[str, Any]:
+        return dict(self.integration_settings.get("switch", {}))
+
+    def _resolve_submission_adapter(self, channel: str) -> Dict[str, Any]:
+        normalized = str(channel or "DIRECT").upper()
+        if normalized == "SWITCH":
+            config = dict(self.integration_settings.get("switch", {}))
+            config["channel"] = "SWITCH"
+            return config
+        config = dict(self.integration_settings.get("direct", {}))
+        config["channel"] = "DIRECT"
+        return config
+
+    def _dispatch_submission(
+        self,
+        claim: ClaimRecord,
+        submission: Submission,
+        actor: str,
+        role: str,
+        adapter: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        channel = adapter.get("channel", "DIRECT")
+        dispatch = {
+            "adapter": adapter,
+            "transport_events": [],
+        }
+        if channel == "SWITCH":
+            dispatch["transport_events"].append(
+                {
+                    "event": "SWITCH_DISPATCH_PREPARED",
+                    "details": {
+                        "provider": adapter.get("provider"),
+                        "mode": adapter.get("mode"),
+                        "endpoint": adapter.get("endpoint"),
+                        "payload_id": claim.latest_payload_id,
+                    },
+                }
+            )
+            dispatch["transport_events"].append(
+                {
+                    "event": "SWITCH_TRANSFORM",
+                    "details": {
+                        "payload_id": claim.latest_payload_id,
+                        "adapter_provider": adapter.get("provider"),
+                        "message_standard": "PHISC",
+                    },
+                }
+            )
+        else:
+            dispatch["transport_events"].append(
+                {
+                    "event": "DIRECT_DISPATCH_PREPARED",
+                    "details": {
+                        "endpoint": adapter.get("endpoint"),
+                        "payload_id": claim.latest_payload_id,
+                    },
+                }
+            )
+        dispatch["transport_events"].append(
+            {
+                "event": "SENT",
+                "details": {
+                    "correlation_id": submission.correlation_id,
+                    "payload_id": claim.latest_payload_id,
+                    "adapter_mode": adapter.get("mode"),
+                },
+            }
+        )
+        self.add_audit_event(
+            actor,
+            role,
+            "CLAIM_DISPATCHED_TO_CHANNEL",
+            "claim",
+            str(claim.id),
+            {
+                "submission_id": submission.submission_id,
+                "channel": channel,
+                "adapter": adapter,
+            },
+        )
+        return dispatch
+
     def submit_claim(self, claim_id: int, request: ClaimSubmissionRequest, actor: str, role: str) -> Dict[str, Any]:
         claim = self.claims[claim_id]
         if not claim.latest_payload_id:
@@ -5384,6 +5795,7 @@ class PlatformStore:
         claim.submission_channel = channel.lower()
         claim.submission_status = "submitted"
         claim.status = "submitted"
+        adapter = self._resolve_submission_adapter(channel)
         self._add_transport_log(
             submission.submission_id,
             "ENQUEUED",
@@ -5391,21 +5803,15 @@ class PlatformStore:
             claim_id=claim.id,
             claim_version=claim.version,
         )
-        if channel == "SWITCH":
+        dispatch = self._dispatch_submission(claim, submission, actor, role, adapter)
+        for event in dispatch["transport_events"]:
             self._add_transport_log(
                 submission.submission_id,
-                "SWITCH_TRANSFORM",
-                {"payload_id": claim.latest_payload_id, "mode": "PHISC simulation"},
+                event["event"],
+                event["details"],
                 claim_id=claim.id,
                 claim_version=claim.version,
             )
-        self._add_transport_log(
-            submission.submission_id,
-            "SENT",
-            {"correlation_id": submission.correlation_id, "payload_id": claim.latest_payload_id},
-            claim_id=claim.id,
-            claim_version=claim.version,
-        )
 
         response = self._simulate_response(claim, submission)
         claim.latest_response_id = response.response_id
@@ -5452,6 +5858,7 @@ class PlatformStore:
             "submission_status": claim.submission_status,
             "submission_id": submission.submission_id,
             "correlation_id": submission.correlation_id,
+            "integration_boundary": adapter,
             "response": response.model_dump(),
             "transport_logs": [item.model_dump() for item in self.get_transport_logs_for_submission(submission.submission_id)],
             "affected_roles": workflow["affected_roles"],
@@ -5462,6 +5869,153 @@ class PlatformStore:
             "onboarding_status": workflow["onboarding_status"],
             "onboarding_blockers": workflow["onboarding_blockers"],
             "onboarding_actions": workflow["onboarding_actions"],
+        }
+
+    def _role_dashboard_statuses(self, role: Optional[str]) -> List[str]:
+        status_map = {
+            "Administrator": ["draft", "blocked", "ready_to_close", "closed", "validation_exception", "ready_to_submit", "submitted", "acknowledged", "rejected", "pended", "paid", "reconciled", "exception"],
+            "Billing Specialist": ["draft", "blocked", "ready_to_close", "closed", "validation_exception", "ready_to_submit", "rejected", "pended", "exception"],
+            "Healthcare Provider": ["draft", "blocked", "ready_to_close", "pended", "validation_exception"],
+            "Finance Officer": ["ready_to_submit", "submitted", "acknowledged", "paid", "reconciled", "exception"],
+            "Compliance Auditor": ["closed", "validation_exception", "submitted", "acknowledged", "paid", "reconciled", "exception"],
+        }
+        return status_map.get(role or "", status_map["Billing Specialist"])
+
+    def _claim_in_role_scope(self, claim: ClaimRecord, role: Optional[str]) -> bool:
+        if not role or role == "Administrator":
+            return True
+        workflow = self._claim_workflow_metadata(claim)
+        eligible = set(workflow["eligible_roles"])
+        affected = set(workflow["affected_roles"])
+        return role in eligible or role in affected or str(claim.status or "").lower() in set(self._role_dashboard_statuses(role))
+
+    def _build_dashboard_workflow(self, claims: List[ClaimRecord], role: Optional[str]) -> List[Dict[str, Any]]:
+        stage_configs = {
+            "Billing Specialist": [
+                ("Capture", {"draft", "blocked"}),
+                ("Close", {"ready_to_close", "closed", "validation_exception"}),
+                ("Submit", {"ready_to_submit", "submitted", "acknowledged"}),
+                ("Recover", {"rejected", "pended", "exception"}),
+            ],
+            "Healthcare Provider": [
+                ("Clinical intake", {"draft"}),
+                ("Readiness blockers", {"blocked", "pended"}),
+                ("Billing handoff", {"ready_to_close"}),
+                ("Clinical corrections", {"validation_exception"}),
+            ],
+            "Finance Officer": [
+                ("Ready for dispatch", {"ready_to_submit"}),
+                ("In flight", {"submitted", "acknowledged"}),
+                ("Cash posted", {"paid"}),
+                ("Reconciliation", {"reconciled", "exception"}),
+            ],
+            "Compliance Auditor": [
+                ("Post-close review", {"closed", "validation_exception"}),
+                ("Submission evidence", {"submitted", "acknowledged"}),
+                ("Financial integrity", {"paid", "exception"}),
+                ("Archive review", {"reconciled"}),
+            ],
+            "Administrator": [
+                ("Intake", {"draft", "blocked"}),
+                ("Validation", {"ready_to_close", "closed", "validation_exception"}),
+                ("Submission", {"ready_to_submit", "submitted", "acknowledged"}),
+                ("Exceptions", {"rejected", "pended", "exception"}),
+                ("Finance", {"paid", "reconciled"}),
+            ],
+        }
+        configs = stage_configs.get(role or "", stage_configs["Billing Specialist"])
+        workflow: List[Dict[str, Any]] = []
+        for label, statuses in configs:
+            count = sum(1 for claim in claims if str(claim.status or "").lower() in statuses)
+            workflow.append(
+                {
+                    "label": label,
+                    "count": count,
+                    "active": count > 0,
+                    "statuses": sorted(statuses),
+                }
+            )
+        return workflow
+
+    def _build_role_ownership_board(self, claims: List[ClaimRecord]) -> List[Dict[str, Any]]:
+        board: List[Dict[str, Any]] = []
+        for owner in ["Billing Specialist", "Healthcare Provider", "Finance Officer", "Compliance Auditor", "Administrator"]:
+            owned = []
+            for claim in claims:
+                workflow = self._claim_workflow_metadata(claim)
+                current_owner = workflow["eligible_roles"][0] if workflow["eligible_roles"] else None
+                if current_owner != owner:
+                    continue
+                owned.append(
+                    {
+                        "claim_id": claim.id,
+                        "claim_number": claim.claim_number,
+                        "status": claim.status,
+                        "next_action": self._next_action(claim),
+                        "support_roles": [role for role in workflow["affected_roles"] if role != current_owner],
+                    }
+                )
+            board.append({"role": owner, "count": len(owned), "claims": owned[:5]})
+        return board
+
+    def _build_financial_summary(self, claims: List[ClaimRecord]) -> Dict[str, Any]:
+        scoped_claim_ids = {claim.id for claim in claims}
+        invoices = [
+            inv.model_dump() if hasattr(inv, "model_dump") else dict(inv)
+            for inv in self.invoices.values()
+            if (inv.get("claim_id") if isinstance(inv, dict) else getattr(inv, "claim_id", None)) in scoped_claim_ids
+        ]
+        outstanding_cents = sum(max(0, int(item.get("total_cents", 0)) - int(item.get("paid_cents", 0))) for item in invoices)
+        paid_payments = [
+            payment for payment in self.payments.values()
+            if payment.claim_id in scoped_claim_ids and str(payment.status).lower() == "completed"
+        ]
+        remittance_exceptions = [
+            self.get_claim_reconciliation(claim.id)
+            for claim in claims
+            if str(claim.reconciliation_status or "").lower() in {"exception", "partial"}
+        ]
+        patient_ids = {claim.patient_id for claim in claims}
+        balance_total = 0
+        credit_total = 0
+        for patient_id in patient_ids:
+            balance = self.patient_balances.get(patient_id, {"balance_cents": 0, "credit_cents": 0})
+            if isinstance(balance, dict):
+                balance_total += int(balance.get("balance_cents", 0))
+                credit_total += int(balance.get("credit_cents", 0))
+            else:
+                balance_total += int(getattr(balance, "balance_cents", 0))
+                credit_total += int(getattr(balance, "credit_cents", 0))
+        return {
+            "outstanding_member_liability_cents": outstanding_cents,
+            "outstanding_member_liability_display": cents_to_str(outstanding_cents),
+            "completed_payment_total": round(sum(payment.amount for payment in paid_payments), 2),
+            "invoice_count": len(invoices),
+            "remittance_exception_count": len(remittance_exceptions),
+            "patient_balance_total_cents": balance_total,
+            "patient_balance_total_display": cents_to_str(balance_total),
+            "patient_credit_total_cents": credit_total,
+            "patient_credit_total_display": cents_to_str(credit_total),
+        }
+
+    def _build_submission_summary(self, claims: List[ClaimRecord]) -> Dict[str, Any]:
+        scoped_claim_ids = {claim.id for claim in claims}
+        submissions = [item for item in self.submissions.values() if item.claim_id in scoped_claim_ids]
+        switch_submissions = [item for item in submissions if item.channel == "SWITCH"]
+        direct_submissions = [item for item in submissions if item.channel == "DIRECT"]
+        return {
+            "total_submissions": len(submissions),
+            "switch_submissions": len(switch_submissions),
+            "direct_submissions": len(direct_submissions),
+            "latest_transport_events": [
+                item.model_dump()
+                for item in sorted(
+                    [log for log in self.transport_logs.values() if log.claim_id in scoped_claim_ids],
+                    key=lambda log: log.created_at,
+                    reverse=True,
+                )[:8]
+            ],
+            "switch_boundary": dict(self.integration_settings.get("switch", {})),
         }
 
     def get_transport_logs_for_submission(self, submission_id: str) -> List[TransportLog]:
@@ -5690,12 +6244,22 @@ class PlatformStore:
     def get_report(self, report_id: int) -> Dict[str, Any]:
         return self.reports[report_id].model_dump()
 
-    def list_worklist(self, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_worklist(
+        self,
+        tenant_id: Optional[str] = None,
+        role: Optional[str] = None,
+        practice_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         items = []
+        allowed_statuses = set(self._role_dashboard_statuses(role))
         for claim in self.claims.values():
             if not self._claim_matches_tenant(claim, tenant_id=tenant_id):
                 continue
-            if claim.status not in {"rejected", "pended", "validation_exception", "blocked", "exception"}:
+            if practice_id and getattr(claim, "practice_id", None) not in {None, practice_id}:
+                continue
+            if role and not self._claim_in_role_scope(claim, role):
+                continue
+            if str(claim.status or "").lower() not in allowed_statuses:
                 continue
             reasons = [hit.reason_code for bundle in self.get_decision_bundles_for_claim(claim.id) for hit in bundle.rule_hits if bundle.claim_version == claim.version]
             if claim.latest_response_id:
@@ -5710,11 +6274,20 @@ class PlatformStore:
                     "next_action": self._next_action(claim),
                     "affected_roles": workflow["affected_roles"],
                     "eligible_roles": workflow["eligible_roles"],
+                    "current_owner": workflow["eligible_roles"][0] if workflow["eligible_roles"] else None,
+                    "last_completed_role": workflow["last_completed_role"],
                     "onboarding_status": workflow["onboarding_status"],
                     "onboarding_blockers": workflow["onboarding_blockers"],
                 }
             )
-        return items
+        priorities = {status: index for index, status in enumerate(self._role_dashboard_statuses(role))}
+        return sorted(
+            items,
+            key=lambda item: (
+                priorities.get(str(item["status"]).lower(), 99),
+                -int(item["claim_id"]),
+            ),
+        )
 
     def _next_action(self, claim: ClaimRecord) -> str:
         if claim.status == "blocked":
@@ -5747,20 +6320,44 @@ class PlatformStore:
         self.add_audit_event(actor, role, "SETTINGS_UPDATED", "settings", "global", payload)
         return self.get_settings()
 
-    def dashboard_summary(self, tenant_id: Optional[str] = None) -> Dict[str, Any]:
-        claims = [item for item in self.claims.values() if self._claim_matches_tenant(item, tenant_id=tenant_id)]
+    def dashboard_summary(
+        self,
+        tenant_id: Optional[str] = None,
+        role: Optional[str] = None,
+        practice_id: Optional[str] = None,
+        user_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        claims = [
+            item
+            for item in self.claims.values()
+            if self._claim_matches_tenant(item, tenant_id=tenant_id)
+            and (not practice_id or getattr(item, "practice_id", None) in {None, practice_id})
+            and self._claim_in_role_scope(item, role)
+        ]
         top_rule_hits: Dict[str, int] = {}
         for bundle in self.decision_bundles.values():
             if not self._claim_matches_tenant(self.claims[bundle.claim_id], tenant_id=tenant_id):
                 continue
+            if role and not self._claim_in_role_scope(self.claims[bundle.claim_id], role):
+                continue
             for hit in bundle.rule_hits:
                 top_rule_hits[hit.reason_code] = top_rule_hits.get(hit.reason_code, 0) + 1
         return {
+            "role": role,
+            "user_id": user_id,
             "ready_to_close": sum(1 for item in claims if item.status == "ready_to_close"),
             "ready_to_submit": sum(1 for item in claims if item.status == "ready_to_submit"),
             "rejected_or_pended": sum(1 for item in claims if item.status in {"rejected", "pended"}),
             "reconciliation_exceptions": sum(1 for item in claims if item.reconciliation_status == "exception"),
             "top_rule_hits": top_rule_hits,
-            "worklist": self.list_worklist(tenant_id=tenant_id)[:6],
+            "worklist": self.list_worklist(tenant_id=tenant_id, role=role, practice_id=practice_id)[:12],
+            "role_queue_counts": {
+                status: sum(1 for item in claims if str(item.status or "").lower() == status)
+                for status in self._role_dashboard_statuses(role)
+            },
+            "workflow": self._build_dashboard_workflow(claims, role),
+            "ownership_board": self._build_role_ownership_board(claims),
+            "financials": self._build_financial_summary(claims),
+            "submission_overview": self._build_submission_summary(claims),
             "active_policy": {"profile": self.settings.get("policy_profile_id"), "version": self.settings.get("policy_version")},
         }

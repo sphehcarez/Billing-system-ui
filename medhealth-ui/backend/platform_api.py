@@ -268,7 +268,12 @@ def login(request: LoginRequest) -> Dict[str, Any]:
 @app.get("/api/dashboard/summary")
 def dashboard_summary(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "read")
-    return db.dashboard_summary(tenant_id=current_user["tenant_id"])
+    return db.dashboard_summary(
+        tenant_id=current_user["tenant_id"],
+        role=current_user["role"],
+        practice_id=current_user.get("practice_id"),
+        user_id=current_user.get("user_id"),
+    )
 
 
 @app.get("/api/tenants")
@@ -417,7 +422,11 @@ def list_claims(current_user: Dict[str, Any] = Depends(get_current_user)) -> Lis
 @app.get("/api/claims/worklist")
 def claim_worklist(current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     require_permission(current_user, "claims", "read")
-    return db.list_worklist(tenant_id=current_user["tenant_id"])
+    return db.list_worklist(
+        tenant_id=current_user["tenant_id"],
+        role=current_user["role"],
+        practice_id=current_user.get("practice_id"),
+    )
 
 
 @app.get("/api/claims/{claim_id}")
@@ -762,6 +771,37 @@ def claim_reconciliation(claim_id: int, current_user: Dict[str, Any] = Depends(g
     return db.get_claim_reconciliation(claim_id)
 
 
+@app.get("/api/payments/reconciliation-exceptions")
+def list_reconciliation_exceptions(current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    require_permission(current_user, "payments", "read")
+    return db.list_reconciliation_exceptions(
+        tenant_id=current_user["tenant_id"],
+        role=current_user["role"],
+    )
+
+
+@app.post("/api/payments/claims/{claim_id}/reconciliation/resolve")
+def resolve_claim_reconciliation(
+    claim_id: int,
+    payload: Dict[str, Any],
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    require_permission(current_user, "payments", "write")
+    ensure_claim_access(current_user, claim_id)
+    actor, role = current_identity(current_user)
+    resolution = str(payload.get("resolution") or "").upper()
+    note = payload.get("note")
+    write_off_cents = int(payload.get("write_off_cents") or 0)
+    return db.resolve_reconciliation_exception(
+        claim_id,
+        resolution,
+        actor,
+        role,
+        note=note,
+        write_off_cents=write_off_cents,
+    )
+
+
 @app.get("/api/claims/{claim_id}/evidence")
 def claim_evidence(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "read")
@@ -1003,6 +1043,7 @@ def get_patient_balance(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     require_permission(current_user, "patients", "read")
+    ensure_scope_access(current_user, db.get_patient(patient_id).tenant_id)
     balance = db.patient_balances.get(patient_id, {"balance_cents": 0, "credit_cents": 0})
     balance_cents = (
         balance.get("balance_cents", 0)
@@ -1028,6 +1069,7 @@ def get_patient_invoices(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> List[Dict[str, Any]]:
     require_permission(current_user, "patients", "read")
+    ensure_scope_access(current_user, db.get_patient(patient_id).tenant_id)
     all_invoices = db.invoices
     invoices_list = [
         inv for inv in all_invoices.values()
@@ -1039,6 +1081,16 @@ def get_patient_invoices(
     ]
 
 
+@app.get("/api/patients/{patient_id}/payments")
+def get_patient_payments(
+    patient_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    require_permission(current_user, "payments", "read")
+    ensure_scope_access(current_user, db.get_patient(patient_id).tenant_id)
+    return db.list_patient_payments(patient_id)
+
+
 @app.post("/api/patients/{patient_id}/payments")
 def record_patient_payment(
     patient_id: int,
@@ -1047,6 +1099,7 @@ def record_patient_payment(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     require_permission(current_user, "payments", "write")
+    ensure_scope_access(current_user, db.get_patient(patient_id).tenant_id)
     if not idempotency_key:
         raise HTTPException(status_code=422, detail="Idempotency-Key header is required")
     amount_cents = body.get("amount_cents")
@@ -1055,6 +1108,23 @@ def record_patient_payment(
         raise HTTPException(status_code=422, detail="amount_cents must be a positive integer")
     result = db.record_patient_payment(patient_id, amount_cents, method, idempotency_key, body)
     return result
+
+
+@app.get("/api/patients/{patient_id}/statement")
+def get_patient_statement(
+    patient_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    require_permission(current_user, "patients", "read")
+    ensure_scope_access(current_user, db.get_patient(patient_id).tenant_id)
+    actor, role = current_identity(current_user)
+    return db.generate_patient_statement(patient_id, actor, role)
+
+
+@app.get("/api/integrations/switch")
+def get_switch_integration_profile(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "read")
+    return db.get_switch_integration_profile()
 
 
 @app.get("/api/docs")

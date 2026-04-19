@@ -433,6 +433,10 @@ class BillingAPI {
     return this._request(`/patients/${patientId}/invoices`, "GET");
   }
 
+  async getPatientPayments(patientId) {
+    return this._request(`/patients/${patientId}/payments`, "GET");
+  }
+
   async recordPatientPayment(patientId, amountCents, method = "EFT") {
     const key = `pay-${patientId}-${amountCents}-${Date.now()}`;
     return this._requestWithHeaders(
@@ -441,6 +445,10 @@ class BillingAPI {
       { amount_cents: amountCents, method },
       { "Idempotency-Key": key },
     );
+  }
+
+  async getPatientStatement(patientId) {
+    return this._request(`/patients/${patientId}/statement`, "GET");
   }
 
   async _requestWithHeaders(endpoint, method, body, extraHeaders) {
@@ -560,6 +568,22 @@ class BillingAPI {
 
   async getClaimRemittance(claimId) {
     return this._request(`/claims/${claimId}/remittance`, "GET");
+  }
+
+  async getReconciliationExceptions() {
+    return this._request("/payments/reconciliation-exceptions", "GET");
+  }
+
+  async resolveReconciliationException(claimId, resolution, note = "", writeOffCents = 0) {
+    return this._request(`/payments/claims/${claimId}/reconciliation/resolve`, "POST", {
+      resolution,
+      note,
+      write_off_cents: writeOffCents,
+    });
+  }
+
+  async getSwitchIntegrationProfile() {
+    return this._request("/integrations/switch", "GET");
   }
 
   async getClaimEvidence(claimId) {
