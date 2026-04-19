@@ -351,21 +351,30 @@
           </div>
 
           <div class="card role-progress-panel" id="roleProgressPanel" style="display:none;">
-            <h3>Workflow handoff</h3>
+            <h3>Task ownership</h3>
             <div class="role-history">
               <div class="role-item">
-                <span class="label">Current status</span>
-                <span class="value" id="currentRoleStatus">-</span>
+                <span class="label">Current owner</span>
+                <span class="value" id="currentRoleOwner">-</span>
+              </div>
+              <div class="role-item">
+                <span class="label">Support roles</span>
+                <span class="value" id="supportRoles">-</span>
               </div>
               <div class="role-item">
                 <span class="label">Last completed</span>
                 <span class="value" id="lastCompletedRole">-</span>
               </div>
               <div class="role-item">
+                <span class="label">Next action</span>
+                <span class="value" id="claimNextAction">-</span>
+              </div>
+              <div class="role-item">
                 <span class="label">Eligible next</span>
                 <span class="value" id="eligibleRoles">-</span>
               </div>
             </div>
+            <div id="roleActionHistory" class="role-action-history"></div>
             <div id="stateProgression" class="state-progression"></div>
           </div>
 

@@ -411,7 +411,7 @@
 
     const signout = sidebar.querySelector('.footer a[href="index.html"], .footer a[href="login.html"]');
     if (signout && !signout.querySelector(".sidebar-signout-icon")) {
-      signout.setAttribute("href", "login.html");
+      signout.setAttribute("href", "index.html");
       const labelText = signout.textContent.trim() || "Sign out";
       signout.textContent = "";
       signout.classList.add("sidebar-signout");
@@ -929,7 +929,7 @@
 
     const logoutLink = document.querySelector("a[href='index.html'], a[href='login.html']");
     if (logoutLink) {
-      logoutLink.setAttribute("href", "login.html");
+      logoutLink.setAttribute("href", "index.html");
       logoutLink.addEventListener("click", () => {
         window.api.logout();
       });
@@ -1042,16 +1042,27 @@
     return (claims || []).filter((claim) => allowed.has(String(claim.status || "").toLowerCase())).length;
   }
 
+  function getClaimCurrentOwner(claim) {
+    const eligible = (claim?.eligible_roles || []).filter(Boolean);
+    if (eligible.length) {
+      return eligible[0];
+    }
+    const affected = (claim?.affected_roles || []).filter(Boolean);
+    return affected[0] || "Unassigned";
+  }
+
+  function getClaimSupportRoles(claim) {
+    const currentOwner = getClaimCurrentOwner(claim);
+    return (claim?.affected_roles || []).filter((role) => role && role !== currentOwner);
+  }
+
   function getRoleScopedClaims(claims) {
     if (state.role === "Administrator") {
       return claims || [];
     }
-    const scoped = (claims || []).filter((claim) => {
-      const eligible = claim.eligible_roles || [];
-      const affected = claim.affected_roles || [];
-      return eligible.includes(state.role) || affected.includes(state.role);
+    return (claims || []).filter((claim) => {
+      return getClaimCurrentOwner(claim) === state.role;
     });
-    return scoped.length ? scoped : (claims || []);
   }
 
   function getDashboardPrimaryAction() {
@@ -1091,6 +1102,54 @@
           </article>
         `,
       )
+      .join("");
+  }
+
+  function renderDashboardOwnershipBoard(claims) {
+    const container = document.getElementById("dashboard-ownership-board");
+    if (!container) {
+      return;
+    }
+
+    const roles = ["Billing Specialist", "Healthcare Provider", "Finance Officer", "Compliance Auditor", "Administrator"];
+    const items = (claims || [])
+      .filter((claim) => {
+        const status = String(claim.status || "").toLowerCase();
+        return !["paid", "reconciled"].includes(status) || status === "reconciled" && getClaimCurrentOwner(claim) === "Compliance Auditor";
+      })
+      .sort((left, right) => Number(right.id || 0) - Number(left.id || 0));
+
+    container.innerHTML = roles
+      .map((role) => {
+        const owned = items.filter((claim) => getClaimCurrentOwner(claim) === role).slice(0, 5);
+        return `
+          <section class="dashboard-owner-column">
+            <div class="dashboard-owner-head">
+              <strong>${escapeHtml(role)}</strong>
+              <span>${owned.length} active item${owned.length === 1 ? "" : "s"}</span>
+            </div>
+            <div class="dashboard-owner-list">
+              ${
+                owned.length
+                  ? owned
+                      .map((claim) => `
+                        <article class="dashboard-owner-card">
+                          <div class="dashboard-owner-meta">
+                            <span class="code">${escapeHtml(claim.claim_number || `Claim ${claim.id}`)}</span>
+                            <span class="chip ${statusClass(claim.status)}">${escapeHtml(humanizeStatus(claim.status))}</span>
+                          </div>
+                          <div class="dashboard-owner-copy">${escapeHtml(getDashboardNextAction(claim))}</div>
+                          <div class="dashboard-owner-watchers">Support: ${escapeHtml(getClaimSupportRoles(claim).join(", ") || "None")}</div>
+                          <div class="row-actions"><a class="chip info" href="claim_detail.html?id=${claim.id}">Open</a></div>
+                        </article>
+                      `)
+                      .join("")
+                  : '<div class="dashboard-owner-empty">No active work assigned.</div>'
+              }
+            </div>
+          </section>
+        `;
+      })
       .join("");
   }
 
@@ -1213,6 +1272,7 @@
           status: claim.status,
           reason: getDashboardPrimaryReason(claim, worklistItem),
           next_action: getDashboardNextAction(claim, worklistItem),
+          current_owner: getClaimCurrentOwner(claim),
           affected_roles: worklistItem?.affected_roles || claim.affected_roles || [],
           onboarding_blockers: worklistItem?.onboarding_blockers || claim.onboarding_blockers || [],
         };
@@ -1522,6 +1582,7 @@
     renderDashboardFocusCards(config.focusCards);
     renderDashboardSidePanel(config.sideItems);
     renderDashboardWorkflow(buildDashboardWorkflow(summary, claims));
+    renderDashboardOwnershipBoard(claims);
     renderDashboardKpis([
       {
         valueId: "dashboard-kpi-total-claims",
@@ -1575,7 +1636,8 @@
             .map((item) => {
               const badges = [
                 (item.onboarding_blockers || []).length ? '<span class="badge badge-warning">Onboarding blocked</span>' : "",
-                (item.affected_roles || []).length ? `<span class="badge badge-info">Roles: ${escapeHtml(item.affected_roles.join(", "))}</span>` : "",
+                item.current_owner ? `<span class="badge badge-info">Owner: ${escapeHtml(item.current_owner)}</span>` : "",
+                (item.affected_roles || []).length ? `<span class="badge badge-info">Support: ${escapeHtml(item.affected_roles.filter((role) => role !== item.current_owner).join(", ") || "None")}</span>` : "",
               ]
                 .filter(Boolean)
                 .join("");
@@ -3001,6 +3063,101 @@
         </tbody>
       </table>
     `;
+  }
+
+  function renderClaimWorkflowPanels(claim) {
+    const rolePanel = document.getElementById("roleProgressPanel");
+    if (!rolePanel || !claim) {
+      return;
+    }
+
+    rolePanel.style.display = "";
+    setTextById("currentRoleOwner", getClaimCurrentOwner(claim));
+    setTextById("supportRoles", getClaimSupportRoles(claim).join(", ") || "None");
+    setTextById("lastCompletedRole", claim.last_completed_role || "Not completed yet");
+    setTextById("eligibleRoles", (claim.eligible_roles || []).join(", ") || "None");
+    setTextById("claimNextAction", getDashboardNextAction(claim));
+
+    const stateProgression = document.getElementById("stateProgression");
+    if (stateProgression) {
+      const progression = claim.state_progression || [];
+      stateProgression.innerHTML = progression.length
+        ? progression
+            .map(
+              (step) => `
+                <article class="state-progression-card">
+                  <strong>${escapeHtml(humanizeStatus(step.status))}</strong>
+                  <div class="state-progression-meta">
+                    <span class="chip info">${escapeHtml(step.completed_by || "System")}</span>
+                    <span class="muted">${escapeHtml(formatDateTime(step.completed_at) || "-")}</span>
+                  </div>
+                </article>
+              `,
+            )
+            .join("")
+        : '<div class="dashboard-owner-empty">No progression has been recorded yet.</div>';
+    }
+
+    const historyContainer = document.getElementById("roleActionHistory");
+    if (historyContainer) {
+      const history = (claim.role_action_history || []).slice().reverse().slice(0, 6);
+      historyContainer.innerHTML = history.length
+        ? history
+            .map(
+              (item) => `
+                <article class="role-action-card">
+                  <strong>${escapeHtml(item.action || "Workflow action")}</strong>
+                  <div class="role-action-meta">
+                    <span class="chip">${escapeHtml(item.role || "System")}</span>
+                    <span class="muted">${escapeHtml(formatDateTime(item.timestamp) || "-")}</span>
+                  </div>
+                  <div class="muted">${escapeHtml(humanizeStatus(item.status || claim.status))} by ${escapeHtml(item.actor || "system")}</div>
+                </article>
+              `,
+            )
+            .join("")
+        : '<div class="dashboard-owner-empty">No role action history available yet.</div>';
+    }
+
+    const onboardingPanel = document.getElementById("onboardingPanel");
+    if (onboardingPanel) {
+      const blockers = claim.onboarding_blockers || [];
+      const actions = claim.onboarding_actions || [];
+      onboardingPanel.style.display = claim.onboarding_status || blockers.length || actions.length ? "" : "none";
+      setTextById("providerOnboardingStatus", claim.onboarding_status || "Not flagged");
+
+      const blockerContainer = document.getElementById("onboardingBlockers");
+      if (blockerContainer) {
+        blockerContainer.innerHTML = blockers.length
+          ? blockers
+              .map(
+                (blocker) => `
+                  <article class="role-action-card">
+                    <strong>${escapeHtml(blocker.message || blocker.reason_code || "Onboarding blocker")}</strong>
+                    <div class="muted">${escapeHtml(blocker.remediation || blocker.affected_field || "")}</div>
+                  </article>
+                `,
+              )
+              .join("")
+          : '<div class="dashboard-owner-empty">No onboarding blockers detected.</div>';
+      }
+
+      const actionsContainer = document.getElementById("onboardingActions");
+      if (actionsContainer) {
+        actionsContainer.innerHTML = actions.length
+          ? actions
+              .map(
+                (action) => `
+                  <article class="role-action-card">
+                    <strong>${escapeHtml(action.label || "Follow-up action")}</strong>
+                    <div class="muted">${escapeHtml(action.target || action.description || "")}</div>
+                  </article>
+                `,
+              )
+              .join("")
+          : '<div class="dashboard-owner-empty">No onboarding follow-up actions.</div>';
+      }
+    }
   }
 
   function canonicalToStages(payload) {

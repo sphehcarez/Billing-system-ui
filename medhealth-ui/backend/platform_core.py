@@ -2789,13 +2789,112 @@ class PlatformStore:
             )
         return progression
 
-    def _claim_workflow_metadata(self, claim: ClaimRecord) -> Dict[str, Any]:
+    def _derive_role_action_history(self, claim: ClaimRecord, progression: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+        if claim.role_action_history:
+            return [dict(item) for item in claim.role_action_history]
+
+        progression_items = [dict(item) for item in (progression or self._derive_state_progression(claim))]
+        current_roles = self._derive_workflow_roles(claim)
+        action_map = {
+            "DRAFT": {
+                "action": "CLAIM_CREATED",
+                "role": "Billing Specialist",
+                "status": "draft",
+                "affected_roles": ["Billing Specialist", "Healthcare Provider"],
+            },
+            "READINESS_CHECK": {
+                "action": "READINESS_REVIEWED",
+                "role": "Billing Specialist",
+                "status": claim.status if str(claim.status or "").lower() in {"blocked", "ready_to_close"} else "ready_to_close",
+                "affected_roles": ["Billing Specialist", "Healthcare Provider"],
+            },
+            "CLOSED": {
+                "action": "CLAIM_CLOSED",
+                "role": "Billing Specialist",
+                "status": "closed",
+                "affected_roles": ["Billing Specialist", "Compliance Auditor"],
+            },
+            "POST_CLOSURE_VALIDATION": {
+                "action": "POST_CLOSURE_VALIDATED",
+                "role": "Compliance Auditor",
+                "status": claim.status if str(claim.status or "").lower() in {"validation_exception", "ready_to_submit"} else "ready_to_submit",
+                "affected_roles": ["Billing Specialist", "Compliance Auditor", "Finance Officer"],
+            },
+            "SUBMITTED": {
+                "action": "CLAIM_SUBMITTED",
+                "role": "Billing Specialist",
+                "status": claim.status if str(claim.status or "").lower() in {"submitted", "acknowledged", "rejected", "pended", "paid", "reconciled", "exception"} else "submitted",
+                "affected_roles": ["Finance Officer", "Compliance Auditor"],
+            },
+        }
+
+        history: List[Dict[str, Any]] = []
+        for item in progression_items:
+            step = action_map.get(str(item.get("status") or "").upper())
+            if not step:
+                continue
+            history.append(
+                {
+                    "action": step["action"],
+                    "actor": item.get("completed_by") or "system",
+                    "role": item.get("completed_by") or step["role"],
+                    "status": step["status"],
+                    "timestamp": item.get("completed_at") or claim.updated_at or claim.created_at or utc_now(),
+                    "affected_roles": list(step["affected_roles"]),
+                }
+            )
+
+        terminal_status = str(claim.status or "").lower()
+        terminal_actions = {
+            "blocked": ("READINESS_BLOCKED", "Billing Specialist", ["Billing Specialist", "Healthcare Provider"]),
+            "ready_to_close": ("READY_TO_CLOSE", "Billing Specialist", ["Billing Specialist", "Healthcare Provider"]),
+            "validation_exception": ("VALIDATION_EXCEPTION_RECORDED", "Compliance Auditor", ["Billing Specialist", "Compliance Auditor"]),
+            "ready_to_submit": ("READY_TO_SUBMIT", "Compliance Auditor", ["Billing Specialist", "Finance Officer"]),
+            "submitted": ("CLAIM_SUBMITTED", "Billing Specialist", ["Finance Officer", "Compliance Auditor"]),
+            "acknowledged": ("SUBMISSION_ACKNOWLEDGED", "Finance Officer", ["Finance Officer", "Compliance Auditor"]),
+            "rejected": ("CLAIM_REJECTED", "Billing Specialist", ["Billing Specialist", "Compliance Auditor"]),
+            "pended": ("CLAIM_PENDED", "Healthcare Provider", ["Billing Specialist", "Healthcare Provider"]),
+            "paid": ("PAYMENT_POSTED", "Finance Officer", ["Finance Officer"]),
+            "reconciled": ("CLAIM_RECONCILED", "Finance Officer", ["Finance Officer", "Compliance Auditor"]),
+            "exception": ("RECONCILIATION_EXCEPTION", "Finance Officer", ["Finance Officer", "Billing Specialist"]),
+        }
+        terminal = terminal_actions.get(terminal_status)
+        if terminal and (not history or history[-1]["status"] != terminal_status):
+            action_name, fallback_role, affected_roles = terminal
+            history.append(
+                {
+                    "action": action_name,
+                    "actor": claim.last_completed_role or current_roles["last_completed_role"] or "system",
+                    "role": claim.last_completed_role or current_roles["last_completed_role"] or fallback_role,
+                    "status": terminal_status,
+                    "timestamp": claim.updated_at or claim.created_at or utc_now(),
+                    "affected_roles": list(affected_roles),
+                }
+            )
+
+        return history
+
+    def _hydrate_claim_workflow_metadata(self, claim: ClaimRecord) -> Dict[str, Any]:
         roles = self._derive_workflow_roles(claim)
+        if not claim.eligible_roles:
+            claim.eligible_roles = list(roles["eligible_roles"])
+        if not claim.affected_roles:
+            claim.affected_roles = list(roles["affected_roles"])
+        if not claim.last_completed_role and roles["last_completed_role"]:
+            claim.last_completed_role = roles["last_completed_role"]
+        if not claim.state_progression:
+            claim.state_progression = self._derive_state_progression(claim)
+        if not claim.role_action_history:
+            claim.role_action_history = self._derive_role_action_history(claim, progression=claim.state_progression)
+        return roles
+
+    def _claim_workflow_metadata(self, claim: ClaimRecord) -> Dict[str, Any]:
+        roles = self._hydrate_claim_workflow_metadata(claim)
         onboarding = self._derive_onboarding_context(claim)
         return {
             "eligible_roles": list(claim.eligible_roles or roles["eligible_roles"]),
             "last_completed_role": claim.last_completed_role or roles["last_completed_role"],
-            "role_action_history": [dict(item) for item in (claim.role_action_history or [])],
+            "role_action_history": [dict(item) for item in self._derive_role_action_history(claim, progression=claim.state_progression)],
             "affected_roles": list(claim.affected_roles or roles["affected_roles"]),
             "state_progression": self._derive_state_progression(claim),
             "onboarding_status": onboarding.get("onboarding_status"),

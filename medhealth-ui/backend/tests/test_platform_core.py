@@ -302,6 +302,24 @@ class PlatformCoreTests(unittest.TestCase):
         self.assertIn("payload_id", payload)
         self.assertEqual(submission["response"]["status"], "ACK")
 
+    def test_legacy_claim_workflow_metadata_is_backfilled_on_read(self) -> None:
+        claim = self.store.claims[1]
+        claim.eligible_roles = []
+        claim.affected_roles = []
+        claim.last_completed_role = None
+        claim.role_action_history = []
+        claim.state_progression = []
+
+        payload = self.store.get_claim(1)
+
+        self.assertTrue(payload["eligible_roles"])
+        self.assertTrue(payload["affected_roles"])
+        self.assertTrue(payload["state_progression"])
+        self.assertTrue(payload["role_action_history"])
+        self.assertIsNotNone(payload["last_completed_role"])
+        self.assertEqual(payload["role_action_history"][0]["action"], "CLAIM_CREATED")
+        self.assertEqual(payload["role_action_history"][-1]["status"], payload["status"])
+
 
 if __name__ == "__main__":
     unittest.main()
