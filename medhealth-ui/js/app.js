@@ -68,6 +68,28 @@
     settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94a7.43 7.43 0 0 0 .05-.94 7.43 7.43 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.23 7.23 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54a7.23 7.23 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.66 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.43 7.43 0 0 0-.05.94 7.43 7.43 0 0 0 .05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.23 1.13-.55 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5z"/></svg>',
     signout: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5v-2H5V6h5zm7.59 7-2.3-2.29L16.7 7.3 21.41 12l-4.71 4.7-1.41-1.41L17.59 13H9v-2z"/></svg>',
   };
+  function validateSaId(idNumber) {
+    const s = String(idNumber || "").trim();
+    if (!/^\d{13}$/.test(s)) return { valid: false, message: "SA ID must be exactly 13 digits." };
+    const yy = parseInt(s.slice(0, 2), 10);
+    const mm = parseInt(s.slice(2, 4), 10);
+    const dd = parseInt(s.slice(4, 6), 10);
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return { valid: false, message: "SA ID contains invalid date of birth." };
+    // Luhn check
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+      let d = parseInt(s[i], 10);
+      if (i % 2 !== 0) { d *= 2; if (d > 9) d -= 9; }
+      sum += d;
+    }
+    const check = (10 - (sum % 10)) % 10;
+    if (check !== parseInt(s[12], 10)) return { valid: false, message: "SA ID failed Luhn checksum." };
+    const century = yy <= 25 ? 2000 : 1900;
+    const dob = `${century + yy}-${String(mm).padStart(2,"0")}-${String(dd).padStart(2,"0")}`;
+    const gender = parseInt(s.slice(6, 10), 10) >= 5000 ? "Male" : "Female";
+    const citizen = s[10] === "0" ? "SA Citizen" : "Permanent Resident";
+    return { valid: true, dob, gender, citizen };
+  }
 
   const CREATE_CONFIG = {
     "patients.html": {
@@ -1089,6 +1111,12 @@
     renderDashboardHeroTags(config.tags);
     renderDashboardFocusCards(config.focusCards);
     renderDashboardSidePanel(config.sideItems);
+    const [claims, payments, patients, patientsList] = await Promise.all([
+      window.api.getClaims().catch(() => []),
+      window.api.getPayments().catch(() => []),
+      window.api.getDashboardSummary().catch(() => null),
+      window.api.getPatients().catch(() => []),
+    ]);
 
     // KPI computations
     const totalRevenue = payments
@@ -1158,7 +1186,85 @@
             )
             .join("")
         : '<tr><td colspan="5" style="text-align:center;color:#999;">No worklist items in the current role scope.</td></tr>';
+        ? worklist.map(c => `
+            <tr>
+              <td class="code">${escapeHtml(c.claim_number)}</td>
+              <td>${escapeHtml(c.member_number || `Patient ${c.patient_id}`)}</td>
+              <td><span class="chip ${claimStatusClass(c)}">${escapeHtml(c.status)}</span></td>
+              <td>${escapeHtml(c.scheme_id || "—")}</td>
+              <td class="row-actions"><a class="chip info" href="claim_detail.html?id=${c.id}">Open</a></td>
+            </tr>`).join("")
+        : '<tr><td colspan="5" style="text-align:center;color:#999;">No items in work queue.</td></tr>';
     }
+
+    // Charts
+    _renderClaimsStatusChart(claims);
+    _renderArAgingChart(claims);
+  }
+
+  function _renderClaimsStatusChart(claims) {
+    const canvas = document.getElementById("chart-claims-status");
+    if (!canvas || !window.Chart) return;
+    const counts = {};
+    claims.forEach(c => { counts[c.status] = (counts[c.status] || 0) + 1; });
+    const labels = Object.keys(counts);
+    const colours = {
+      draft: "#94a3b8", blocked: "#ef4444", submitted: "#3b82f6",
+      closed: "#10b981", reconciled: "#059669", rejected: "#dc2626",
+      paid_partial: "#f59e0b", ready_to_close: "#22c55e",
+    };
+    const data = labels.map(l => counts[l]);
+    const bgColors = labels.map(l => colours[l] || "#6b7280");
+    if (canvas._chart) canvas._chart.destroy();
+    canvas._chart = new Chart(canvas, {
+      type: "doughnut",
+      data: { labels, datasets: [{ data, backgroundColor: bgColors, borderWidth: 2 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: {
+          label: ctx => ` ${ctx.label}: ${ctx.parsed} claims`
+        }}},
+      },
+    });
+    const legend = document.getElementById("chart-claims-legend");
+    if (legend) {
+      legend.innerHTML = labels.map((l, i) =>
+        `<span style="display:flex;align-items:center;gap:4px;">
+          <span style="width:10px;height:10px;border-radius:50%;background:${bgColors[i]};flex-shrink:0;"></span>
+          <span>${escapeHtml(l)}: ${data[i]}</span>
+        </span>`
+      ).join("");
+    }
+  }
+
+  function _renderArAgingChart(claims) {
+    const canvas = document.getElementById("chart-ar-aging");
+    if (!canvas || !window.Chart) return;
+    const now = Date.now();
+    const buckets = { "0–30d": 0, "31–60d": 0, "61–90d": 0, "90+d": 0 };
+    claims.filter(c => !["reconciled","rejected"].includes(c.status)).forEach(c => {
+      const created = c.created_at ? new Date(c.created_at).getTime() : now;
+      const days = Math.floor((now - created) / 86400000);
+      if (days <= 30) buckets["0–30d"]++;
+      else if (days <= 60) buckets["31–60d"]++;
+      else if (days <= 90) buckets["61–90d"]++;
+      else buckets["90+d"]++;
+    });
+    if (canvas._chart) canvas._chart.destroy();
+    canvas._chart = new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: Object.keys(buckets),
+        datasets: [{ label: "Claims", data: Object.values(buckets),
+          backgroundColor: ["#22c55e","#f59e0b","#ea580c","#ef4444"],
+          borderRadius: 4 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+      },
+    });
   }
 
   function _renderArAgingChart(claims) {
