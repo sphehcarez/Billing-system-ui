@@ -2524,6 +2524,19 @@
     }
 
     const diagnoses = state.claimDiagnoses || [];
+
+    // Auto-refresh clinical note whenever diagnoses change (only if not manually edited)
+    const ta = document.getElementById("ai-note-textarea");
+    if (ta && diagnoses.length) {
+      const claimId = resolveClaimId(state.claimId);
+      const stored = claimId ? localStorage.getItem(_aiNoteStorageKey(claimId)) : null;
+      const isSaved = stored && JSON.parse(stored || "{}").savedAt;
+      if (!isSaved) {
+        ta.value = generateAiNoteText();
+        const savedAt = document.getElementById("ai-note-saved-at");
+        if (savedAt) savedAt.textContent = "Auto-drafted — save when ready";
+      }
+    }
     if (autoFixButton) {
       autoFixButton.style.display = diagnoses.length === 1 && !diagnoses.some((item) => item.is_primary) ? "" : "none";
     }
@@ -3218,18 +3231,67 @@
     return `medhealth_patient_notes_${patientId}`;
   }
 
+  // Clinical knowledge base — ICD-10 prefix → plain-English context used in auto-notes
+  const ICD10_CLINICAL_KB = {
+    "I21": { condition: "acute myocardial infarction (heart attack)", system: "cardiovascular", acuity: "high", typical: "chest pain, diaphoresis, and dyspnoea", management: "urgent cardiac intervention, thrombolysis or PCI, and monitored admission" },
+    "I20": { condition: "unstable angina / ischaemic chest pain", system: "cardiovascular", acuity: "high", typical: "exertional or rest chest pain", management: "nitrate therapy, anticoagulation, and cardiology review" },
+    "I50": { condition: "heart failure", system: "cardiovascular", acuity: "moderate", typical: "dyspnoea, peripheral oedema, and reduced exercise tolerance", management: "diuresis, ACE inhibitor therapy, and fluid balance monitoring" },
+    "I10": { condition: "essential hypertension", system: "cardiovascular", acuity: "low", typical: "elevated blood pressure often without symptoms", management: "antihypertensive therapy and lifestyle modification" },
+    "I63": { condition: "ischaemic stroke (cerebral infarction)", system: "neurological", acuity: "high", typical: "sudden focal neurological deficit", management: "thrombolysis if within window, stroke unit admission, and neurorehabilitation" },
+    "I64": { condition: "stroke (unspecified)", system: "neurological", acuity: "high", typical: "acute onset neurological deficit", management: "brain imaging, stroke unit care, and multidisciplinary rehabilitation" },
+    "E11": { condition: "type 2 diabetes mellitus", system: "endocrine", acuity: "low", typical: "hyperglycaemia, polyuria, and fatigue", management: "glycaemic control, dietary adjustment, and monitoring of end-organ function" },
+    "E10": { condition: "type 1 diabetes mellitus", system: "endocrine", acuity: "moderate", typical: "insulin dependence, glycaemic instability", management: "insulin therapy, carbohydrate counting, and regular HbA1c monitoring" },
+    "E14": { condition: "unspecified diabetes mellitus", system: "endocrine", acuity: "low", typical: "elevated blood glucose and metabolic disturbance", management: "glycaemic optimisation and complication screening" },
+    "J18": { condition: "pneumonia", system: "respiratory", acuity: "moderate", typical: "productive cough, fever, and reduced oxygen saturation", management: "antibiotic therapy, oxygen supplementation, and respiratory physiotherapy" },
+    "J44": { condition: "chronic obstructive pulmonary disease (COPD)", system: "respiratory", acuity: "moderate", typical: "chronic dyspnoea, productive cough, and wheeze", management: "bronchodilator therapy, pulmonary rehabilitation, and smoking cessation support" },
+    "J45": { condition: "asthma", system: "respiratory", acuity: "low", typical: "episodic wheeze, breathlessness, and chest tightness", management: "inhaled corticosteroids, bronchodilators, and trigger avoidance" },
+    "N39": { condition: "urinary tract infection (UTI)", system: "urological", acuity: "low", typical: "dysuria, frequency, and urgency", management: "empirical antibiotic therapy guided by urine culture sensitivity" },
+    "N18": { condition: "chronic kidney disease (CKD)", system: "renal", acuity: "moderate", typical: "declining GFR, proteinuria, and fluid retention", management: "nephrology review, blood pressure control, and renal replacement planning" },
+    "M54": { condition: "back pain / dorsalgia", system: "musculoskeletal", acuity: "low", typical: "lower back pain with or without radiculopathy", management: "physiotherapy, analgesic therapy, and activity modification" },
+    "G43": { condition: "migraine", system: "neurological", acuity: "low", typical: "unilateral throbbing headache, often with photophobia and nausea", management: "triptans, analgesia, and migraine prophylaxis" },
+    "F32": { condition: "depressive episode", system: "psychiatric", acuity: "moderate", typical: "persistent low mood, anhedonia, and sleep disturbance", management: "antidepressant therapy and psychological support" },
+    "F41": { condition: "anxiety disorder", system: "psychiatric", acuity: "low", typical: "excessive worry, tension, and autonomic symptoms", management: "cognitive behavioural therapy, anxiolytics, and lifestyle support" },
+    "C": { condition: "malignancy", system: "oncological", acuity: "high", typical: "variable presentation depending on site", management: "oncology referral, staging investigations, and multidisciplinary tumour board review" },
+    "Z51": { condition: "ongoing medical care / chemotherapy or radiotherapy", system: "oncological", acuity: "moderate", typical: "planned therapeutic intervention", management: "specialist-directed protocol-based treatment" },
+    "K29": { condition: "gastritis or duodenitis", system: "gastrointestinal", acuity: "low", typical: "epigastric pain, nausea, and bloating", management: "proton pump inhibitor therapy and H. pylori eradication if indicated" },
+    "K92": { condition: "gastrointestinal haemorrhage", system: "gastrointestinal", acuity: "high", typical: "haematemesis or melaena with haemodynamic compromise", management: "urgent endoscopy, resuscitation, and surgical review if required" },
+    "S": { condition: "injury or trauma", system: "trauma", acuity: "moderate", typical: "acute pain, functional limitation, and possible fracture or soft tissue injury", management: "imaging, immobilisation, analgesia, and physiotherapy or surgical intervention as indicated" },
+    "O": { condition: "obstetric / pregnancy-related condition", system: "obstetric", acuity: "moderate", typical: "antenatal or peripartum complication", management: "obstetric team review, foetal monitoring, and maternal stabilisation" },
+    "A": { condition: "infectious disease", system: "infectious", acuity: "moderate", typical: "systemic or localised infection with constitutional symptoms", management: "culture-guided antimicrobial therapy and supportive care" },
+    "B": { condition: "viral or parasitic infection", system: "infectious", acuity: "moderate", typical: "systemic illness with variable presentation", management: "targeted antiviral or antiparasitic therapy and supportive measures" },
+  };
+
+  function _getClinicalContext(icdCode) {
+    if (!icdCode) return null;
+    const code = icdCode.replace(".", "").toUpperCase();
+    // Try longest prefix first (e.g. "I21" before "I")
+    for (let len = Math.min(code.length, 3); len >= 1; len--) {
+      const key = code.slice(0, len);
+      if (ICD10_CLINICAL_KB[key]) return ICD10_CLINICAL_KB[key];
+    }
+    return null;
+  }
+
   function loadAiNote() {
     const claimId = resolveClaimId(state.claimId);
     if (!claimId) return;
     const stored = localStorage.getItem(_aiNoteStorageKey(claimId));
-    if (!stored) return;
-    try {
-      const parsed = JSON.parse(stored);
-      const ta = document.getElementById("ai-note-textarea");
-      const savedAt = document.getElementById("ai-note-saved-at");
-      if (ta) ta.value = parsed.note || "";
-      if (savedAt) savedAt.textContent = parsed.savedAt ? `Saved ${parsed.savedAt}` : "";
-    } catch (_) {}
+    const ta = document.getElementById("ai-note-textarea");
+    const savedAt = document.getElementById("ai-note-saved-at");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (ta) ta.value = parsed.note || "";
+        if (savedAt) savedAt.textContent = parsed.savedAt ? `Saved ${parsed.savedAt}` : "";
+        return;
+      } catch (_) {}
+    }
+    // No saved note — auto-generate silently if we have diagnoses
+    const diagnoses = state.claimDiagnoses || [];
+    if (diagnoses.length && ta && !ta.value) {
+      ta.value = generateAiNoteText();
+      if (savedAt) savedAt.textContent = "Auto-drafted from diagnosis data";
+    }
   }
 
   function generateAiNoteText() {
@@ -3240,91 +3302,86 @@
     const primary = diagnoses.find(d => d.is_primary);
     const secondary = diagnoses.filter(d => !d.is_primary);
     const member = claim.member_number || `Patient ${claim.patient_id}`;
-    const date = new Date().toLocaleDateString("en-ZA", { year:"numeric", month:"long", day:"numeric" });
+    const date = new Date().toLocaleDateString("en-ZA", { year: "numeric", month: "long", day: "numeric" });
     const claimRef = claim.claim_number || claim.id || "—";
     const totalCents = lines.reduce((s, l) => s + (l.amount_cents || 0), 0);
     const pmbDecision = claim.latest_pmb_decision;
 
-    // Opening — sounds like a billing clerk/case manager wrote it
-    const openings = [
-      `Reviewed claim ${claimRef} for member ${member} on ${date}.`,
-      `Clinical review conducted for ${member} — claim reference ${claimRef}, dated ${date}.`,
-      `This note pertains to the billing file for ${member} (claim ${claimRef}), reviewed ${date}.`,
-    ];
-    const opening = openings[Math.floor(Math.random() * openings.length)];
+    const ctx = primary ? _getClinicalContext(primary.icd10_code) : null;
 
-    // Diagnosis paragraph
-    let diagPara = "";
+    // Opening
+    const openings = [
+      `Clinical billing note prepared for ${member} on ${date} — claim reference ${claimRef}.`,
+      `This note documents the clinical and billing summary for ${member} (ref: ${claimRef}), compiled ${date}.`,
+      `Billing review for ${member}, claim ${claimRef}, dated ${date}.`,
+    ];
+    const opening = openings[new Date().getSeconds() % openings.length];
+
+    // Diagnosis block — use clinical KB if available
+    let diagBlock = "";
     if (primary) {
       const icd = primary.icd10_code;
       const secList = secondary.map(d => d.icd10_code).join(", ");
-      const diagPhrases = [
-        `The presenting diagnosis is coded ${icd}${secList ? `, with additional conditions noted: ${secList}` : ""}.`,
-        `Primary diagnosis recorded as ${icd}${secList ? `; co-morbidities include ${secList}` : ""}.`,
-        `Patient presents with a primary diagnosis of ${icd}${secList ? `. Secondary diagnoses: ${secList}` : ""}.`,
-      ];
-      diagPara = diagPhrases[Math.floor(Math.random() * diagPhrases.length)];
-    } else {
-      diagPara = "No primary diagnosis has been captured on this claim. This will need to be resolved before the file can progress.";
-    }
-
-    // Procedures paragraph
-    const procedureCodes = lines.map(l => l.tariff_code || l.nappi_code || l.code).filter(Boolean);
-    let procPara = "";
-    if (procedureCodes.length) {
-      const procPhrases = [
-        `Services rendered include procedure codes ${procedureCodes.join(", ")}.`,
-        `The following tariff codes have been billed: ${procedureCodes.join(", ")}.`,
-        `Procedures on file: ${procedureCodes.join(", ")}.`,
-      ];
-      procPara = procPhrases[Math.floor(Math.random() * procPhrases.length)];
-      if (totalCents > 0) {
-        procPara += ` Total amount claimed is ${formatCurrency(totalCents / 100)}.`;
-      }
-    } else {
-      procPara = "No procedure line items have been recorded against this claim at this time.";
-    }
-
-    // PMB paragraph
-    let pmbPara = "";
-    if (pmbDecision) {
-      if (pmbDecision.pmb_applicable) {
-        pmbPara = `PMB assessment confirms this claim falls within Prescribed Minimum Benefits — condition: ${pmbDecision.condition_name || pmbDecision.condition_id || "confirmed"}. The medical scheme is obligated to cover this in full at cost.`;
+      if (ctx) {
+        diagBlock = `The primary diagnosis is ${ctx.condition} (${icd}), a ${ctx.system} condition. `;
+        diagBlock += `The patient typically presents with ${ctx.typical}. `;
+        if (secList) diagBlock += `Co-existing conditions are also noted: ${secList}. `;
       } else {
-        pmbPara = `PMB assessment indicates this does not meet the criteria for Prescribed Minimum Benefits (condition: ${pmbDecision.condition_name || pmbDecision.condition_id || "reviewed"}). Standard benefit limits apply.`;
+        diagBlock = `Primary diagnosis recorded: ${icd}${secList ? `; co-morbidities: ${secList}` : ""}. `;
       }
+    } else {
+      diagBlock = "No primary ICD-10 diagnosis has been captured on this claim. This must be resolved before the file can be progressed or submitted.";
     }
 
-    // Status remark
+    // Clinical management — from KB
+    let mgmtBlock = "";
+    if (ctx) {
+      mgmtBlock = `Standard management for this condition includes ${ctx.management}.`;
+    }
+
+    // PMB block
+    let pmbBlock = "";
+    if (pmbDecision) {
+      const condName = pmbDecision.condition_name || pmbDecision.condition_id || "the assessed condition";
+      if (pmbDecision.pmb_applicable) {
+        pmbBlock = `PMB assessment outcome: this claim qualifies as a Prescribed Minimum Benefit under the condition "${condName}". In terms of the Medical Schemes Act, the scheme is obligated to fund this event in full at the cost of the relevant Diagnosis Treatment Pair (DTP). No co-payment or shortfall should apply to the PMB-compliant portion of this claim.`;
+      } else {
+        pmbBlock = `PMB assessment outcome: this claim does not meet the criteria for Prescribed Minimum Benefit coverage (assessed condition: "${condName}"). The claim will be adjudicated against standard benefit limits and any applicable sub-limits or co-payment provisions in the member's plan.`;
+      }
+    } else if (primary) {
+      pmbBlock = "PMB evaluation has not yet been completed for this claim. A readiness check should be run to trigger PMB and benefit routing assessment.";
+    }
+
+    // Procedure and cost block
+    const procedureCodes = lines.map(l => l.tariff_code || l.nappi_code || l.code).filter(Boolean);
+    let procBlock = "";
+    if (procedureCodes.length) {
+      procBlock = `Services billed against this claim: ${procedureCodes.join(", ")}.`;
+      if (totalCents > 0) procBlock += ` The total claim amount is ${formatCurrency(totalCents / 100)}.`;
+    }
+
+    // Status
     const statusMap = {
-      DRAFT: "The claim is still in draft and has not yet been submitted.",
-      OPEN: "The claim is open and under active review.",
-      CLOSED: "The file has been closed pending submission.",
-      SUBMITTED: "This claim has been submitted to the medical scheme for adjudication.",
-      PAID: "Payment has been received and reconciled against this claim.",
-      REJECTED: "The claim was rejected. A review of the rejection reason is recommended before resubmission.",
-      PENDED: "The claim is currently pended awaiting additional information.",
+      DRAFT: "The claim remains in draft status and has not yet been submitted to the medical scheme.",
+      OPEN: "The claim is open and currently under review.",
+      CLOSED: "The clinical file has been closed and the claim is ready for submission.",
+      SUBMITTED: "This claim has been submitted to the scheme and is awaiting adjudication.",
+      PAID: "The claim has been adjudicated and payment has been received.",
+      REJECTED: "The scheme has rejected this claim. A review of the rejection reason and a resubmission or dispute may be required.",
+      PENDED: "The claim is pended, pending receipt of outstanding supporting documentation.",
     };
-    const statusRemark = statusMap[(claim.status || "").toUpperCase()] || `Current claim status: ${claim.status || "unknown"}.`;
+    const statusNote = statusMap[(claim.status || "").toUpperCase()] || "";
 
     // Closing
     const closings = [
-      "Please review and update as necessary before filing.",
-      "Confirm all details are accurate prior to submission.",
-      "Any amendments should be made and the file re-reviewed before dispatch.",
+      "This note has been compiled from clinical and billing data on file. Please review and amend as required before formal submission.",
+      "All clinical details should be verified against the treating practitioner's records prior to submission.",
+      "Review and confirm accuracy of all diagnoses and procedure codes before dispatching to the scheme.",
     ];
-    const closing = closings[Math.floor(Math.random() * closings.length)];
+    const closing = closings[new Date().getMinutes() % closings.length];
 
-    return [
-      opening,
-      "",
-      diagPara,
-      procPara,
-      pmbPara,
-      statusRemark,
-      "",
-      closing,
-    ].filter(Boolean).join("\n");
+    return [opening, "", diagBlock, mgmtBlock, "", pmbBlock, procBlock, statusNote, "", closing]
+      .filter(s => s && s.trim()).join("\n");
   }
 
   function handleGenerateAiNote() {
