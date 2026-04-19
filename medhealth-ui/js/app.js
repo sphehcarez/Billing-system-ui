@@ -840,7 +840,12 @@
     }
   }
 
+  function _skeletonOn()  { document.querySelector(".main")?.classList.add("skeleton"); }
+  function _skeletonOff() { document.querySelector(".main")?.classList.remove("skeleton"); }
+
   async function initializePage() {
+    _skeletonOn();
+    try {
     switch (state.page) {
       case "dashboard.html":
         await loadDashboardSummary();
@@ -874,6 +879,9 @@
         break;
       default:
         break;
+    }
+    } finally {
+      _skeletonOff();
     }
   }
 
@@ -1084,7 +1092,14 @@
   }
 
   async function loadDashboardSummary() {
-    const summary = await window.api.getDashboardSummary();
+    // Fire all requests in parallel — single round-trip budget
+    const [summary, claims, payments, patientsList] = await Promise.all([
+      window.api.getDashboardSummary().catch(() => ({})),
+      window.api.getClaims().catch(() => []),
+      window.api.getPayments().catch(() => []),
+      window.api.getPatients().catch(() => []),
+    ]);
+    const patients = summary;
     const config = getDashboardRoleConfig(summary);
 
     document.body?.setAttribute("data-dashboard-role", state.role.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
@@ -1111,12 +1126,6 @@
     renderDashboardHeroTags(config.tags);
     renderDashboardFocusCards(config.focusCards);
     renderDashboardSidePanel(config.sideItems);
-    const [claims, payments, patients, patientsList] = await Promise.all([
-      window.api.getClaims().catch(() => []),
-      window.api.getPayments().catch(() => []),
-      window.api.getDashboardSummary().catch(() => null),
-      window.api.getPatients().catch(() => []),
-    ]);
 
     // KPI computations
     const totalRevenue = payments

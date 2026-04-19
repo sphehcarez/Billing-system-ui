@@ -1108,3 +1108,19 @@ pre {
 .empty-state-icon { font-size: 32px; opacity: 0.5; }
 .empty-state-title { font-size: 14px; font-weight: 600; color: var(--ink-600); }
 .empty-state-sub { font-size: 12px; }
+
+/* ── Skeleton loading ────────────────────────────────── */
+@keyframes skeleton-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2,#f1f5f9) 25%, var(--surface-1,#f8fafc) 50%, var(--surface-2,#f1f5f9) 75%);
+  background-size: 800px 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+  color: transparent !important;
+  pointer-events: none;
+  user-select: none;
+}
+.skeleton * { visibility: hidden; }
