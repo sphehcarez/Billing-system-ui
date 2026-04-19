@@ -171,6 +171,23 @@
             <div id="line-items-list"></div>
           </div>
 
+          <!-- Attachments card -->
+          <div class="card" id="attachments" data-field="attachments">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:10px;">
+              <div>
+                <h3>Attachments</h3>
+                <div class="muted">Evidence documents required for PMB and post-closure validation.</div>
+              </div>
+              <div class="row-actions">
+                <button class="btn secondary" type="button" data-action="add-attachment">Add document</button>
+                <button class="chip" type="button" data-action="mark-attachment-provided">Mark provided</button>
+              </div>
+            </div>
+            <div id="attachment-requirements" style="margin-bottom:10px;"></div>
+            <div id="attachments-feedback" class="muted" style="margin-bottom:8px;"></div>
+            <div id="attachments-list"></div>
+          </div>
+
           <!-- Canonical payload card -->
           <div class="card" id="payload-card">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
@@ -334,13 +351,9 @@
           </div>
 
           <!-- Attachments summary -->
-          <div class="card" id="attachments-summary-card" data-field="attachments">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <div class="card" id="attachments-summary-card">
+            <div style="margin-bottom:8px;">
               <h3 style="margin:0;">Attachments</h3>
-              <div class="row-actions">
-                <button class="chip info" type="button" data-action="add-attachment">Add document</button>
-                <button class="chip" type="button" data-action="mark-attachment-provided">Mark provided</button>
-              </div>
             </div>
             <div id="attachments-summary" class="muted">Loading attachments…</div>
           </div>
