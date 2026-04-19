@@ -50,9 +50,16 @@ class BillingAPI {
 
       const data = await response.json();
       this.token = data.access_token;
-      this.role = data.role;
-      this.tenantId = data.tenant_id || null;
-      this.practiceId = data.practice_id || null;
+      // Normalize role aliases so they match ROLE_PERMISSIONS keys in app.js
+      const roleAliases = {
+        admin: "Administrator", administrator: "Administrator",
+        billing: "Billing Specialist", "billing specialist": "Billing Specialist",
+        provider: "Healthcare Provider", "healthcare provider": "Healthcare Provider",
+        finance: "Finance Officer", "finance officer": "Finance Officer",
+        auditor: "Compliance Auditor", "compliance auditor": "Compliance Auditor",
+      };
+      const rawRole = data.role || "";
+      this.role = roleAliases[rawRole.toLowerCase().trim()] || rawRole;
       localStorage.setItem("api_token", this.token);
       localStorage.setItem("api_role", this.role);
       localStorage.setItem("role", this.role);

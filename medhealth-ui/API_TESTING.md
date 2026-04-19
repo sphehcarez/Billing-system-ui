@@ -319,15 +319,33 @@ curl -X PUT "http://localhost:8001/api/settings?token=$TOKEN" \
 
 ### Get API Info
 ```bash
-curl -X GET "http://localhost:8001/api/docs"
+curl -X GET "http://localhost:8001/"
+```
+
+**Response:**
+```json
+{
+  "message": "Medhealth claims rules platform",
+  "docs": "/docs",
+  "api": "/api/docs"
+}
 ```
 
 ### Health Check
 ```bash
-curl -X GET "http://localhost:8001/"
+curl -X GET "http://localhost:8001/health"
 ```
 
----
+**Response:**
+```json
+{
+  "status": "ok",
+  "db": "ok"
+}
+```
+
+### FastAPI Docs
+Access interactive API documentation at: http://localhost:8001/docs
 
 ## Complete Workflow Example
 
@@ -466,7 +484,7 @@ print(resp.json())
 ✅ **Use jq tool** for pretty-printing JSON: `| jq .`  
 ✅ **Test in Swagger UI** first at http://localhost:8001/docs  
 ✅ **Check audit logs** to verify actions were recorded  
-✅ **Read full docs** at http://localhost:8001/api/docs  
+✅ **Read full docs** at http://localhost:8001/docs  
 
 ---
 
