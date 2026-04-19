@@ -3,23 +3,49 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Med Directory Billing Platform | Login</title>
+  <title>MedHealth Billing Platform</title>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
   <div class="login-wrap">
     <div class="login">
       <div class="hero">
-        <img class="logo" src="assets/MedhealthLogo.png" alt="Med Directory" />
-        <h1>Billing and Rules Engine Platform</h1>
-        <p>Role-based operational cockpit for readiness, closure, validation, submission, remittance and audit evidence.</p>
-        <div style="margin-top:14px" class="panel">
-          <div class="kv"><span>Security</span><strong>RBAC enforced server-side</strong></div>
+        <div>
+          <img class="logo" src="assets/MedhealthLogo.png" alt="MedHealth" />
+          <h1>Billing &amp; Rules Engine Platform</h1>
+          <p>Role-based operational cockpit for readiness, closure, validation, submission, remittance and audit evidence.</p>
+        </div>
+        <div class="hero-badges">
+          <div class="hero-badge">
+            <span class="hero-badge-icon">🔐</span>
+            <div class="hero-badge-text">
+              <span class="hero-badge-title">RBAC Enforced</span>
+              <span class="hero-badge-sub">Server-side role and permission checks</span>
+            </div>
+          </div>
+          <div class="hero-badge">
+            <span class="hero-badge-icon">🏥</span>
+            <div class="hero-badge-text">
+              <span class="hero-badge-title">SA Medical Schemes</span>
+              <span class="hero-badge-sub">Discovery, GEMS, Bonitas, Momentum, Fedhealth</span>
+            </div>
+          </div>
+          <div class="hero-badge">
+            <span class="hero-badge-icon">📋</span>
+            <div class="hero-badge-text">
+              <span class="hero-badge-title">PMB / ICD-10 Validated</span>
+              <span class="hero-badge-sub">Prescribed Minimum Benefits rules engine</span>
+            </div>
+          </div>
         </div>
       </div>
 
       <div class="form">
-        <h3 style="margin:0 0 10px 0">Sign in</h3>
+        <div class="form-header">
+          <h2>Welcome back</h2>
+          <p>Sign in to your billing workspace</p>
+        </div>
+
         <div class="field">
           <div class="label">Role</div>
           <select id="role" class="input">
@@ -29,22 +55,31 @@
             <option>Finance Officer</option>
             <option>Compliance Auditor</option>
           </select>
-          <div class="small">This UI preview switches modules by role. Your API layer must enforce RBAC.</div>
         </div>
+
         <div class="field">
           <div class="label">Username</div>
-          <input id="user" class="input" placeholder="e.g., admin" />
+          <input id="user" class="input" placeholder="e.g. admin" autocomplete="username" />
         </div>
+
         <div class="field">
           <div class="label">Password</div>
-          <input type="password" id="pass" class="input" placeholder="••••••••" />
+          <input type="password" id="pass" class="input" placeholder="••••••••" autocomplete="current-password" />
         </div>
-        <button class="btn" id="login">Continue</button>
-        <div id="login-error" style="color:#dc2626;font-size:0.85rem;margin-top:0.5rem;display:none"></div>
-        <div style="display:flex;gap:10px;margin-top:12px;">
-          <a class="btn secondary" href="manual.html">Open User Manual</a>
+
+        <button class="btn" id="login" style="width:100%;height:40px;font-size:14px;">Continue</button>
+
+        <div id="login-error" class="login-error"></div>
+
+        <div class="login-hint">
+          Default credentials: <strong>admin</strong> / admin123 &nbsp;·&nbsp;
+          <strong>demo.user</strong> / password123<br />
+          <span style="color:var(--ink-400);">Select <strong>Administrator</strong> to access the full navigation.</span>
         </div>
-        <div class="small" style="margin-top:12px">Tip: select <strong>Administrator</strong> to see the full navigation set.</div>
+
+        <div style="margin-top:14px;">
+          <a class="btn secondary" href="manual.html" style="width:100%;justify-content:center;">Open User Manual</a>
+        </div>
       </div>
     </div>
   </div>
@@ -53,13 +88,11 @@
   <script>
     function showLoginError(msg) {
       const el = document.getElementById("login-error");
-      if (el) { el.textContent = msg; el.style.display = "block"; }
-      else { console.error(msg); }
+      if (el) { el.textContent = msg; el.classList.add("visible"); }
     }
-
     function clearLoginError() {
       const el = document.getElementById("login-error");
-      if (el) { el.style.display = "none"; el.textContent = ""; }
+      if (el) { el.classList.remove("visible"); el.textContent = ""; }
     }
 
     document.getElementById("login").addEventListener("click", async () => {
@@ -67,41 +100,23 @@
       const password = document.getElementById("pass").value;
       const role = document.getElementById("role").value;
       const loginBtn = document.getElementById("login");
-
       clearLoginError();
-
-      if (!username || !password) {
-        showLoginError("Please enter username and password");
-        return;
-      }
-
+      if (!username || !password) { showLoginError("Please enter your username and password."); return; }
       loginBtn.disabled = true;
-      loginBtn.textContent = "Authenticating...";
-
+      loginBtn.classList.add("loading");
       try {
-        // Authenticate against the API
         const response = await window.api.login(username, password, role);
-
-        // Store the role resolved by the backend.
         localStorage.setItem("role", response.role);
-
-        // Navigate to dashboard
         location.href = "dashboard.html";
       } catch (error) {
-        showLoginError("Authentication failed: " + error.message);
+        showLoginError("Sign-in failed: " + error.message);
         loginBtn.disabled = false;
-        loginBtn.textContent = "Continue";
+        loginBtn.classList.remove("loading");
       }
     });
 
-    // Demo credentials helper
-    document.addEventListener("DOMContentLoaded", () => {
-      const tip = document.createElement("div");
-      tip.className = "small";
-      tip.style.marginTop = "12px";
-      tip.style.color = "#666";
-      tip.innerHTML = `Default credentials: <strong>admin</strong> / admin123 &nbsp;|&nbsp; <strong>billing</strong> / billing123`;
-      document.querySelector(".form").appendChild(tip);
+    document.getElementById("pass").addEventListener("keydown", e => {
+      if (e.key === "Enter") document.getElementById("login").click();
     });
   </script>
 </body>

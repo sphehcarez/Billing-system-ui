@@ -99,10 +99,19 @@
               <button class="btn secondary" type="button" data-action="auto-fix-primary" id="diagnosis-auto-fix" style="display:none;">Auto-fix primary</button>
             </div>
             <div class="grid" style="grid-template-columns: repeat(12, 1fr); gap:10px;">
-              <div class="field" style="grid-column: span 5; margin-bottom:0;">
-                <label class="label" for="diagnosis-search-input">ICD-10 search</label>
-                <input class="input" id="diagnosis-search-input" list="icd10-options" placeholder="Type ICD-10 code or description" />
-                <datalist id="icd10-options"></datalist>
+              <div class="field" style="grid-column: span 5; margin-bottom:0; position:relative;">
+                <label class="label" for="diagnosis-search-input">
+                  ICD-10 search
+                  <span class="chip info" style="font-size:10px;padding:1px 6px;margin-left:6px;vertical-align:middle;">AI</span>
+                </label>
+                <input class="input" id="diagnosis-search-input" autocomplete="off"
+                       placeholder="Type code, symptom, or description…" aria-autocomplete="list"
+                       aria-controls="icd10-ai-dropdown" aria-expanded="false" role="combobox" />
+                <div id="icd10-ai-dropdown" role="listbox" aria-label="ICD-10 suggestions"
+                     style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;
+                            background:var(--surface-0,#fff);border:1px solid var(--line-200);
+                            border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);
+                            max-height:320px;overflow-y:auto;margin-top:3px;"></div>
               </div>
               <div class="field" style="grid-column: span 3; margin-bottom:0;">
                 <label class="label" for="diagnosis-type-input">Diagnosis role</label>
@@ -175,24 +184,39 @@
             <h3>Submission tool</h3>
 
             <!-- Stepper -->
-            <div class="submission-stepper" id="submission-stepper" role="list" aria-label="Submission steps">
-              <div class="stepper-step" data-step="generate" data-state="idle" role="listitem">
+            <div class="submission-stepper" id="submission-stepper" role="list" aria-label="Submission workflow stages">
+              <div class="stepper-step" data-step="readiness" data-state="idle" role="listitem">
                 <div class="stepper-indicator"><span class="stepper-num">1</span></div>
+                <span class="stepper-label">Readiness</span>
+              </div>
+              <div class="stepper-connector" aria-hidden="true"></div>
+              <div class="stepper-step" data-step="closure" data-state="idle" role="listitem">
+                <div class="stepper-indicator"><span class="stepper-num">2</span></div>
+                <span class="stepper-label">Closure</span>
+              </div>
+              <div class="stepper-connector" aria-hidden="true"></div>
+              <div class="stepper-step" data-step="postclosure" data-state="idle" role="listitem">
+                <div class="stepper-indicator"><span class="stepper-num">3</span></div>
+                <span class="stepper-label">Validation</span>
+              </div>
+              <div class="stepper-connector" aria-hidden="true"></div>
+              <div class="stepper-step" data-step="generate" data-state="idle" role="listitem">
+                <div class="stepper-indicator"><span class="stepper-num">4</span></div>
                 <span class="stepper-label">Generate</span>
               </div>
               <div class="stepper-connector" aria-hidden="true"></div>
               <div class="stepper-step" data-step="validate" data-state="idle" role="listitem">
-                <div class="stepper-indicator"><span class="stepper-num">2</span></div>
+                <div class="stepper-indicator"><span class="stepper-num">5</span></div>
                 <span class="stepper-label">Validate</span>
               </div>
               <div class="stepper-connector" aria-hidden="true"></div>
               <div class="stepper-step" data-step="submit" data-state="idle" role="listitem">
-                <div class="stepper-indicator"><span class="stepper-num">3</span></div>
+                <div class="stepper-indicator"><span class="stepper-num">6</span></div>
                 <span class="stepper-label">Submit</span>
               </div>
               <div class="stepper-connector" aria-hidden="true"></div>
               <div class="stepper-step" data-step="response" data-state="idle" role="listitem">
-                <div class="stepper-indicator"><span class="stepper-num">4</span></div>
+                <div class="stepper-indicator"><span class="stepper-num">7</span></div>
                 <span class="stepper-label">Response</span>
               </div>
             </div>
@@ -249,6 +273,29 @@
                 <pre id="edi-preview" style="max-height:220px;overflow:auto;font-size:11px;">No EDI artifact generated yet.</pre>
               </div>
             </details>
+          </div>
+
+          <!-- AI Notes card -->
+          <div class="card" id="ai-notes-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <div>
+                <h3 style="margin:0;">AI Notes
+                  <span class="chip info" style="font-size:10px;padding:1px 6px;margin-left:6px;vertical-align:middle;">AI</span>
+                </h3>
+                <div class="muted" style="font-size:12px;margin-top:2px;">Clinical notes visible on the patient profile.</div>
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button class="btn secondary" type="button" data-action="generate-ai-note">Generate</button>
+                <button class="btn" type="button" data-action="save-ai-note">Save note</button>
+              </div>
+            </div>
+            <div id="ai-note-banner" class="inline-banner" hidden></div>
+            <textarea id="ai-note-textarea" class="input" rows="6"
+              style="width:100%;resize:vertical;font-size:12px;line-height:1.6;font-family:inherit;"
+              placeholder="Click Generate to create an AI clinical summary, or type a note manually…"></textarea>
+            <div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span id="ai-note-saved-at" class="muted" style="font-size:11px;"></span>
+            </div>
           </div>
 
         </div><!-- /cockpit-left -->
