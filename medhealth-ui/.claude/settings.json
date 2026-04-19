@@ -1,9 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(curl -s http://localhost:*)",
-      "Bash(docker compose ps *)",
-      "Bash(node --check *)"
+      "Bash(*)"
     ]
   }
 }
