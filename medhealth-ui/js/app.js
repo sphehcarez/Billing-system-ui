@@ -3242,40 +3242,89 @@
     const member = claim.member_number || `Patient ${claim.patient_id}`;
     const date = new Date().toLocaleDateString("en-ZA", { year:"numeric", month:"long", day:"numeric" });
     const claimRef = claim.claim_number || claim.id || "—";
-    const status = claim.status || "UNKNOWN";
-    const readiness = claim.readiness_status || "PENDING";
     const totalCents = lines.reduce((s, l) => s + (l.amount_cents || 0), 0);
-
-    const diagLine = primary
-      ? `Primary diagnosis: ${primary.icd10_code}${secondary.length ? `; Secondary: ${secondary.map(d => d.icd10_code).join(", ")}` : ""}.`
-      : "No primary diagnosis captured.";
-
-    const procedureCodes = lines.map(l => l.tariff_code || l.nappi_code || l.code).filter(Boolean);
-    const procedureLine = procedureCodes.length
-      ? `Procedures billed: ${procedureCodes.join(", ")}.`
-      : "No procedure line items recorded.";
-
     const pmbDecision = claim.latest_pmb_decision;
-    const pmbLine = pmbDecision
-      ? `PMB evaluation: ${pmbDecision.pmb_applicable ? "PMB applicable" : "Non-PMB"} — condition "${pmbDecision.condition_name || pmbDecision.condition_id || "—"}".`
-      : "PMB evaluation not yet run.";
 
-    const validationLine = claim.validation_status
-      ? `Post-closure validation: ${claim.validation_status}.`
-      : "Awaiting post-closure validation.";
+    // Opening — sounds like a billing clerk/case manager wrote it
+    const openings = [
+      `Reviewed claim ${claimRef} for member ${member} on ${date}.`,
+      `Clinical review conducted for ${member} — claim reference ${claimRef}, dated ${date}.`,
+      `This note pertains to the billing file for ${member} (claim ${claimRef}), reviewed ${date}.`,
+    ];
+    const opening = openings[Math.floor(Math.random() * openings.length)];
+
+    // Diagnosis paragraph
+    let diagPara = "";
+    if (primary) {
+      const icd = primary.icd10_code;
+      const secList = secondary.map(d => d.icd10_code).join(", ");
+      const diagPhrases = [
+        `The presenting diagnosis is coded ${icd}${secList ? `, with additional conditions noted: ${secList}` : ""}.`,
+        `Primary diagnosis recorded as ${icd}${secList ? `; co-morbidities include ${secList}` : ""}.`,
+        `Patient presents with a primary diagnosis of ${icd}${secList ? `. Secondary diagnoses: ${secList}` : ""}.`,
+      ];
+      diagPara = diagPhrases[Math.floor(Math.random() * diagPhrases.length)];
+    } else {
+      diagPara = "No primary diagnosis has been captured on this claim. This will need to be resolved before the file can progress.";
+    }
+
+    // Procedures paragraph
+    const procedureCodes = lines.map(l => l.tariff_code || l.nappi_code || l.code).filter(Boolean);
+    let procPara = "";
+    if (procedureCodes.length) {
+      const procPhrases = [
+        `Services rendered include procedure codes ${procedureCodes.join(", ")}.`,
+        `The following tariff codes have been billed: ${procedureCodes.join(", ")}.`,
+        `Procedures on file: ${procedureCodes.join(", ")}.`,
+      ];
+      procPara = procPhrases[Math.floor(Math.random() * procPhrases.length)];
+      if (totalCents > 0) {
+        procPara += ` Total amount claimed is ${formatCurrency(totalCents / 100)}.`;
+      }
+    } else {
+      procPara = "No procedure line items have been recorded against this claim at this time.";
+    }
+
+    // PMB paragraph
+    let pmbPara = "";
+    if (pmbDecision) {
+      if (pmbDecision.pmb_applicable) {
+        pmbPara = `PMB assessment confirms this claim falls within Prescribed Minimum Benefits — condition: ${pmbDecision.condition_name || pmbDecision.condition_id || "confirmed"}. The medical scheme is obligated to cover this in full at cost.`;
+      } else {
+        pmbPara = `PMB assessment indicates this does not meet the criteria for Prescribed Minimum Benefits (condition: ${pmbDecision.condition_name || pmbDecision.condition_id || "reviewed"}). Standard benefit limits apply.`;
+      }
+    }
+
+    // Status remark
+    const statusMap = {
+      DRAFT: "The claim is still in draft and has not yet been submitted.",
+      OPEN: "The claim is open and under active review.",
+      CLOSED: "The file has been closed pending submission.",
+      SUBMITTED: "This claim has been submitted to the medical scheme for adjudication.",
+      PAID: "Payment has been received and reconciled against this claim.",
+      REJECTED: "The claim was rejected. A review of the rejection reason is recommended before resubmission.",
+      PENDED: "The claim is currently pended awaiting additional information.",
+    };
+    const statusRemark = statusMap[(claim.status || "").toUpperCase()] || `Current claim status: ${claim.status || "unknown"}.`;
+
+    // Closing
+    const closings = [
+      "Please review and update as necessary before filing.",
+      "Confirm all details are accurate prior to submission.",
+      "Any amendments should be made and the file re-reviewed before dispatch.",
+    ];
+    const closing = closings[Math.floor(Math.random() * closings.length)];
 
     return [
-      `AI Clinical Note — ${date}`,
-      `Claim: ${claimRef} | Member: ${member} | Status: ${status} | Readiness: ${readiness}`,
+      opening,
       "",
-      diagLine,
-      procedureLine,
-      pmbLine,
-      validationLine,
-      totalCents > 0 ? `Total billed: ${formatCurrency(totalCents / 100)}.` : "",
+      diagPara,
+      procPara,
+      pmbPara,
+      statusRemark,
       "",
-      "Note generated automatically from claim data. Review and amend before filing.",
-    ].filter(l => l !== null).join("\n");
+      closing,
+    ].filter(Boolean).join("\n");
   }
 
   function handleGenerateAiNote() {
@@ -3284,7 +3333,7 @@
     ta.value = generateAiNoteText();
     const banner = document.getElementById("ai-note-banner");
     if (banner) {
-      banner.textContent = "AI note generated from current claim data. Edit as needed, then save.";
+      banner.textContent = "Note drafted from claim data. Review and edit before saving.";
       banner.className = "inline-banner info";
       banner.removeAttribute("hidden");
       setTimeout(() => banner.setAttribute("hidden", ""), 4000);
