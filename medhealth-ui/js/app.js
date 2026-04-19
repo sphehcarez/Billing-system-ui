@@ -1047,7 +1047,7 @@
   }
 
   async function _loadPatientBalances(patients) {
-    for (const p of patients) {
+    await Promise.all(patients.map(async (p) => {
       try {
         const bal = await window.api.getPatientBalance(p.id);
         const cell = document.querySelector(`[data-balance-id="${p.id}"]`);
@@ -1057,7 +1057,7 @@
           if (cents > 0) cell.style.color = "#b42318";
         }
       } catch (_) { /* balance display is non-critical */ }
-    }
+    }));
   }
 
   function renderPatientClaimContext() {
@@ -1262,14 +1262,11 @@
     setTextById("pay-kpi-methods", methods || "—");
     setTextById("pay-kpi-unreconciled", String(unreconciledCount));
 
-    // Patient balances total from all patients
-    let totalOutstanding = 0;
-    for (const p of patients.slice(0, 20)) {
-      try {
-        const bal = await window.api.getPatientBalance(p.id).catch(() => ({ balance_cents: 0 }));
-        totalOutstanding += bal.balance_cents || 0;
-      } catch (_) { /* skip */ }
-    }
+    // Patient balances total — fetch in parallel, not serially
+    const balResults = await Promise.all(
+      patients.slice(0, 20).map(p => window.api.getPatientBalance(p.id).catch(() => ({ balance_cents: 0 })))
+    );
+    const totalOutstanding = balResults.reduce((s, b) => s + (b.balance_cents || 0), 0);
     setTextById("pay-kpi-balances", formatCurrency(totalOutstanding / 100));
 
     state._payFilter = state._payFilter || "all";
@@ -1855,7 +1852,23 @@
       if (!q) {
         currentResults = codes.slice(0, 12);
       } else {
-        const scored = codes
+        const ql = q.toLowerCase();
+        const qNoDot = ql.replace(/\./g, "");
+        const qWords = ql.split(/\s+/).filter(Boolean);
+
+        // Fast pre-filter: keep only codes where code or description contains
+        // at least one query token — avoids running full scoring on every entry
+        const candidates = codes.filter(item => {
+          const code = (item.code || "").toLowerCase().replace(/\./g, "");
+          const desc = (item.description || "").toLowerCase();
+          if (code.includes(qNoDot)) return true;
+          return qWords.some(w => desc.includes(w) || code.includes(w));
+        });
+
+        // Fall back to full list only for very short/unmatched queries
+        const pool = candidates.length ? candidates : codes.slice(0, 300);
+
+        const scored = pool
           .map(item => ({ item, score: _icd10Score(item, q) }))
           .filter(x => x.score > 0)
           .sort((a, b) => b.score - a.score)
@@ -1926,9 +1939,11 @@
     if (!searchInput._icd10AiWired) {
       searchInput._icd10AiWired = true;
 
+      let _icd10DebounceTimer = null;
       searchInput.addEventListener("input", () => {
         delete searchInput.dataset.selectedCode;
-        renderDropdown(searchInput.value);
+        clearTimeout(_icd10DebounceTimer);
+        _icd10DebounceTimer = setTimeout(() => renderDropdown(searchInput.value), 160);
       });
       searchInput.addEventListener("focus", () => {
         if (!searchInput.value) renderDropdown("");
