@@ -45,6 +45,18 @@
           <span class="cockpit-member muted" id="claim-member">—</span>
           <span class="chip" id="claim-status-chip">—</span>
         </div>
+
+        <!-- Section jump nav -->
+        <nav class="cockpit-jump-nav" aria-label="Jump to section">
+          <button class="cockpit-jump-btn" data-jump-target="lifecycle">Lifecycle</button>
+          <button class="cockpit-jump-btn" data-jump-target="diagnoses">Diagnoses</button>
+          <button class="cockpit-jump-btn" data-jump-target="line_items">Line items</button>
+          <button class="cockpit-jump-btn" data-jump-target="payload-card">Payload</button>
+          <button class="cockpit-jump-btn" data-jump-target="submission_tool">Submission</button>
+          <button class="cockpit-jump-btn" data-jump-target="attachments">Attachments</button>
+          <button class="cockpit-jump-btn" data-jump-target="ai-notes-card">AI Notes</button>
+        </nav>
+
         <div class="cockpit-actions">
           <button class="btn secondary" data-action="evidence-packet">Evidence</button>
           <button class="btn secondary" data-action="view-remittance">Remittance</button>
@@ -59,7 +71,7 @@
         <div id="cockpit-left" class="cockpit-left">
 
           <!-- Lifecycle card -->
-          <div class="card lifecycle-card">
+          <div class="card lifecycle-card" id="lifecycle" data-field="lifecycle">
             <h3>Lifecycle</h3>
 
             <!-- Readiness stage -->
@@ -322,7 +334,7 @@
           </div>
 
           <!-- Attachments summary -->
-          <div class="card" id="attachments-summary-card">
+          <div class="card" id="attachments-summary-card" data-field="attachments">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
               <h3 style="margin:0;">Attachments</h3>
               <div class="row-actions">

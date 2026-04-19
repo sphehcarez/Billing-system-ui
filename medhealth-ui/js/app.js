@@ -3780,7 +3780,12 @@
             .map((item) => item.line_id);
       renderClaimLineItems();
     }
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Brief highlight so user sees which section was jumped to
+    target.style.transition = "outline 0s";
+    target.style.outline = "2px solid var(--brand-400, #60a5fa)";
+    target.style.outlineOffset = "3px";
+    setTimeout(() => { target.style.outline = ""; target.style.outlineOffset = ""; }, 1400);
     if (String(targetName).toLowerCase() === "diagnoses") {
       focusDiagnosisSearchInput();
     }

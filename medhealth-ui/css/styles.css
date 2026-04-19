@@ -831,6 +831,10 @@ pre {
 .cockpit-id { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .cockpit-member { font-size: 13px; color: var(--ink-700); }
 .cockpit-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cockpit-jump-nav { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; flex: 1; justify-content: center; }
+.cockpit-jump-btn { background: none; border: 1px solid var(--line-200); border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 500; color: var(--ink-600); cursor: pointer; transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast); white-space: nowrap; }
+.cockpit-jump-btn:hover { background: var(--brand-50, #eff6ff); color: var(--brand-700, #1d4ed8); border-color: var(--brand-300, #93c5fd); }
+.cockpit-jump-btn:active { background: var(--brand-100, #dbeafe); }
 .cockpit-body { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; align-items: start; }
 .cockpit-left  { display: flex; flex-direction: column; gap: 14px; }
 .cockpit-right { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 58px; }
