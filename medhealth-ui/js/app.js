@@ -277,8 +277,26 @@
     return Number.isInteger(claimId) && claimId > 0 ? claimId : null;
   }
 
+  function normalizeRole(raw) {
+    const aliases = {
+      admin: "Administrator",
+      administrator: "Administrator",
+      billing: "Billing Specialist",
+      "billing specialist": "Billing Specialist",
+      provider: "Healthcare Provider",
+      "healthcare provider": "Healthcare Provider",
+      finance: "Finance Officer",
+      "finance officer": "Finance Officer",
+      auditor: "Compliance Auditor",
+      "compliance auditor": "Compliance Auditor",
+    };
+    const key = String(raw || "").toLowerCase().trim();
+    return aliases[key] || raw || "Billing Specialist";
+  }
+
   function getStoredRole() {
-    return localStorage.getItem("api_role") || localStorage.getItem("role") || "Billing Specialist";
+    const raw = localStorage.getItem("api_role") || localStorage.getItem("role") || "Billing Specialist";
+    return normalizeRole(raw);
   }
 
   function hasPermission(resource, action) {
@@ -887,7 +905,7 @@
           await handleDeletePatient(id);
           break;
         case "view-patient-claim-context":
-          await handleViewPatientClaimContext(id);
+          await openPatientProfile(id);
           break;
         case "edit-provider":
           await handleEditProvider(id);
