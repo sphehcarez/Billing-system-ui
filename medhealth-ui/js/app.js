@@ -2276,10 +2276,12 @@
 
     // AI concept boost: check if query matches a known concept cluster
     for (const concept of ICD10_CONCEPTS) {
-      const termMatch = concept.terms.some(t => q.includes(t) || t.includes(q));
+      const termMatch = concept.terms.some(t => q.includes(t) || t.includes(q) ||
+        queryWords.some(w => w.length >= 4 && (t.includes(w) || w.includes(t.split(" ")[0]))));
       if (termMatch) {
         const keywordHits = concept.keywords.filter(kw => desc.includes(kw)).length;
-        score += keywordHits * 35;
+        score += keywordHits * 50;
+        if (keywordHits > 0) score += 30; // bonus for any concept hit
       }
     }
 
@@ -2328,9 +2330,11 @@
 
   function _icd10IsAiMatch(item, rawQuery) {
     const q = rawQuery.toLowerCase().trim();
+    const qWords = q.split(/\s+/).filter(Boolean);
     const desc = (item.description || "").toLowerCase();
     return ICD10_CONCEPTS.some(concept =>
-      concept.terms.some(t => q.includes(t) || t.includes(q)) &&
+      concept.terms.some(t => q.includes(t) || t.includes(q) ||
+        qWords.some(w => w.length >= 4 && (t.includes(w) || w.includes(t.split(" ")[0])))) &&
       concept.keywords.some(kw => desc.includes(kw))
     );
   }
@@ -2360,23 +2364,43 @@
       const q = (query || "").trim();
 
       if (!q) {
+        dropdown.innerHTML = `<div style="padding:10px 14px;font-size:11px;color:var(--ink-400);">
+          Type a code (e.g. <code>I21</code>), symptom (e.g. <em>chest pain</em>), or plain English (e.g. <em>heart attack</em>).
+        </div>`;
+        dropdown.style.display = "";
+        searchInput.setAttribute("aria-expanded", "true");
         currentResults = codes.slice(0, 12);
+        // early return — just show the hint, no list when field is empty
+        return;
       } else {
         const ql = q.toLowerCase();
         const qNoDot = ql.replace(/\./g, "");
         const qWords = ql.split(/\s+/).filter(Boolean);
 
-        // Fast pre-filter: keep only codes where code or description contains
-        // at least one query token — avoids running full scoring on every entry
+        // Collect AI concept keywords matched by any query word or phrase
+        const matchedConceptKeywords = new Set();
+        for (const concept of ICD10_CONCEPTS) {
+          if (concept.terms.some(t => ql.includes(t) || t.includes(ql) ||
+              qWords.some(w => w.length >= 4 && (t.includes(w) || w.includes(t.split(" ")[0]))))) {
+            concept.keywords.forEach(kw => matchedConceptKeywords.add(kw));
+          }
+        }
+
+        // Pre-filter: literal match OR AI concept keyword match
         const candidates = codes.filter(item => {
           const code = (item.code || "").toLowerCase().replace(/\./g, "");
           const desc = (item.description || "").toLowerCase();
           if (code.includes(qNoDot)) return true;
-          return qWords.some(w => desc.includes(w) || code.includes(w));
+          if (qWords.some(w => desc.includes(w) || code.includes(w))) return true;
+          // AI concept: allow items whose description contains a concept keyword
+          if (matchedConceptKeywords.size > 0) {
+            return [...matchedConceptKeywords].some(kw => desc.includes(kw));
+          }
+          return false;
         });
 
         // Fall back to full list only for very short/unmatched queries
-        const pool = candidates.length ? candidates : codes.slice(0, 300);
+        const pool = candidates.length ? candidates : codes.slice(0, 400);
 
         const scored = pool
           .map(item => ({ item, score: _icd10Score(item, q) }))
@@ -2387,42 +2411,57 @@
       }
 
       if (!currentResults.length) {
-        dropdown.innerHTML = `<div style="padding:12px 14px;color:var(--ink-400);font-size:13px;">No ICD-10 codes match — try different terms.</div>`;
+        dropdown.innerHTML = `<div style="padding:14px 16px;">
+          <div style="color:var(--ink-500);font-size:13px;margin-bottom:8px;">No results for <em>"${escapeHtml(q)}"</em></div>
+          <div style="font-size:11px;color:var(--ink-400);">Try: symptoms (e.g. "chest pain"), plain English (e.g. "heart attack"), or an ICD-10 code prefix (e.g. "I21").</div>
+        </div>`;
         dropdown.style.display = "";
+        searchInput.setAttribute("aria-expanded", "true");
         return;
       }
 
-      const isAiQuery = ICD10_CONCEPTS.some(c => c.terms.some(t => {
-        const lq = q.toLowerCase();
-        return lq.includes(t) || t.includes(lq);
-      }));
+      const ql = q.toLowerCase();
+      const qWords = ql.split(/\s+/).filter(w => w.length >= 3);
+      const isAiQuery = ICD10_CONCEPTS.some(c => c.terms.some(t => ql.includes(t) || t.includes(ql) ||
+        qWords.some(w => w.length >= 4 && t.includes(w))));
+
+      function highlightDesc(text) {
+        if (!q || !qWords.length) return escapeHtml(text);
+        let safe = escapeHtml(text);
+        qWords.forEach(w => {
+          if (w.length < 3) return;
+          const re = new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+          safe = safe.replace(re, `<mark style="background:#fef08a;border-radius:2px;padding:0 1px">$1</mark>`);
+        });
+        return safe;
+      }
 
       dropdown.innerHTML = currentResults.map((item, i) => {
         const aiMatch = q && _icd10IsAiMatch(item, q);
         const codeHtml = escapeHtml(item.code);
-        const descHtml = escapeHtml(item.description || "");
+        const descHtml = highlightDesc(item.description || "");
         const aiTag = aiMatch
-          ? `<span style="background:var(--brand-600,#2563eb);color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;margin-left:6px;">AI</span>`
+          ? `<span style="background:var(--brand-600,#2563eb);color:#fff;font-size:9px;padding:1px 5px;border-radius:4px;letter-spacing:.3px;flex-shrink:0;">AI</span>`
           : "";
         return `<div role="option" data-icd10-idx="${i}"
-          style="padding:9px 14px;cursor:pointer;display:flex;flex-direction:column;gap:2px;
+          style="padding:9px 14px;cursor:pointer;display:flex;flex-direction:column;gap:3px;
                  border-bottom:1px solid var(--line-100,#f3f4f6);"
           onmousedown="event.preventDefault()"
-          onmouseover="this.style.background='var(--surface-1,#f8fafc)'"
+          onmouseover="this.style.background='var(--brand-50,#eff6ff)'"
           onmouseout="this.style.background=''">
           <div style="display:flex;align-items:center;gap:6px;">
-            <span style="font-family:monospace;font-size:12px;font-weight:700;color:var(--ink-800)">${codeHtml}</span>
+            <span style="font-family:monospace;font-size:12px;font-weight:700;color:var(--brand-700,#1d4ed8)">${codeHtml}</span>
             ${aiTag}
           </div>
-          <span style="font-size:12px;color:var(--ink-600)">${descHtml}</span>
+          <span style="font-size:12px;color:var(--ink-600);line-height:1.4">${descHtml}</span>
         </div>`;
       }).join("");
 
       if (isAiQuery && q) {
         dropdown.insertAdjacentHTML("afterbegin",
           `<div style="padding:7px 14px;background:linear-gradient(90deg,#eff6ff,#f0fdf4);border-bottom:1px solid var(--line-100);font-size:11px;color:var(--ink-500);display:flex;align-items:center;gap:6px;">
-            <span style="background:var(--brand-600,#2563eb);color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;">AI</span>
-            Showing concept-matched results for <em>"${escapeHtml(q)}"</em>
+            <span style="background:var(--brand-600,#2563eb);color:#fff;font-size:9px;padding:1px 5px;border-radius:4px;letter-spacing:.3px;">AI</span>
+            Concept-matched results for <em>"${escapeHtml(q)}"</em>
           </div>`
         );
       }
