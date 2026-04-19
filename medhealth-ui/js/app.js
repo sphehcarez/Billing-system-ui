@@ -3522,6 +3522,11 @@
             <div class="muted">
               Source: ${escapeHtml(diagnosis.source || "UserEntry")} · Captured: ${escapeHtml(diagnosis.captured_at || "-")}
             </div>
+            ${
+              recommendation?.diagnosis_id === diagnosis.diagnosis_id && !diagnosis.is_primary
+                ? `<div class="muted">Suggestion: ${escapeHtml(recommendation.reason)}</div>`
+                : ""
+            }
           </article>
         `,
       )
