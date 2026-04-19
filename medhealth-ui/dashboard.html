@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dashboard</title>
+  <title>Dashboard | Medhealth South Africa</title>
   <link rel="stylesheet" href="css/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
@@ -11,10 +11,10 @@
   <div class="shell">
     <aside class="sidebar">
       <div class="brand">
-        <img src="assets/MedhealthLogo.png" alt="Med Directory" />
+        <img src="assets/MedhealthLogo.png" alt="Medhealth South Africa" />
         <div class="title">
-          <strong>Med Directory</strong>
-          <span>Billing and Rules Engine</span>
+          <strong>Medhealth South Africa</strong>
+          <span>Claims Platform</span>
         </div>
       </div>
 
@@ -32,8 +32,8 @@
 
       <div class="footer">
         <div class="kv"><span>Role</span><strong data-role>Billing Specialist</strong></div>
-        <div class="kv"><span>Environment</span><strong>Preview UI</strong></div>
-        <a class="chip info" href="index.html" style="justify-content:center">Sign out</a>
+        <div class="kv"><span>Environment</span><strong>Local workspace</strong></div>
+        <a class="chip info" href="login.html">Sign out</a>
       </div>
     </aside>
 
@@ -49,7 +49,7 @@
             <input id="dashboard-search-input" placeholder="Claim ID, member number, batch ref..." />
           </div>
           <button class="btn secondary" data-action="open-api-docs">API Docs</button>
-          <button class="btn" data-action="create-new" id="dashboard-create-button">New</button>
+          <button class="btn" data-action="open-dashboard-target" id="dashboard-primary-action">Open queue</button>
         </div>
       </div>
 
@@ -79,10 +79,44 @@
         </article>
       </section>
 
+      <section class="dashboard-kpi-strip" id="dashboard-kpi-strip">
+        <article class="card dashboard-kpi-card">
+          <span class="dashboard-kpi-eyebrow">Total operational claims</span>
+          <strong class="dashboard-kpi-value" id="dashboard-kpi-total-claims">0</strong>
+          <p class="dashboard-kpi-copy" id="dashboard-kpi-total-copy">No live claims in scope.</p>
+        </article>
+        <article class="card dashboard-kpi-card">
+          <span class="dashboard-kpi-eyebrow">Role-owned queue</span>
+          <strong class="dashboard-kpi-value" id="dashboard-kpi-role-queue">0</strong>
+          <p class="dashboard-kpi-copy" id="dashboard-kpi-role-copy">Nothing currently assigned.</p>
+        </article>
+        <article class="card dashboard-kpi-card">
+          <span class="dashboard-kpi-eyebrow">Immediate next step</span>
+          <strong class="dashboard-kpi-value" id="dashboard-kpi-priority-count">0</strong>
+          <p class="dashboard-kpi-copy" id="dashboard-kpi-priority-copy">No urgent transitions.</p>
+        </article>
+        <article class="card dashboard-kpi-card">
+          <span class="dashboard-kpi-eyebrow">Control pressure</span>
+          <strong class="dashboard-kpi-value" id="dashboard-kpi-control-count">0</strong>
+          <p class="dashboard-kpi-copy" id="dashboard-kpi-control-copy">Controls are stable.</p>
+        </article>
+      </section>
+
+      <section class="card dashboard-flow-wrap">
+        <div class="dashboard-section-head">
+          <div>
+            <h3 id="dashboard-workflow-title">Workflow ownership</h3>
+            <p id="dashboard-workflow-copy" class="muted">Each stage reflects the role responsibility defined by the backend lifecycle.</p>
+          </div>
+          <span class="chip info" id="dashboard-workflow-chip">Role aligned</span>
+        </div>
+        <div class="dashboard-flow" id="dashboard-workflow-flow"></div>
+      </section>
+
       <section class="dashboard-focus-grid" id="dashboard-focus-grid"></section>
 
-      <div class="grid dashboard-grid">
-        <div class="card dashboard-worklist-card" style="grid-column: span 8">
+      <div class="dashboard-grid">
+        <section class="card dashboard-grid-main dashboard-worklist-card">
           <div class="dashboard-section-head">
             <div>
               <h3 id="dashboard-worklist-title">Work queue</h3>
@@ -91,13 +125,14 @@
             <span class="chip info" id="dashboard-worklist-chip">Live queue</span>
           </div>
           <table class="table">
+            <caption class="sr-only">Role-scoped work queue</caption>
             <thead><tr><th>Claim</th><th>Primary reason</th><th>Status</th><th>Next action</th><th></th></tr></thead>
             <tbody id="dashboard-worklist-rows">
               <tr><td colspan="5" style="text-align:center;color:#999;">Loading worklist...</td></tr>
             </tbody>
           </table>
-        </div>
-        <div class="card dashboard-side-card" style="grid-column: span 4">
+        </section>
+        <aside class="card dashboard-grid-aside dashboard-side-card">
           <div class="dashboard-section-head">
             <div>
               <h3 id="dashboard-side-panel-title">Role intelligence</h3>
@@ -105,7 +140,7 @@
             </div>
           </div>
           <div id="dashboard-side-panel-body" class="dashboard-side-panel-body"></div>
-        </div>
+        </aside>
       </div>
     
     </main>

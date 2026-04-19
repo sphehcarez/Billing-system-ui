@@ -563,6 +563,124 @@
     }
   }
 
+  function initializeSidebarShell() {
+    const shell = document.querySelector(".shell");
+    const sidebar = document.querySelector(".sidebar");
+    if (!shell || !sidebar || ["index.html", "login.html"].includes(state.page)) {
+      return;
+    }
+
+    sidebar.setAttribute("id", "app-sidebar");
+    decorateSidebarNavigation(sidebar);
+
+    let sidebarHead = sidebar.querySelector(".sidebar-head");
+    if (!sidebarHead) {
+      sidebarHead = document.createElement("div");
+      sidebarHead.className = "sidebar-head";
+      const brand = sidebar.querySelector(".brand");
+      if (brand) {
+        brand.parentNode.insertBefore(sidebarHead, brand);
+        sidebarHead.appendChild(brand);
+      } else {
+        sidebar.insertBefore(sidebarHead, sidebar.firstChild);
+      }
+    }
+
+    if (!sidebar.querySelector("[data-sidebar-close]")) {
+      const closeButton = document.createElement("button");
+      closeButton.type = "button";
+      closeButton.className = "sidebar-toggle sidebar-toggle--sidebar";
+      closeButton.setAttribute("data-sidebar-close", "true");
+      closeButton.setAttribute("aria-controls", "app-sidebar");
+      closeButton.setAttribute("aria-label", "Close navigation");
+      closeButton.textContent = "X";
+      closeButton.addEventListener("click", () => setSidebarOpen(false));
+      sidebarHead.appendChild(closeButton);
+    }
+
+    if (!shell.querySelector(".sidebar-backdrop")) {
+      const backdrop = document.createElement("button");
+      backdrop.type = "button";
+      backdrop.className = "sidebar-backdrop";
+      backdrop.setAttribute("aria-label", "Close navigation");
+      backdrop.addEventListener("click", () => setSidebarOpen(false));
+      shell.appendChild(backdrop);
+    }
+
+    mountSidebarToggleButton();
+    state.sidebarOpen = getStoredSidebarOpen();
+    applySidebarState();
+
+    window.addEventListener("resize", handleSidebarResize);
+    document.addEventListener("keydown", handleSidebarEscape);
+  }
+
+  function applySidebarState() {
+    const shell = document.querySelector(".shell");
+    const sidebar = document.querySelector(".sidebar");
+    const toggle = document.querySelector("[data-sidebar-toggle]");
+    if (!shell || !sidebar) {
+      return;
+    }
+
+    const sidebarOpen = Boolean(state.sidebarOpen);
+    const narrowViewport = isNarrowViewport();
+
+    shell.classList.toggle("sidebar-open", narrowViewport && sidebarOpen);
+    shell.classList.toggle("sidebar-closed", narrowViewport && !sidebarOpen);
+    shell.classList.toggle("sidebar-collapsed", !narrowViewport && !sidebarOpen);
+    sidebar.setAttribute("aria-hidden", String(narrowViewport ? !sidebarOpen : false));
+
+    const toggleLabel = narrowViewport
+      ? (sidebarOpen ? "Close navigation" : "Open navigation")
+      : (sidebarOpen ? "Collapse navigation" : "Expand navigation");
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", String(sidebarOpen));
+      toggle.setAttribute("aria-label", toggleLabel);
+      toggle.setAttribute("title", toggleLabel);
+      toggle.textContent = narrowViewport ? "=" : (sidebarOpen ? "<" : ">");
+    }
+
+    const closeButton = document.querySelector("[data-sidebar-close]");
+    if (closeButton) {
+      closeButton.style.display = narrowViewport ? "" : "none";
+    }
+  }
+
+  function configureTopbar() {
+    const actionsBar = document.querySelector(".topbar .actions");
+    if (actionsBar && !actionsBar.querySelector("[data-manual-link]")) {
+      const statusPill = document.createElement("div");
+      statusPill.className = "connection-pill";
+      statusPill.setAttribute("id", "connection-status-pill");
+      statusPill.innerHTML = '<span class="connection-dot"></span><span id="connection-status-label">Checking API...</span>';
+      actionsBar.insertBefore(statusPill, actionsBar.firstChild);
+
+      const manualLink = document.createElement("a");
+      manualLink.href = "manual.html";
+      manualLink.className = "btn secondary";
+      manualLink.setAttribute("data-manual-link", "true");
+      manualLink.textContent = "User Manual";
+      actionsBar.insertBefore(manualLink, statusPill.nextSibling);
+    }
+
+    const createButton = document.querySelector('[data-action="create-new"]');
+    if (!createButton) {
+      return;
+    }
+
+    const config = CREATE_CONFIG[state.page];
+    if (!config) {
+      createButton.style.display = "none";
+      return;
+    }
+
+    const requiredAction = config.requiredAction || "write";
+    if (!hasPermission(config.resource, requiredAction)) {
+      createButton.style.display = "none";
+    }
+  }
+
   async function refreshConnectionStatus() {
     const label = document.getElementById("connection-status-label");
     const pill = document.getElementById("connection-status-pill");
@@ -869,7 +987,7 @@
       return;
     }
     container.innerHTML = (tags || [])
-      .map((tag) => `<span class="dashboard-hero-tag">${escapeHtml(tag)}</span>`)
+      .map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`)
       .join("");
   }
 
@@ -881,10 +999,10 @@
     container.innerHTML = (cards || [])
       .map(
         (card) => `
-          <article class="dashboard-focus-card dashboard-focus-card-${escapeHtml(card.tone || "default")}">
+          <article class="card dashboard-focus-card" data-tone="${escapeHtml(card.tone || "default")}">
             <span class="dashboard-focus-label">${escapeHtml(card.label)}</span>
-            <strong>${escapeHtml(card.value)}</strong>
-            <p>${escapeHtml(card.copy)}</p>
+            <strong class="dashboard-focus-value">${escapeHtml(card.value)}</strong>
+            <p class="dashboard-focus-copy">${escapeHtml(card.copy)}</p>
           </article>
         `,
       )
@@ -900,13 +1018,205 @@
       .map(
         (item) => `
           <article class="dashboard-side-item">
-            <span>${escapeHtml(item.label)}</span>
-            <strong>${escapeHtml(item.value)}</strong>
-            <p>${escapeHtml(item.copy)}</p>
+            <span class="dashboard-side-item-label">${escapeHtml(item.label)}</span>
+            <strong class="dashboard-side-item-value">${escapeHtml(item.value)}</strong>
+            <p class="dashboard-side-item-copy">${escapeHtml(item.copy)}</p>
           </article>
         `,
       )
       .join("");
+  }
+
+  function humanizeStatus(status) {
+    return String(status || "")
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (match) => match.toUpperCase());
+  }
+
+  function formatDashboardStageCount(count) {
+    return `${count || 0}`;
+  }
+
+  function countClaimsByStatus(claims, statuses) {
+    const allowed = new Set(statuses);
+    return (claims || []).filter((claim) => allowed.has(String(claim.status || "").toLowerCase())).length;
+  }
+
+  function getRoleScopedClaims(claims) {
+    if (state.role === "Administrator") {
+      return claims || [];
+    }
+    const scoped = (claims || []).filter((claim) => {
+      const eligible = claim.eligible_roles || [];
+      const affected = claim.affected_roles || [];
+      return eligible.includes(state.role) || affected.includes(state.role);
+    });
+    return scoped.length ? scoped : (claims || []);
+  }
+
+  function getDashboardPrimaryAction() {
+    const actions = {
+      Administrator: { label: "Open users", href: "users.html" },
+      "Billing Specialist": { label: "Open claims", href: "claims.html" },
+      "Healthcare Provider": { label: "Open patients", href: "patients.html" },
+      "Finance Officer": { label: "Open payments", href: "payments.html" },
+      "Compliance Auditor": { label: "Open audit", href: "audit.html" },
+    };
+    return actions[state.role] || actions["Billing Specialist"];
+  }
+
+  function renderDashboardKpis(items) {
+    (items || []).forEach((item) => {
+      setTextById(item.valueId, item.value);
+      setTextById(item.copyId, item.copy);
+    });
+  }
+
+  function renderDashboardWorkflow(stages) {
+    const container = document.getElementById("dashboard-workflow-flow");
+    if (!container) {
+      return;
+    }
+    container.innerHTML = (stages || [])
+      .map(
+        (stage) => `
+          <article class="dashboard-flow-card ${stage.active ? "is-active" : ""}">
+            <div class="dashboard-flow-label">
+              <span>${escapeHtml(stage.label)}</span>
+              <span class="chip ${stage.active ? "info" : ""}">${escapeHtml(stage.state)}</span>
+            </div>
+            <strong class="dashboard-flow-value">${escapeHtml(stage.value)}</strong>
+            <span class="dashboard-flow-role">${escapeHtml(stage.owner)}</span>
+            <p class="dashboard-flow-copy">${escapeHtml(stage.copy)}</p>
+          </article>
+        `,
+      )
+      .join("");
+  }
+
+  function getDashboardPrimaryReason(claim, worklistItem) {
+    const firstReason = worklistItem?.reasons?.[0];
+    if (firstReason) {
+      return firstReason;
+    }
+    const blockerMessage = claim?.onboarding_blockers?.[0]?.message;
+    if (blockerMessage) {
+      return blockerMessage;
+    }
+    if (claim?.latest_validation_bundle?.outcome) {
+      return `Validation ${claim.latest_validation_bundle.outcome}`;
+    }
+    return `${humanizeStatus(claim?.status || "draft")} requires attention.`;
+  }
+
+  function getDashboardNextAction(claim, worklistItem) {
+    if (worklistItem?.next_action) {
+      return worklistItem.next_action;
+    }
+    const status = String(claim?.status || "").toLowerCase();
+    const nextSteps = {
+      draft: "Complete encounter details and run readiness.",
+      blocked: "Resolve readiness blockers and rerun readiness.",
+      ready_to_close: "Review the file and close the current claim version.",
+      closed: "Run post-closure validation before payload generation.",
+      validation_exception: "Correct validation blockers and create a corrected version.",
+      ready_to_submit: "Generate the payload and dispatch to the scheme.",
+      submitted: "Monitor acknowledgement and response traffic.",
+      acknowledged: "Track remittance and receipt confirmation.",
+      rejected: "Review rejection reasons and resubmit a corrected claim.",
+      pended: "Provide supporting evidence or motivation.",
+      paid: "Post payment and complete reconciliation review.",
+      reconciled: "Retain evidence and close financial review.",
+      exception: "Investigate remittance mismatch and reconcile.",
+    };
+    return nextSteps[status] || "Review the claim lifecycle.";
+  }
+
+  function getDashboardRolePriorities() {
+    const priorities = {
+      Administrator: ["blocked", "validation_exception", "exception", "rejected", "pended", "ready_to_submit", "submitted"],
+      "Billing Specialist": ["blocked", "pended", "rejected", "validation_exception", "ready_to_close", "ready_to_submit", "submitted"],
+      "Healthcare Provider": ["draft", "blocked", "pended", "ready_to_close"],
+      "Finance Officer": ["ready_to_submit", "submitted", "acknowledged", "paid", "exception", "reconciled"],
+      "Compliance Auditor": ["closed", "validation_exception", "submitted", "paid", "reconciled", "exception"],
+    };
+    return priorities[state.role] || priorities["Billing Specialist"];
+  }
+
+  function buildDashboardWorkflow(summary, claims) {
+    const configs = {
+      Administrator: [
+        { label: "Intake", statuses: ["draft", "blocked"], owner: "Admin and Billing", copy: "Platform-level visibility over draft capture and blocked readiness." },
+        { label: "Clinical and Billing", statuses: ["ready_to_close", "closed", "validation_exception"], owner: "Billing and Provider", copy: "Closure pressure across readiness, validation and coding checks." },
+        { label: "Submission", statuses: ["ready_to_submit", "submitted", "acknowledged"], owner: "Billing and Finance", copy: "Claims moving into payload, dispatch and acknowledgement handling." },
+        { label: "Finance", statuses: ["paid", "reconciled", "exception"], owner: "Finance", copy: "Cash posting, mismatch handling and reconciliation control." },
+        { label: "Governance", statuses: ["rejected", "pended", "exception"], owner: "Audit and Admin", copy: "Cross-role exceptions requiring control review or policy intervention." },
+      ],
+      "Billing Specialist": [
+        { label: "Capture", statuses: ["draft", "blocked"], owner: "Billing and Provider", copy: "Claims still missing readiness items or intake quality." },
+        { label: "Close", statuses: ["ready_to_close", "closed", "validation_exception"], owner: "Billing", copy: "Files moving through closure and post-closure validation." },
+        { label: "Submit", statuses: ["ready_to_submit", "submitted"], owner: "Billing", copy: "Validated claims that need payload generation or dispatch tracking." },
+        { label: "Recover", statuses: ["rejected", "pended"], owner: "Billing and Provider", copy: "Claims needing evidence, correction or resubmission." },
+      ],
+      "Healthcare Provider": [
+        { label: "Clinical intake", statuses: ["draft"], owner: "Provider", copy: "Encounters still being shaped into billable claim records." },
+        { label: "Readiness blockers", statuses: ["blocked", "pended"], owner: "Provider and Billing", copy: "Diagnosis, PMB or evidence gaps stopping progress." },
+        { label: "Ready for close", statuses: ["ready_to_close"], owner: "Billing handoff", copy: "Claims clinically complete enough for billing closure." },
+        { label: "Post-close exceptions", statuses: ["validation_exception"], owner: "Provider support", copy: "Clinical clarifications still affecting closure confidence." },
+      ],
+      "Finance Officer": [
+        { label: "Ready for dispatch", statuses: ["ready_to_submit"], owner: "Billing to Finance", copy: "Claims positioned to convert into receivables." },
+        { label: "In flight", statuses: ["submitted", "acknowledged"], owner: "Finance", copy: "Scheme-facing items being tracked for response and remittance." },
+        { label: "Posted", statuses: ["paid"], owner: "Finance", copy: "Paid claims awaiting clean reconciliation and ledger confidence." },
+        { label: "Exceptions", statuses: ["exception", "reconciled"], owner: "Finance and Audit", copy: "Mismatch review, partial-pay follow-up and final proof." },
+      ],
+      "Compliance Auditor": [
+        { label: "Post-close review", statuses: ["closed", "validation_exception"], owner: "Audit", copy: "Closed claims where control evidence and rule output matter most." },
+        { label: "Submission evidence", statuses: ["submitted", "acknowledged"], owner: "Audit and Finance", copy: "Operational proof across dispatch, acknowledgements and responses." },
+        { label: "Financial integrity", statuses: ["paid", "exception"], owner: "Finance and Audit", copy: "Payment posting, exceptions and reconciliation evidence." },
+        { label: "Archive posture", statuses: ["reconciled"], owner: "Audit", copy: "Claims at the end of flow where archive and retention controls dominate." },
+      ],
+    };
+
+    const stages = configs[state.role] || configs["Billing Specialist"];
+    return stages.map((stage, index) => ({
+      label: stage.label,
+      owner: stage.owner,
+      copy: stage.copy,
+      value: formatDashboardStageCount(countClaimsByStatus(claims, stage.statuses)),
+      state: index === 0 ? "Live" : "Tracked",
+      active: index === 0 || countClaimsByStatus(claims, stage.statuses) > 0,
+    }));
+  }
+
+  function buildDashboardWorklist(summary, claims) {
+    const priorities = getDashboardRolePriorities();
+    const priorityRank = new Map(priorities.map((status, index) => [status, index]));
+    const summaryWorklist = new Map((summary.worklist || []).map((item) => [item.claim_id, item]));
+
+    return getRoleScopedClaims(claims)
+      .filter((claim) => priorityRank.has(String(claim.status || "").toLowerCase()))
+      .sort((left, right) => {
+        const leftStatus = priorityRank.get(String(left.status || "").toLowerCase()) ?? 99;
+        const rightStatus = priorityRank.get(String(right.status || "").toLowerCase()) ?? 99;
+        if (leftStatus !== rightStatus) {
+          return leftStatus - rightStatus;
+        }
+        return Number(right.id || 0) - Number(left.id || 0);
+      })
+      .slice(0, 12)
+      .map((claim) => {
+        const worklistItem = summaryWorklist.get(claim.id);
+        return {
+          claim_id: claim.id,
+          claim_number: claim.claim_number,
+          status: claim.status,
+          reason: getDashboardPrimaryReason(claim, worklistItem),
+          next_action: getDashboardNextAction(claim, worklistItem),
+          affected_roles: worklistItem?.affected_roles || claim.affected_roles || [],
+          onboarding_blockers: worklistItem?.onboarding_blockers || claim.onboarding_blockers || [],
+        };
+      });
   }
 
   function getDashboardRoleConfig(summary) {
@@ -917,10 +1227,10 @@
 
     const roleConfigs = {
       Administrator: {
-        pageTitle: "Administrator Command",
+        pageTitle: "Administrator Command Centre",
         pageSubtitle: "Platform-wide control across tenants, practices, rules, users and claim flow.",
         searchPlaceholder: "Search tenant, user, claim or provider...",
-        createLabel: "New tenant object",
+        primaryActionLabel: "Open users",
         badge: "Administrator",
         heading: "Platform command across every operational surface.",
         copy: "Monitor governance, throughput and configuration drift from one executive workspace built for South African medical operations.",
@@ -948,7 +1258,7 @@
         pageTitle: "Billing Operations",
         pageSubtitle: "Submission readiness, rejection recovery and payment follow-through for the active billing team.",
         searchPlaceholder: "Search claim, member, batch or scheme...",
-        createLabel: "New billing item",
+        primaryActionLabel: "Open claims",
         badge: "Billing Specialist",
         heading: "Claims flow shaped around throughput and recovery.",
         copy: "This workspace keeps the queue centered on what can close, what can submit, and which exceptions are slowing cash movement.",
@@ -976,7 +1286,7 @@
         pageTitle: "Clinical Claim Readiness",
         pageSubtitle: "Provider-facing claim readiness with emphasis on diagnosis completeness, coding and clinical follow-up.",
         searchPlaceholder: "Search patient, claim or provider...",
-        createLabel: "New clinical item",
+        primaryActionLabel: "Open patients",
         badge: "Healthcare Provider",
         heading: "Clinical visibility before claims leave the practice.",
         copy: "The provider dashboard prioritizes diagnosis quality, patient context and the claim actions that most affect medical scheme acceptance.",
@@ -1004,7 +1314,7 @@
         pageTitle: "Finance and Remittance",
         pageSubtitle: "Collections, remittance and reconciliation monitoring for scheme receipts and downstream finance review.",
         searchPlaceholder: "Search remittance, claim or payment reference...",
-        createLabel: "New finance record",
+        primaryActionLabel: "Open payments",
         badge: "Finance Officer",
         heading: "Cash posture and reconciliation in one finance view.",
         copy: "Track what is ready to convert into cash, what was paid short, and which reconciliation gaps need immediate finance follow-up.",
@@ -1032,7 +1342,7 @@
         pageTitle: "Compliance Oversight",
         pageSubtitle: "Audit evidence, control posture and rule outcomes surfaced for governance and assurance teams.",
         searchPlaceholder: "Search control, claim, evidence or audit item...",
-        createLabel: "New audit item",
+        primaryActionLabel: "Open audit",
         badge: "Compliance Auditor",
         heading: "Evidence-led oversight across privacy, coding and archive controls.",
         copy: "Review live operational outputs through a control lens, with rule trends, policy versions and archive posture visible in one dashboard.",
@@ -1161,6 +1471,138 @@
     }
   }
 
+  async function loadDashboardSummary() {
+    const [summary, claims, payments, patients] = await Promise.all([
+      window.api.getDashboardSummary(),
+      window.api.getClaims().catch(() => []),
+      window.api.getPayments().catch(() => []),
+      window.api.getPatients().catch(() => []),
+    ]);
+    state.claims = claims;
+    state.payments = payments;
+    state.patients = patients;
+
+    const config = getDashboardRoleConfig(summary);
+    const primaryAction = getDashboardPrimaryAction();
+    const scopedClaims = getRoleScopedClaims(claims);
+    const worklist = buildDashboardWorklist(summary, claims);
+    const priorityStatuses = new Set(getDashboardRolePriorities().slice(0, 3));
+    const priorityCount = scopedClaims.filter((claim) => priorityStatuses.has(String(claim.status || "").toLowerCase())).length;
+
+    document.body?.setAttribute("data-dashboard-role", state.role.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+    setTextById("dashboard-page-title", config.pageTitle);
+    setTextById("dashboard-page-subtitle", config.pageSubtitle);
+    setTextById("dashboard-role-badge", config.badge);
+    setTextById("dashboard-role-heading", config.heading);
+    setTextById("dashboard-role-copy", config.copy);
+    setTextById("dashboard-priority-label", config.priorityLabel);
+    setTextById("dashboard-tenant-scope", config.tenantScope);
+    setTextById("dashboard-compliance-state", config.complianceState);
+    setTextById("dashboard-worklist-title", config.worklistTitle);
+    setTextById("dashboard-worklist-copy", config.worklistCopy);
+    setTextById("dashboard-worklist-chip", config.worklistChip);
+    setTextById("dashboard-side-panel-title", config.sideTitle);
+    setTextById("dashboard-side-panel-copy", config.sideCopy);
+    setTextById("dashboard-primary-action", config.primaryActionLabel || primaryAction.label);
+    setTextById("dashboard-workflow-title", `${config.badge} workflow`);
+    setTextById("dashboard-workflow-copy", `Stage ownership stays aligned to the backend claim lifecycle for ${config.badge.toLowerCase()}.`);
+    setTextById("dashboard-workflow-chip", "Backend aligned");
+
+    const actionButton = document.getElementById("dashboard-primary-action");
+    if (actionButton) {
+      actionButton.setAttribute("data-href", primaryAction.href);
+    }
+
+    const searchInput = document.getElementById("dashboard-search-input");
+    if (searchInput) {
+      searchInput.placeholder = config.searchPlaceholder;
+    }
+
+    renderDashboardHeroTags(config.tags);
+    renderDashboardFocusCards(config.focusCards);
+    renderDashboardSidePanel(config.sideItems);
+    renderDashboardWorkflow(buildDashboardWorkflow(summary, claims));
+    renderDashboardKpis([
+      {
+        valueId: "dashboard-kpi-total-claims",
+        copyId: "dashboard-kpi-total-copy",
+        value: formatDashboardCount(claims.length),
+        copy: `${summary.ready_to_close || 0} ready to close and ${summary.ready_to_submit || 0} ready to submit.`,
+      },
+      {
+        valueId: "dashboard-kpi-role-queue",
+        copyId: "dashboard-kpi-role-copy",
+        value: formatDashboardCount(scopedClaims.length),
+        copy: `${worklist.length} priority items currently surfaced for ${state.role.toLowerCase()}.`,
+      },
+      {
+        valueId: "dashboard-kpi-priority-count",
+        copyId: "dashboard-kpi-priority-copy",
+        value: formatDashboardCount(priorityCount),
+        copy: `${config.priorityLabel} remains the main operating pressure today.`,
+      },
+      {
+        valueId: "dashboard-kpi-control-count",
+        copyId: "dashboard-kpi-control-copy",
+        value: formatDashboardCount(summary.reconciliation_exceptions + summary.rejected_or_pended),
+        copy: `${getDashboardTopRuleNames(summary).join(", ") || "No dominant rule pressure"} in the active tenant scope.`,
+      },
+    ]);
+
+    const tbody = document.getElementById("dashboard-worklist-rows");
+    const renderWorklist = () => {
+      if (!tbody) {
+        return;
+      }
+      const query = (searchInput?.value || "").trim().toLowerCase();
+      const filtered = worklist.filter((item) => {
+        if (!query) {
+          return true;
+        }
+        return [
+          item.claim_number,
+          item.reason,
+          item.status,
+          item.next_action,
+          ...(item.affected_roles || []),
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(query));
+      });
+
+      tbody.innerHTML = filtered.length
+        ? filtered
+            .map((item) => {
+              const badges = [
+                (item.onboarding_blockers || []).length ? '<span class="badge badge-warning">Onboarding blocked</span>' : "",
+                (item.affected_roles || []).length ? `<span class="badge badge-info">Roles: ${escapeHtml(item.affected_roles.join(", "))}</span>` : "",
+              ]
+                .filter(Boolean)
+                .join("");
+              return `
+                <tr>
+                  <td class="code">${escapeHtml(item.claim_number || `Claim ${item.claim_id}`)}</td>
+                  <td>
+                    <div>${escapeHtml(item.reason)}</div>
+                    ${badges ? `<div class="dashboard-worklist-badges">${badges}</div>` : ""}
+                  </td>
+                  <td><span class="chip ${statusClass(item.status)}">${escapeHtml(humanizeStatus(item.status))}</span></td>
+                  <td>${escapeHtml(item.next_action)}</td>
+                  <td class="row-actions"><a class="chip info" href="claim_detail.html?id=${item.claim_id}">Open</a></td>
+                </tr>
+              `;
+            })
+            .join("")
+        : '<tr><td colspan="5" class="dashboard-empty-row">No worklist items match the current role scope.</td></tr>';
+    };
+
+    if (searchInput && !searchInput.dataset.dashboardSearchBound) {
+      searchInput.dataset.dashboardSearchBound = "true";
+      searchInput.addEventListener("input", renderWorklist);
+    }
+    renderWorklist();
+  }
+
   function _renderArAgingChart(claims) {
     const canvas = document.getElementById("chart-ar-aging");
     if (!canvas || !window.Chart) return;
@@ -1211,6 +1653,9 @@
       switch (action) {
         case "open-api-docs":
           window.open(window.api.getDocsUrl(), "_blank", "noopener");
+          break;
+        case "open-dashboard-target":
+          location.href = button.getAttribute("data-href") || "claims.html";
           break;
         case "create-new":
           handleCreateNew();
