@@ -1277,7 +1277,7 @@
       const tab = state._payFilter;
       const filtered = payments.filter(p => {
         if (tab === "all") return true;
-        if (tab === "completed" || tab === "pending") return p.status === tab;
+        if (tab === "completed" || tab === "pending") return (p.status || "").toLowerCase() === tab;
         if (tab === "eft" || tab === "cash") return (p.method || "").toLowerCase() === tab;
         return true;
       });
