@@ -303,6 +303,10 @@ class BillingAPI {
     );
   }
 
+  async autoLinkClaimLineDiagnosisLinks(claimId) {
+    return this._request(`/claims/${claimId}/line-items/diagnosis-links/auto-link`, "POST");
+  }
+
   async addClaimDiagnosis(claimId, diagnosis) {
     return this._request(`/claims/${claimId}/diagnoses`, "POST", diagnosis);
   }

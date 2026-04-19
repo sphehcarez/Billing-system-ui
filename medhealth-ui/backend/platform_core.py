@@ -4542,6 +4542,88 @@ class PlatformStore:
             "diagnoses": [item.model_dump() for item in records],
         }
 
+    def auto_link_missing_line_diagnoses(self, claim_id: int, actor: str, role: str) -> Dict[str, Any]:
+        claim = self.claims[claim_id]
+        diagnoses = self.get_claim_diagnoses(claim_id)
+        if not diagnoses:
+            return {
+                "claim_id": claim_id,
+                "updated": False,
+                "reason": "no_diagnoses",
+                "message": "Capture at least one ICD-10 diagnosis before using auto-link.",
+                "linked_line_ids": [],
+            }
+
+        primary = next((item for item in diagnoses if item.is_primary), None)
+        chosen = primary or (diagnoses[0] if len(diagnoses) == 1 else None)
+        if not chosen:
+            return {
+                "claim_id": claim_id,
+                "updated": False,
+                "reason": "ambiguous_diagnosis_selection",
+                "message": "Auto-link needs a primary diagnosis when multiple diagnoses exist.",
+                "linked_line_ids": [],
+            }
+
+        linked_line_ids: List[str] = []
+        updated_line_items: List[Dict[str, Any]] = []
+        for item in claim.line_items:
+            if item.diagnosis_refs:
+                updated_line_items.append(item.model_dump(mode="json"))
+                continue
+            linked_line_ids.append(str(item.line_id))
+            updated_line_items.append(item.model_copy(update={"diagnosis_refs": [chosen.seq]}).model_dump(mode="json"))
+
+        if not linked_line_ids:
+            return {
+                "claim_id": claim_id,
+                "updated": False,
+                "reason": "no_missing_links",
+                "message": "All line items already have diagnosis links.",
+                "linked_line_ids": [],
+                "diagnosis_id": chosen.diagnosis_id,
+                "icd10_code": chosen.icd10_code,
+            }
+
+        had_snapshot = bool(claim.latest_snapshot_id)
+        self.update_claim(
+            claim_id,
+            {"line_items": updated_line_items},
+            actor,
+            role,
+            change_summary="Missing diagnosis links auto-linked",
+        )
+        self.add_audit_event(
+            actor,
+            role,
+            "DIAGNOSIS_LINK_AUTO_LINKED",
+            "claim",
+            str(claim_id),
+            {
+                "line_ids": linked_line_ids,
+                "diagnosis_id": chosen.diagnosis_id,
+                "icd10_code": chosen.icd10_code,
+                "claim_version": self.claims[claim_id].version,
+            },
+        )
+        validation = None
+        if had_snapshot:
+            self.run_readiness(claim_id, actor, role)
+            self.close_claim(claim_id, ClaimClosureRequest(), actor, role)
+            validation = self.run_post_closure_validation(claim_id, actor, role)
+        return {
+            "claim_id": claim_id,
+            "claim_version": self.claims[claim_id].version,
+            "updated": True,
+            "reason": "linked_missing_lines",
+            "message": f"Linked {len(linked_line_ids)} line item(s) to {chosen.icd10_code}.",
+            "linked_line_ids": linked_line_ids,
+            "diagnosis_id": chosen.diagnosis_id,
+            "icd10_code": chosen.icd10_code,
+            "line_items": self.get_claim_line_items(claim_id),
+            "validation": validation,
+        }
+
     def update_claim_line_diagnosis_links(
         self,
         claim_id: int,

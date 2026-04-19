@@ -2334,6 +2334,9 @@
         case "apply-line-diagnosis-links":
           await handleApplyLineDiagnosisLinks();
           break;
+        case "auto-link-line-diagnosis-links":
+          await handleAutoLinkLineDiagnosisLinks();
+          break;
         case "add-attachment":
           await handleAddAttachment(false);
           break;
@@ -3457,18 +3460,20 @@
       });
       searchInput.addEventListener("keydown", (e) => {
         const items = dropdown.querySelectorAll("[data-icd10-idx]");
-        if (!items.length) return;
         if (e.key === "ArrowDown") {
+          if (!items.length) return;
           e.preventDefault();
           activeIdx = Math.min(activeIdx + 1, items.length - 1);
           highlightItem(activeIdx);
         } else if (e.key === "ArrowUp") {
+          if (!items.length) return;
           e.preventDefault();
           activeIdx = Math.max(activeIdx - 1, 0);
           highlightItem(activeIdx);
-        } else if (e.key === "Enter" && activeIdx >= 0) {
+        } else if (e.key === "Enter" && items.length) {
           e.preventDefault();
-          if (currentResults[activeIdx]) selectResult(currentResults[activeIdx]);
+          const candidate = activeIdx >= 0 ? currentResults[activeIdx] : currentResults[0];
+          if (candidate) selectResult(candidate);
         } else if (e.key === "Escape") {
           closeDropdown();
         }
@@ -3494,6 +3499,8 @@
       return;
     }
 
+    const recommendation = getRecommendedPrimaryDiagnosis(diagnoses, state.claimLineItems || []);
+
     container.innerHTML = diagnoses
       .map(
         (diagnosis) => `
@@ -3502,6 +3509,11 @@
               <div>
                 <strong class="code">${escapeHtml(diagnosis.icd10_code)}</strong>
                 <span class="chip ${diagnosis.is_primary ? "pass" : "info"}" style="margin-left:8px;">${diagnosis.is_primary ? "PRIMARY" : "SECONDARY"}</span>
+                ${
+                  recommendation?.diagnosis_id === diagnosis.diagnosis_id && !diagnosis.is_primary
+                    ? '<span class="chip warn" style="margin-left:8px;">Recommended primary</span>'
+                    : ""
+                }
               </div>
               <div class="row-actions">
                 ${diagnosis.is_primary ? "" : `<button class="chip" data-action="make-primary-diagnosis" data-id="${escapeHtml(diagnosis.diagnosis_id)}">Set primary</button>`}
@@ -4261,6 +4273,22 @@
     }
     setDiagnosisFeedback("Primary diagnosis auto-fixed. Readiness is rerunning.", "success");
     await rerunReadinessFromDiagnosisAction("Primary diagnosis auto-fixed");
+  }
+
+  async function handleAutoLinkLineDiagnosisLinks() {
+    const result = await window.api.autoLinkClaimLineDiagnosisLinks(resolveClaimId(state.claimId));
+    if (!result.updated) {
+      setLineItemsFeedback(result.message || "No automatic diagnosis links were applied.", "error");
+      return;
+    }
+    state.highlightedLineIds = result.linked_line_ids || [];
+    setLineItemsFeedback(result.message || "Missing diagnosis links were auto-linked.", "success");
+    if (result.validation) {
+      await refreshClaimViews();
+      showValidationSummaryModal(`Post-closure validation: ${result.validation.claim_number || result.validation.claim_id}`, result.validation);
+      return;
+    }
+    await refreshClaimViews();
   }
 
   // ── AI Notes ────────────────────────────────────────────────────────────

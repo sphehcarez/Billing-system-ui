@@ -116,6 +116,55 @@ class PlatformCoreTests(unittest.TestCase):
         self.assertFalse(ambiguous["fixed"])
         self.assertEqual(ambiguous["reason"], "ambiguous_primary")
 
+    def test_auto_link_missing_line_diagnoses_prefers_primary_and_blocks_ambiguity(self) -> None:
+        linkable_claim = self.store.create_claim(
+            {
+                "claim_number": "CLM-AUTOLINK-SAFE",
+                "patient_id": 1,
+                "provider_id": 1,
+                "member_number": "MEM240003",
+                "service_date": "2026-04-10",
+                "diagnoses": [
+                    {"seq": 1, "icd10": "I10", "diagnosis_type": "PRIMARY"},
+                    {"seq": 2, "icd10": "M54.5", "diagnosis_type": "SECONDARY"},
+                ],
+                "line_items": [
+                    {"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", "quantity": 1, "unit_price": 500, "claimed_amount": 500},
+                    {"line_id": "2", "service_code": "CONS001", "service_description": "Follow-up consultation", "quantity": 1, "unit_price": 500, "claimed_amount": 500, "diagnosis_refs": [2]},
+                ],
+            },
+            actor="tester",
+            role="Billing Specialist",
+        )
+        linked = self.store.auto_link_missing_line_diagnoses(linkable_claim.id, "tester", "Billing Specialist")
+        self.assertTrue(linked["updated"])
+        self.assertEqual(linked["linked_line_ids"], ["1"])
+        refreshed_lines = self.store.get_claim_line_items(linkable_claim.id)
+        first_line = next(item for item in refreshed_lines if item["line_id"] == "1")
+        second_line = next(item for item in refreshed_lines if item["line_id"] == "2")
+        self.assertEqual(first_line["diagnosis_codes"], ["I10"])
+        self.assertEqual(second_line["diagnosis_codes"], ["M54.5"])
+
+        ambiguous_claim = self.store.create_claim(
+            {
+                "claim_number": "CLM-AUTOLINK-AMB",
+                "patient_id": 1,
+                "provider_id": 1,
+                "member_number": "MEM240004",
+                "service_date": "2026-04-10",
+                "diagnoses": [
+                    {"seq": 1, "icd10": "I10", "diagnosis_type": "SECONDARY"},
+                    {"seq": 2, "icd10": "M54.5", "diagnosis_type": "SECONDARY"},
+                ],
+                "line_items": [{"line_id": "1", "service_code": "CONS001", "service_description": "Consultation", "quantity": 1, "unit_price": 500, "claimed_amount": 500}],
+            },
+            actor="tester",
+            role="Billing Specialist",
+        )
+        blocked = self.store.auto_link_missing_line_diagnoses(ambiguous_claim.id, "tester", "Billing Specialist")
+        self.assertFalse(blocked["updated"])
+        self.assertEqual(blocked["reason"], "ambiguous_diagnosis_selection")
+
     def test_pmb_review_and_costing_preview_after_primary_capture(self) -> None:
         self.store.add_claim_diagnosis(2, {"icd10_code": "I10", "is_primary": True, "source": "UserEntry"}, "tester", "Billing Specialist")
         result = self.store.run_readiness(2, "tester", "Billing Specialist")

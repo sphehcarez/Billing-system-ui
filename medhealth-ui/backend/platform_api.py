@@ -666,6 +666,16 @@ def update_claim_line_item_diagnosis_links(
     )
 
 
+@app.post("/api/claims/{claim_id}/line-items/diagnosis-links/auto-link")
+def auto_link_claim_line_item_diagnosis_links(
+    claim_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    require_permission(current_user, "claims", "write")
+    actor, role = current_identity(current_user)
+    return db.auto_link_missing_line_diagnoses(claim_id, actor, role)
+
+
 @app.post("/api/claims/{claim_id}/readiness")
 def run_readiness(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "process")
