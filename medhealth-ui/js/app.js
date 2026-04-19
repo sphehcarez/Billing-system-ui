@@ -2440,9 +2440,6 @@
         const aiMatch = q && _icd10IsAiMatch(item, q);
         const codeHtml = escapeHtml(item.code);
         const descHtml = highlightDesc(item.description || "");
-        const aiTag = aiMatch
-          ? `<span style="background:var(--brand-600,#2563eb);color:#fff;font-size:9px;padding:1px 5px;border-radius:4px;letter-spacing:.3px;flex-shrink:0;">AI</span>`
-          : "";
         return `<div role="option" data-icd10-idx="${i}"
           style="padding:9px 14px;cursor:pointer;display:flex;flex-direction:column;gap:3px;
                  border-bottom:1px solid var(--line-100,#f3f4f6);"
@@ -2451,7 +2448,6 @@
           onmouseout="this.style.background=''">
           <div style="display:flex;align-items:center;gap:6px;">
             <span style="font-family:monospace;font-size:12px;font-weight:700;color:var(--brand-700,#1d4ed8)">${codeHtml}</span>
-            ${aiTag}
           </div>
           <span style="font-size:12px;color:var(--ink-600);line-height:1.4">${descHtml}</span>
         </div>`;
@@ -2459,8 +2455,7 @@
 
       if (isAiQuery && q) {
         dropdown.insertAdjacentHTML("afterbegin",
-          `<div style="padding:7px 14px;background:linear-gradient(90deg,#eff6ff,#f0fdf4);border-bottom:1px solid var(--line-100);font-size:11px;color:var(--ink-500);display:flex;align-items:center;gap:6px;">
-            <span style="background:var(--brand-600,#2563eb);color:#fff;font-size:9px;padding:1px 5px;border-radius:4px;letter-spacing:.3px;">AI</span>
+          `<div style="padding:7px 14px;background:var(--surface-1,#f8fafc);border-bottom:1px solid var(--line-100);font-size:11px;color:var(--ink-500);">
             Concept-matched results for <em>"${escapeHtml(q)}"</em>
           </div>`
         );
@@ -4847,7 +4842,6 @@
       <div style="background:#eff6ff;border-radius:8px;padding:0.875rem;margin-top:0.875rem;font-size:0.8rem">
         <div style="font-weight:600;margin-bottom:0.5rem;display:flex;align-items:center;gap:6px;">
           <span>Clinical Notes</span>
-          <span style="background:#2563eb;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;">AI</span>
           <span style="color:#6b7280;font-weight:400">(${aiNotes.length})</span>
         </div>
         ${aiNotes.map(n => `
