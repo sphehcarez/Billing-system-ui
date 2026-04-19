@@ -323,14 +323,39 @@ class PlatformCoreTests(unittest.TestCase):
     def test_dashboard_summary_is_role_specific(self) -> None:
         finance = self.store.dashboard_summary(tenant_id="tenant-sa-demo", role="Finance Officer")
         provider = self.store.dashboard_summary(tenant_id="tenant-sa-demo", role="Healthcare Provider")
+        debtors = self.store.dashboard_summary(tenant_id="tenant-sa-demo", role="Credit Controller")
 
         self.assertTrue(finance["worklist"])
         self.assertTrue(any(item["status"] == "exception" for item in finance["worklist"]))
         self.assertTrue(all(item["status"] in {"ready_to_submit", "submitted", "acknowledged", "paid", "reconciled", "exception"} for item in finance["worklist"]))
         self.assertTrue(all(item["status"] in {"draft", "blocked", "ready_to_close", "pended", "validation_exception"} for item in provider["worklist"]))
+        self.assertTrue(all(item["status"] in {"paid", "reconciled", "exception"} for item in debtors["worklist"]))
         self.assertTrue(finance["ownership_board"])
         self.assertIn("financials", finance)
         self.assertIn("submission_overview", finance)
+
+    def test_seeded_demo_users_cover_expanded_sa_billing_roles(self) -> None:
+        expected = {
+            "Administrator",
+            "Front Office",
+            "Billing",
+            "Clinical",
+            "Finance",
+            "Audit",
+            "Practice Manager",
+            "Bureau Manager",
+            "Reception / Patient Access",
+            "Billing Specialist",
+            "Clinical Coder",
+            "Authorisations Coordinator",
+            "Healthcare Provider",
+            "Finance Officer",
+            "Reconciliation Specialist",
+            "Credit Controller",
+            "Compliance Auditor",
+        }
+        roles = {record["role"] for record in self.store.auth_users.values()}
+        self.assertTrue(expected.issubset(roles))
 
     def test_patient_statement_reflects_payments_and_invoices(self) -> None:
         claim = self.store.claims[8]
@@ -359,7 +384,7 @@ class PlatformCoreTests(unittest.TestCase):
         )
 
         self.assertEqual(self.store.claims[9].status, "ready_to_submit")
-        self.assertEqual(result["workflow"]["eligible_roles"][0], "Billing Specialist")
+        self.assertEqual(result["workflow"]["eligible_roles"][0], "Billing")
         self.assertEqual(result["reconciliation"]["status"], "exception")
 
     def test_switch_submission_uses_integration_boundary_metadata(self) -> None:

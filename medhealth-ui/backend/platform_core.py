@@ -430,6 +430,112 @@ class ClaimReadyProfile(BaseModel):
     balance_cents: int = 0
 
 
+SA_ROLE_CATALOG: Dict[str, Dict[str, Any]] = {
+    "Administrator": {
+        "family": "Administrator",
+        "dashboard_family": "Administrator",
+        "broad_scope": True,
+        "is_default": True,
+    },
+    "Front Office": {
+        "family": "Front Office",
+        "dashboard_family": "Front Office",
+        "broad_scope": False,
+        "is_default": True,
+    },
+    "Billing": {
+        "family": "Billing",
+        "dashboard_family": "Billing",
+        "broad_scope": False,
+        "is_default": True,
+    },
+    "Clinical": {
+        "family": "Clinical",
+        "dashboard_family": "Clinical",
+        "broad_scope": False,
+        "is_default": True,
+    },
+    "Finance": {
+        "family": "Finance",
+        "dashboard_family": "Finance",
+        "broad_scope": False,
+        "is_default": True,
+    },
+    "Audit": {
+        "family": "Audit",
+        "dashboard_family": "Audit",
+        "broad_scope": False,
+        "is_default": True,
+    },
+    "Practice Manager": {
+        "family": "Administrator",
+        "dashboard_family": "Administrator",
+        "broad_scope": True,
+        "is_default": False,
+    },
+    "Bureau Manager": {
+        "family": "Administrator",
+        "dashboard_family": "Administrator",
+        "broad_scope": True,
+        "is_default": False,
+    },
+    "Reception / Patient Access": {
+        "family": "Front Office",
+        "dashboard_family": "Front Office",
+        "broad_scope": False,
+        "is_default": False,
+    },
+    "Billing Specialist": {
+        "family": "Billing",
+        "dashboard_family": "Billing",
+        "broad_scope": False,
+        "is_default": False,
+    },
+    "Clinical Coder": {
+        "family": "Billing",
+        "dashboard_family": "Billing",
+        "broad_scope": False,
+        "is_default": False,
+    },
+    "Authorisations Coordinator": {
+        "family": "Front Office",
+        "dashboard_family": "Front Office",
+        "broad_scope": False,
+        "is_default": False,
+    },
+    "Healthcare Provider": {
+        "family": "Clinical",
+        "dashboard_family": "Clinical",
+        "broad_scope": False,
+        "is_default": False,
+    },
+    "Finance Officer": {
+        "family": "Finance",
+        "dashboard_family": "Finance",
+        "broad_scope": False,
+        "is_default": False,
+    },
+    "Reconciliation Specialist": {
+        "family": "Finance",
+        "dashboard_family": "Finance",
+        "broad_scope": False,
+        "is_default": False,
+    },
+    "Credit Controller": {
+        "family": "Finance",
+        "dashboard_family": "Finance",
+        "broad_scope": False,
+        "is_default": False,
+    },
+    "Compliance Auditor": {
+        "family": "Audit",
+        "dashboard_family": "Audit",
+        "broad_scope": False,
+        "is_default": False,
+    },
+}
+
+
 def cents_to_str(cents: int) -> str:
     """Serialize cents integer to 2-decimal string: 17400 -> '174.00'"""
     sign = "-" if cents < 0 else ""
@@ -1346,6 +1452,15 @@ class PlatformStore:
         patient_tenant = getattr(patient, "tenant_id", None)
         return tenant_id in {provider_tenant, patient_tenant}
 
+    def _role_metadata(self, role: Optional[str]) -> Dict[str, Any]:
+        return SA_ROLE_CATALOG.get(role or "", SA_ROLE_CATALOG["Billing"])
+
+    def _role_dashboard_family(self, role: Optional[str]) -> str:
+        return str(self._role_metadata(role).get("dashboard_family") or "Billing")
+
+    def _role_has_broad_scope(self, role: Optional[str]) -> bool:
+        return bool(self._role_metadata(role).get("broad_scope"))
+
     def record_patient_payment(
         self,
         patient_id: int,
@@ -2055,46 +2170,35 @@ class PlatformStore:
             ),
         ]
 
-        self.register_user("admin", "admin123", "Administrator", "admin@example.com", tenant_id=medhealth_tenant.id)
-        self.register_user(
-            "demo.user",
-            "password123",
-            "Billing Specialist",
-            "demo.user@example.com",
-            tenant_id=medhealth_tenant.id,
-            practice_id=seeded_practices[0].id,
-        )
-        self.register_user(
-            "billing",
-            "billing123",
-            "Billing Specialist",
-            "billing@example.com",
-            tenant_id=medhealth_tenant.id,
-            practice_id=seeded_practices[1].id,
-        )
-        self.register_user(
-            "provider",
-            "provider123",
-            "Healthcare Provider",
-            "provider@example.com",
-            tenant_id=medhealth_tenant.id,
-            practice_id=seeded_practices[0].id,
-        )
-        self.register_user(
-            "finance",
-            "finance123",
-            "Finance Officer",
-            "finance@example.com",
-            tenant_id=medhealth_tenant.id,
-        )
-        self.register_user(
-            "auditor",
-            "auditor123",
-            "Compliance Auditor",
-            "auditor@example.com",
-            tenant_id=coastal_tenant.id,
-            practice_id=seeded_practices[2].id,
-        )
+        seeded_users = [
+            ("admin", "admin123", "Administrator", "admin@example.com", medhealth_tenant.id, None),
+            ("frontdesk", "frontdesk123", "Front Office", "frontdesk@example.com", medhealth_tenant.id, seeded_practices[0].id),
+            ("billingcore", "billingcore123", "Billing", "billingcore@example.com", medhealth_tenant.id, seeded_practices[0].id),
+            ("clinical", "clinical123", "Clinical", "clinical@example.com", medhealth_tenant.id, seeded_practices[0].id),
+            ("financecore", "financecore123", "Finance", "financecore@example.com", medhealth_tenant.id, None),
+            ("auditcore", "auditcore123", "Audit", "auditcore@example.com", medhealth_tenant.id, seeded_practices[0].id),
+            ("manager", "manager123", "Practice Manager", "manager@example.com", medhealth_tenant.id, seeded_practices[0].id),
+            ("bureau", "bureau123", "Bureau Manager", "bureau@example.com", medhealth_tenant.id, None),
+            ("reception", "reception123", "Reception / Patient Access", "reception@example.com", medhealth_tenant.id, seeded_practices[0].id),
+            ("demo.user", "password123", "Billing Specialist", "demo.user@example.com", medhealth_tenant.id, seeded_practices[0].id),
+            ("billing", "billing123", "Billing Specialist", "billing@example.com", medhealth_tenant.id, seeded_practices[1].id),
+            ("coder", "coder123", "Clinical Coder", "coder@example.com", medhealth_tenant.id, seeded_practices[0].id),
+            ("authz", "authz123", "Authorisations Coordinator", "authz@example.com", medhealth_tenant.id, seeded_practices[0].id),
+            ("provider", "provider123", "Healthcare Provider", "provider@example.com", medhealth_tenant.id, seeded_practices[0].id),
+            ("finance", "finance123", "Finance Officer", "finance@example.com", medhealth_tenant.id, None),
+            ("recon", "recon123", "Reconciliation Specialist", "recon@example.com", medhealth_tenant.id, None),
+            ("debtors", "debtors123", "Credit Controller", "debtors@example.com", medhealth_tenant.id, seeded_practices[0].id),
+            ("auditor", "auditor123", "Compliance Auditor", "auditor@example.com", medhealth_tenant.id, seeded_practices[0].id),
+        ]
+        for username, password, role, email, tenant_id, practice_id in seeded_users:
+            self.register_user(
+                username,
+                password,
+                role,
+                email,
+                tenant_id=tenant_id,
+                practice_id=practice_id,
+            )
 
         patient_names = [
             "Anele Nkosi",
@@ -2821,75 +2925,75 @@ class PlatformStore:
     def _derive_workflow_roles(self, claim: ClaimRecord) -> Dict[str, Any]:
         status = str(claim.status or "draft").lower()
         defaults = {
-            "affected_roles": ["Billing Specialist", "Healthcare Provider"],
-            "eligible_roles": ["Billing Specialist"],
+            "affected_roles": ["Front Office", "Billing", "Clinical"],
+            "eligible_roles": ["Front Office"],
             "last_completed_role": claim.last_completed_role,
         }
         role_map = {
             "draft": {
-                "affected_roles": ["Billing Specialist", "Healthcare Provider"],
-                "eligible_roles": ["Billing Specialist", "Healthcare Provider"],
+                "affected_roles": ["Front Office", "Billing", "Clinical"],
+                "eligible_roles": ["Front Office"],
                 "last_completed_role": None,
             },
             "blocked": {
-                "affected_roles": ["Billing Specialist", "Healthcare Provider"],
-                "eligible_roles": ["Billing Specialist", "Healthcare Provider"],
-                "last_completed_role": "Billing Specialist",
+                "affected_roles": ["Billing", "Front Office", "Clinical"],
+                "eligible_roles": ["Billing"],
+                "last_completed_role": "Billing",
             },
             "ready_to_close": {
-                "affected_roles": ["Billing Specialist", "Healthcare Provider"],
-                "eligible_roles": ["Billing Specialist"],
-                "last_completed_role": "Billing Specialist",
+                "affected_roles": ["Billing", "Clinical"],
+                "eligible_roles": ["Billing"],
+                "last_completed_role": "Clinical",
             },
             "closed": {
-                "affected_roles": ["Billing Specialist", "Compliance Auditor"],
-                "eligible_roles": ["Compliance Auditor", "Billing Specialist"],
-                "last_completed_role": "Billing Specialist",
+                "affected_roles": ["Audit", "Billing"],
+                "eligible_roles": ["Audit"],
+                "last_completed_role": "Billing",
             },
             "validation_exception": {
-                "affected_roles": ["Billing Specialist", "Compliance Auditor"],
-                "eligible_roles": ["Billing Specialist", "Compliance Auditor"],
-                "last_completed_role": "Compliance Auditor",
+                "affected_roles": ["Billing", "Clinical", "Audit"],
+                "eligible_roles": ["Billing"],
+                "last_completed_role": "Audit",
             },
             "ready_to_submit": {
-                "affected_roles": ["Billing Specialist", "Finance Officer"],
-                "eligible_roles": ["Billing Specialist", "Finance Officer"],
-                "last_completed_role": "Compliance Auditor",
+                "affected_roles": ["Billing", "Finance"],
+                "eligible_roles": ["Billing"],
+                "last_completed_role": "Audit",
             },
             "submitted": {
-                "affected_roles": ["Finance Officer", "Compliance Auditor"],
-                "eligible_roles": ["Finance Officer", "Compliance Auditor"],
-                "last_completed_role": "Billing Specialist",
+                "affected_roles": ["Finance", "Audit"],
+                "eligible_roles": ["Finance"],
+                "last_completed_role": "Billing",
             },
             "acknowledged": {
-                "affected_roles": ["Finance Officer", "Compliance Auditor"],
-                "eligible_roles": ["Finance Officer", "Compliance Auditor"],
-                "last_completed_role": "Billing Specialist",
+                "affected_roles": ["Finance", "Audit"],
+                "eligible_roles": ["Finance"],
+                "last_completed_role": "Billing",
             },
             "rejected": {
-                "affected_roles": ["Billing Specialist", "Compliance Auditor"],
-                "eligible_roles": ["Billing Specialist"],
-                "last_completed_role": "Billing Specialist",
+                "affected_roles": ["Billing", "Clinical", "Front Office"],
+                "eligible_roles": ["Billing"],
+                "last_completed_role": "Billing",
             },
             "pended": {
-                "affected_roles": ["Billing Specialist", "Healthcare Provider"],
-                "eligible_roles": ["Healthcare Provider", "Billing Specialist"],
-                "last_completed_role": "Billing Specialist",
+                "affected_roles": ["Front Office", "Clinical", "Billing"],
+                "eligible_roles": ["Front Office"],
+                "last_completed_role": "Front Office",
             },
             "paid": {
-                "affected_roles": ["Finance Officer"],
-                "eligible_roles": ["Finance Officer", "Compliance Auditor"],
-                "last_completed_role": "Finance Officer",
+                "affected_roles": ["Finance", "Audit"],
+                "eligible_roles": ["Finance"],
+                "last_completed_role": "Finance",
             },
             "reconciled": {
-                "affected_roles": ["Finance Officer", "Compliance Auditor"],
-                "eligible_roles": ["Compliance Auditor"],
-                "last_completed_role": "Finance Officer",
+                "affected_roles": ["Audit", "Finance"],
+                "eligible_roles": ["Audit"],
+                "last_completed_role": "Finance",
             },
             "exception": {
-                "affected_roles": ["Finance Officer", "Billing Specialist"],
-                "eligible_roles": ["Finance Officer", "Billing Specialist"],
-                "last_completed_role": "Finance Officer",
+                "affected_roles": ["Finance", "Billing", "Audit"],
+                "eligible_roles": ["Finance"],
+                "last_completed_role": "Finance",
             },
         }
         return role_map.get(status, defaults)
@@ -2912,7 +3016,7 @@ class PlatformStore:
                 {
                     "status": "READINESS_CHECK",
                     "completed_at": claim.updated_at,
-                    "completed_by": claim.last_completed_role or "Billing Specialist",
+                    "completed_by": claim.last_completed_role or "Billing",
                 }
             )
         if claim.latest_snapshot_id or status in {"closed", "validation_exception", "ready_to_submit", "submitted", "acknowledged", "rejected", "pended", "paid", "reconciled", "exception"}:
@@ -2920,7 +3024,7 @@ class PlatformStore:
                 {
                     "status": "CLOSED",
                     "completed_at": claim.updated_at,
-                    "completed_by": claim.last_completed_role or "Billing Specialist",
+                    "completed_by": claim.last_completed_role or "Billing",
                 }
             )
         if claim.validation_status != "pending" or status in {"validation_exception", "ready_to_submit", "submitted", "acknowledged", "rejected", "pended", "paid", "reconciled", "exception"}:
@@ -2928,7 +3032,7 @@ class PlatformStore:
                 {
                     "status": "POST_CLOSURE_VALIDATION",
                     "completed_at": claim.updated_at,
-                    "completed_by": claim.last_completed_role or "Compliance Auditor",
+                    "completed_by": claim.last_completed_role or "Audit",
                 }
             )
         if claim.latest_submission_id or claim.submission_status != "not_submitted" or status in {"submitted", "acknowledged", "rejected", "pended", "paid", "reconciled", "exception"}:
@@ -2936,7 +3040,7 @@ class PlatformStore:
                 {
                     "status": "SUBMITTED",
                     "completed_at": claim.updated_at,
-                    "completed_by": claim.last_completed_role or "Billing Specialist",
+                    "completed_by": claim.last_completed_role or "Billing",
                 }
             )
         return progression
@@ -2950,33 +3054,33 @@ class PlatformStore:
         action_map = {
             "DRAFT": {
                 "action": "CLAIM_CREATED",
-                "role": "Billing Specialist",
+                "role": "Front Office",
                 "status": "draft",
-                "affected_roles": ["Billing Specialist", "Healthcare Provider"],
+                "affected_roles": ["Front Office", "Billing", "Clinical"],
             },
             "READINESS_CHECK": {
                 "action": "READINESS_REVIEWED",
-                "role": "Billing Specialist",
+                "role": "Billing",
                 "status": claim.status if str(claim.status or "").lower() in {"blocked", "ready_to_close"} else "ready_to_close",
-                "affected_roles": ["Billing Specialist", "Healthcare Provider"],
+                "affected_roles": ["Billing", "Front Office", "Clinical"],
             },
             "CLOSED": {
                 "action": "CLAIM_CLOSED",
-                "role": "Billing Specialist",
+                "role": "Billing",
                 "status": "closed",
-                "affected_roles": ["Billing Specialist", "Compliance Auditor"],
+                "affected_roles": ["Audit", "Billing"],
             },
             "POST_CLOSURE_VALIDATION": {
                 "action": "POST_CLOSURE_VALIDATED",
-                "role": "Compliance Auditor",
+                "role": "Audit",
                 "status": claim.status if str(claim.status or "").lower() in {"validation_exception", "ready_to_submit"} else "ready_to_submit",
-                "affected_roles": ["Billing Specialist", "Compliance Auditor", "Finance Officer"],
+                "affected_roles": ["Audit", "Billing", "Finance"],
             },
             "SUBMITTED": {
                 "action": "CLAIM_SUBMITTED",
-                "role": "Billing Specialist",
+                "role": "Billing",
                 "status": claim.status if str(claim.status or "").lower() in {"submitted", "acknowledged", "rejected", "pended", "paid", "reconciled", "exception"} else "submitted",
-                "affected_roles": ["Finance Officer", "Compliance Auditor"],
+                "affected_roles": ["Finance", "Audit"],
             },
         }
 
@@ -2998,17 +3102,17 @@ class PlatformStore:
 
         terminal_status = str(claim.status or "").lower()
         terminal_actions = {
-            "blocked": ("READINESS_BLOCKED", "Billing Specialist", ["Billing Specialist", "Healthcare Provider"]),
-            "ready_to_close": ("READY_TO_CLOSE", "Billing Specialist", ["Billing Specialist", "Healthcare Provider"]),
-            "validation_exception": ("VALIDATION_EXCEPTION_RECORDED", "Compliance Auditor", ["Billing Specialist", "Compliance Auditor"]),
-            "ready_to_submit": ("READY_TO_SUBMIT", "Compliance Auditor", ["Billing Specialist", "Finance Officer"]),
-            "submitted": ("CLAIM_SUBMITTED", "Billing Specialist", ["Finance Officer", "Compliance Auditor"]),
-            "acknowledged": ("SUBMISSION_ACKNOWLEDGED", "Finance Officer", ["Finance Officer", "Compliance Auditor"]),
-            "rejected": ("CLAIM_REJECTED", "Billing Specialist", ["Billing Specialist", "Compliance Auditor"]),
-            "pended": ("CLAIM_PENDED", "Healthcare Provider", ["Billing Specialist", "Healthcare Provider"]),
-            "paid": ("PAYMENT_POSTED", "Finance Officer", ["Finance Officer"]),
-            "reconciled": ("CLAIM_RECONCILED", "Finance Officer", ["Finance Officer", "Compliance Auditor"]),
-            "exception": ("RECONCILIATION_EXCEPTION", "Finance Officer", ["Finance Officer", "Billing Specialist"]),
+            "blocked": ("READINESS_BLOCKED", "Billing", ["Billing", "Front Office", "Clinical"]),
+            "ready_to_close": ("READY_TO_CLOSE", "Billing", ["Billing", "Clinical"]),
+            "validation_exception": ("VALIDATION_EXCEPTION_RECORDED", "Audit", ["Audit", "Billing", "Clinical"]),
+            "ready_to_submit": ("READY_TO_SUBMIT", "Billing", ["Billing", "Finance"]),
+            "submitted": ("CLAIM_SUBMITTED", "Billing", ["Finance", "Audit"]),
+            "acknowledged": ("SUBMISSION_ACKNOWLEDGED", "Finance", ["Finance", "Audit"]),
+            "rejected": ("CLAIM_REJECTED", "Billing", ["Billing", "Clinical", "Front Office"]),
+            "pended": ("CLAIM_PENDED", "Front Office", ["Front Office", "Clinical", "Billing"]),
+            "paid": ("PAYMENT_POSTED", "Finance", ["Finance", "Audit"]),
+            "reconciled": ("CLAIM_RECONCILED", "Audit", ["Audit", "Finance"]),
+            "exception": ("RECONCILIATION_EXCEPTION", "Finance", ["Finance", "Billing", "Audit"]),
         }
         terminal = terminal_actions.get(terminal_status)
         if terminal and (not history or history[-1]["status"] != terminal_status):
@@ -4155,8 +4259,8 @@ class PlatformStore:
             actor=actor,
             role=role,
             action="CLAIM_CREATED",
-            affected_roles=["Billing Specialist", "Healthcare Provider"],
-            eligible_roles=["Billing Specialist", "Healthcare Provider"],
+            affected_roles=["Front Office", "Billing", "Clinical"],
+            eligible_roles=["Front Office"],
             last_completed_role=None,
             state_progression=[
                 {
@@ -4282,8 +4386,8 @@ class PlatformStore:
                 actor=actor,
                 role=role,
                 action="CLAIM_VERSION_CREATED",
-                affected_roles=["Billing Specialist", "Healthcare Provider"],
-                eligible_roles=["Billing Specialist", "Healthcare Provider"],
+                affected_roles=["Front Office", "Billing", "Clinical"],
+                eligible_roles=["Front Office"],
                 last_completed_role=None,
                 state_progression=[
                     {
@@ -4320,8 +4424,8 @@ class PlatformStore:
                 actor=actor,
                 role=role,
                 action="CLAIM_DRAFT_UPDATED",
-                affected_roles=["Billing Specialist", "Healthcare Provider"],
-                eligible_roles=["Billing Specialist", "Healthcare Provider"],
+                affected_roles=["Front Office", "Billing", "Clinical"],
+                eligible_roles=["Front Office"],
                 last_completed_role=None,
                 state_progression=[
                     {
@@ -4598,8 +4702,8 @@ class PlatformStore:
             actor=actor,
             role=role,
             action="READINESS_RUN",
-            affected_roles=["Billing Specialist", "Healthcare Provider"],
-            eligible_roles=["Billing Specialist"] if claim.status == "ready_to_close" else ["Billing Specialist", "Healthcare Provider"],
+            affected_roles=["Billing", "Front Office", "Clinical"],
+            eligible_roles=["Billing"],
             last_completed_role=role,
             state_progression=[
                 {"status": "DRAFT", "completed_at": claim.created_at, "completed_by": "system"},
@@ -4678,8 +4782,8 @@ class PlatformStore:
                 actor=actor,
                 role=role,
                 action="CLOSURE_BLOCKED",
-                affected_roles=["Billing Specialist", "Healthcare Provider"],
-                eligible_roles=["Billing Specialist", "Healthcare Provider"],
+                affected_roles=["Billing", "Front Office", "Clinical"],
+                eligible_roles=["Billing"],
                 last_completed_role=role,
             )
             self.add_audit_event(actor, role, "CLOSURE_BLOCKED", "claim", str(claim_id), {"decision_bundle_id": bundle.decision_bundle_id, "reasons": [item.reason_code for item in bundle.rule_hits]}, policy.policy_profile_id, policy.version, {"input_hash": bundle.input_hash})
@@ -4715,8 +4819,8 @@ class PlatformStore:
                 actor=actor,
                 role=role,
                 action="CLOSURE_OVERRIDE_REQUIRED",
-                affected_roles=["Billing Specialist", "Compliance Auditor"],
-                eligible_roles=["Billing Specialist"],
+                affected_roles=["Billing", "Audit", "Clinical"],
+                eligible_roles=["Billing"],
                 last_completed_role=role,
             )
             self.add_audit_event(actor, role, "CLOSURE_OVERRIDE_REQUIRED", "claim", str(claim_id), {"decision_bundle_id": bundle.decision_bundle_id}, policy.policy_profile_id, policy.version)
@@ -4765,8 +4869,8 @@ class PlatformStore:
             actor=actor,
             role=role,
             action="CLAIM_CLOSED",
-            affected_roles=["Billing Specialist", "Compliance Auditor", "Finance Officer"],
-            eligible_roles=["Compliance Auditor", "Billing Specialist"],
+            affected_roles=["Audit", "Billing"],
+            eligible_roles=["Audit"],
             last_completed_role=role,
             state_progression=[
                 {"status": "DRAFT", "completed_at": claim.created_at, "completed_by": "system"},
@@ -4834,13 +4938,13 @@ class PlatformStore:
             actor=actor,
             role=role,
             action="POST_CLOSURE_VALIDATION",
-            affected_roles=["Billing Specialist", "Compliance Auditor"],
-            eligible_roles=["Billing Specialist", "Finance Officer"] if claim.status == "ready_to_submit" else ["Billing Specialist", "Compliance Auditor"],
+            affected_roles=["Audit", "Billing", "Clinical", "Finance"],
+            eligible_roles=["Billing"] if claim.status == "ready_to_submit" else ["Billing"],
             last_completed_role=role,
             state_progression=[
                 {"status": "DRAFT", "completed_at": claim.created_at, "completed_by": "system"},
-                {"status": "READINESS_CHECK", "completed_at": claim.updated_at, "completed_by": "Billing Specialist"},
-                {"status": "CLOSED", "completed_at": claim.updated_at, "completed_by": "Billing Specialist"},
+                {"status": "READINESS_CHECK", "completed_at": claim.updated_at, "completed_by": "Billing"},
+                {"status": "CLOSED", "completed_at": claim.updated_at, "completed_by": "Billing"},
                 {
                     "status": "POST_CLOSURE_VALIDATION",
                     "completed_at": claim.updated_at if bundle.outcome in {"PASS", "WARN"} else None,
@@ -5622,8 +5726,8 @@ class PlatformStore:
                 actor=actor,
                 role=role,
                 action="RECONCILIATION_RETURNED_TO_BILLING",
-                affected_roles=["Billing Specialist", "Finance Officer"],
-                eligible_roles=["Billing Specialist", "Finance Officer"],
+                affected_roles=["Finance", "Billing", "Audit"],
+                eligible_roles=["Billing"],
                 last_completed_role=role,
             )
         elif resolution == "RAISE_PATIENT_RESPONSIBILITY":
@@ -5634,8 +5738,8 @@ class PlatformStore:
                 actor=actor,
                 role=role,
                 action="PATIENT_RESPONSIBILITY_RAISED",
-                affected_roles=["Finance Officer", "Billing Specialist"],
-                eligible_roles=["Finance Officer", "Billing Specialist"],
+                affected_roles=["Finance", "Billing"],
+                eligible_roles=["Finance"],
                 last_completed_role=role,
             )
         else:
@@ -5646,8 +5750,8 @@ class PlatformStore:
                 actor=actor,
                 role=role,
                 action="RECONCILIATION_RESOLVED",
-                affected_roles=["Finance Officer", "Compliance Auditor"],
-                eligible_roles=["Compliance Auditor"],
+                affected_roles=["Audit", "Finance"],
+                eligible_roles=["Audit"],
                 last_completed_role=role,
             )
 
@@ -5833,18 +5937,18 @@ class PlatformStore:
             actor=actor,
             role=role,
             action="CLAIM_SUBMITTED",
-            affected_roles=["Finance Officer", "Compliance Auditor", "Billing Specialist"],
+            affected_roles=["Finance", "Audit", "Billing"],
             eligible_roles=(
-                ["Finance Officer", "Compliance Auditor"]
+                ["Finance"]
                 if response.status == "ACK"
-                else ["Billing Specialist", "Healthcare Provider"]
+                else ["Billing"]
             ),
             last_completed_role=role,
             state_progression=[
                 {"status": "DRAFT", "completed_at": claim.created_at, "completed_by": "system"},
-                {"status": "READINESS_CHECK", "completed_at": claim.updated_at, "completed_by": "Billing Specialist"},
-                {"status": "CLOSED", "completed_at": claim.updated_at, "completed_by": "Billing Specialist"},
-                {"status": "POST_CLOSURE_VALIDATION", "completed_at": claim.updated_at, "completed_by": "Compliance Auditor"},
+                {"status": "READINESS_CHECK", "completed_at": claim.updated_at, "completed_by": "Billing"},
+                {"status": "CLOSED", "completed_at": claim.updated_at, "completed_by": "Billing"},
+                {"status": "POST_CLOSURE_VALIDATION", "completed_at": claim.updated_at, "completed_by": "Audit"},
                 {"status": "SUBMITTED", "completed_at": utc_now(), "completed_by": role},
             ],
         )
@@ -5872,17 +5976,19 @@ class PlatformStore:
         }
 
     def _role_dashboard_statuses(self, role: Optional[str]) -> List[str]:
+        family = self._role_dashboard_family(role)
         status_map = {
             "Administrator": ["draft", "blocked", "ready_to_close", "closed", "validation_exception", "ready_to_submit", "submitted", "acknowledged", "rejected", "pended", "paid", "reconciled", "exception"],
-            "Billing Specialist": ["draft", "blocked", "ready_to_close", "closed", "validation_exception", "ready_to_submit", "rejected", "pended", "exception"],
-            "Healthcare Provider": ["draft", "blocked", "ready_to_close", "pended", "validation_exception"],
-            "Finance Officer": ["ready_to_submit", "submitted", "acknowledged", "paid", "reconciled", "exception"],
-            "Compliance Auditor": ["closed", "validation_exception", "submitted", "acknowledged", "paid", "reconciled", "exception"],
+            "Front Office": ["draft", "pended"],
+            "Billing": ["blocked", "ready_to_close", "validation_exception", "ready_to_submit", "rejected"],
+            "Clinical": ["draft", "blocked", "pended", "validation_exception"],
+            "Finance": ["submitted", "acknowledged", "paid", "exception"],
+            "Audit": ["closed", "validation_exception", "reconciled", "exception"],
         }
-        return status_map.get(role or "", status_map["Billing Specialist"])
+        return status_map.get(family, status_map["Billing"])
 
     def _claim_in_role_scope(self, claim: ClaimRecord, role: Optional[str]) -> bool:
-        if not role or role == "Administrator":
+        if not role or self._role_has_broad_scope(role):
             return True
         workflow = self._claim_workflow_metadata(claim)
         eligible = set(workflow["eligible_roles"])
@@ -5890,29 +5996,39 @@ class PlatformStore:
         return role in eligible or role in affected or str(claim.status or "").lower() in set(self._role_dashboard_statuses(role))
 
     def _build_dashboard_workflow(self, claims: List[ClaimRecord], role: Optional[str]) -> List[Dict[str, Any]]:
+        family = self._role_dashboard_family(role)
         stage_configs = {
-            "Billing Specialist": [
-                ("Capture", {"draft", "blocked"}),
-                ("Close", {"ready_to_close", "closed", "validation_exception"}),
-                ("Submit", {"ready_to_submit", "submitted", "acknowledged"}),
-                ("Recover", {"rejected", "pended", "exception"}),
+            "Billing": [
+                ("Readiness triage", {"blocked"}),
+                ("Closure", {"ready_to_close"}),
+                ("Submission", {"ready_to_submit"}),
+                ("Recovery", {"rejected", "validation_exception"}),
             ],
-            "Healthcare Provider": [
-                ("Clinical intake", {"draft"}),
-                ("Readiness blockers", {"blocked", "pended"}),
+            "Front Office": [
+                ("Patient intake", {"draft"}),
+                ("Pending scheme follow-up", {"pended"}),
                 ("Billing handoff", {"ready_to_close"}),
-                ("Clinical corrections", {"validation_exception"}),
             ],
-            "Finance Officer": [
-                ("Ready for dispatch", {"ready_to_submit"}),
+            "Billing": [
+                ("Readiness triage", {"blocked"}),
+                ("Closure", {"ready_to_close"}),
+                ("Submission prep", {"ready_to_submit"}),
+                ("Recovery", {"rejected", "validation_exception"}),
+            ],
+            "Clinical": [
+                ("Clinical capture", {"draft"}),
+                ("Evidence support", {"pended"}),
+                ("Coding clarification", {"blocked", "validation_exception"}),
+            ],
+            "Finance": [
                 ("In flight", {"submitted", "acknowledged"}),
                 ("Cash posted", {"paid"}),
-                ("Reconciliation", {"reconciled", "exception"}),
+                ("Mismatch handling", {"exception"}),
+                ("Audit handoff", {"reconciled"}),
             ],
-            "Compliance Auditor": [
-                ("Post-close review", {"closed", "validation_exception"}),
-                ("Submission evidence", {"submitted", "acknowledged"}),
-                ("Financial integrity", {"paid", "exception"}),
+            "Audit": [
+                ("Post-close assurance", {"closed", "validation_exception"}),
+                ("Financial evidence", {"exception"}),
                 ("Archive review", {"reconciled"}),
             ],
             "Administrator": [
@@ -5923,7 +6039,7 @@ class PlatformStore:
                 ("Finance", {"paid", "reconciled"}),
             ],
         }
-        configs = stage_configs.get(role or "", stage_configs["Billing Specialist"])
+        configs = stage_configs.get(family, stage_configs["Billing"])
         workflow: List[Dict[str, Any]] = []
         for label, statuses in configs:
             count = sum(1 for claim in claims if str(claim.status or "").lower() in statuses)
@@ -5939,7 +6055,7 @@ class PlatformStore:
 
     def _build_role_ownership_board(self, claims: List[ClaimRecord]) -> List[Dict[str, Any]]:
         board: List[Dict[str, Any]] = []
-        for owner in ["Billing Specialist", "Healthcare Provider", "Finance Officer", "Compliance Auditor", "Administrator"]:
+        for owner in ["Administrator", "Front Office", "Billing", "Clinical", "Finance", "Audit"]:
             owned = []
             for claim in claims:
                 workflow = self._claim_workflow_metadata(claim)

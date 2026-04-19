@@ -13,10 +13,22 @@
       "users",
       "settings",
     ],
-    "Billing Specialist": ["dashboard", "patients", "providers", "claims", "payments"],
+    "Front Office": ["dashboard", "patients", "claims", "payments"],
+    Billing: ["dashboard", "patients", "providers", "claims", "payments", "reports"],
+    Clinical: ["dashboard", "patients", "claims"],
+    Finance: ["dashboard", "claims", "payments", "reports"],
+    Audit: ["dashboard", "claims", "payments", "reports", "audit"],
+    "Practice Manager": ["dashboard", "patients", "providers", "claims", "payments", "reports", "users", "settings"],
+    "Bureau Manager": ["dashboard", "patients", "providers", "claims", "payments", "reports", "audit", "users", "settings"],
+    "Reception / Patient Access": ["dashboard", "patients", "claims", "payments"],
+    "Billing Specialist": ["dashboard", "patients", "providers", "claims", "payments", "reports"],
+    "Clinical Coder": ["dashboard", "patients", "providers", "claims", "reports", "audit"],
+    "Authorisations Coordinator": ["dashboard", "patients", "claims", "reports"],
     "Healthcare Provider": ["dashboard", "patients", "claims"],
-    "Finance Officer": ["dashboard", "payments", "reports"],
-    "Compliance Auditor": ["dashboard", "reports", "audit"],
+    "Finance Officer": ["dashboard", "claims", "payments", "reports"],
+    "Reconciliation Specialist": ["dashboard", "claims", "payments", "reports", "audit"],
+    "Credit Controller": ["dashboard", "patients", "claims", "payments", "reports"],
+    "Compliance Auditor": ["dashboard", "claims", "payments", "reports", "audit"],
   };
 
   const ROLE_PERMISSIONS = {
@@ -30,11 +42,87 @@
       users: new Set(["read", "write", "delete"]),
       settings: new Set(["read", "write"]),
     },
+    "Front Office": {
+      patients: new Set(["read", "write"]),
+      providers: new Set(["read"]),
+      claims: new Set(["read", "write"]),
+      payments: new Set(["read", "write"]),
+      reports: new Set(["read"]),
+    },
+    Billing: {
+      patients: new Set(["read", "write"]),
+      providers: new Set(["read", "write"]),
+      claims: new Set(["read", "write", "process", "submit"]),
+      payments: new Set(["read", "write"]),
+      reports: new Set(["read", "generate"]),
+      audit: new Set(["read"]),
+    },
+    Clinical: {
+      patients: new Set(["read"]),
+      providers: new Set(["read"]),
+      claims: new Set(["read", "process"]),
+      audit: new Set(["read"]),
+    },
+    Finance: {
+      claims: new Set(["read"]),
+      payments: new Set(["read", "write"]),
+      reports: new Set(["read", "generate"]),
+      audit: new Set(["read"]),
+    },
+    Audit: {
+      patients: new Set(["read"]),
+      providers: new Set(["read"]),
+      claims: new Set(["read"]),
+      payments: new Set(["read"]),
+      reports: new Set(["read"]),
+      audit: new Set(["read"]),
+    },
+    "Practice Manager": {
+      patients: new Set(["read", "write"]),
+      providers: new Set(["read", "write"]),
+      claims: new Set(["read", "write", "process", "submit"]),
+      payments: new Set(["read", "write"]),
+      reports: new Set(["read", "generate"]),
+      audit: new Set(["read"]),
+      users: new Set(["read", "write"]),
+      settings: new Set(["read"]),
+    },
+    "Bureau Manager": {
+      patients: new Set(["read", "write"]),
+      providers: new Set(["read", "write"]),
+      claims: new Set(["read", "write", "process", "submit"]),
+      payments: new Set(["read", "write"]),
+      reports: new Set(["read", "generate"]),
+      audit: new Set(["read"]),
+      users: new Set(["read", "write"]),
+      settings: new Set(["read"]),
+    },
+    "Reception / Patient Access": {
+      patients: new Set(["read", "write"]),
+      providers: new Set(["read"]),
+      claims: new Set(["read", "write"]),
+      payments: new Set(["read", "write"]),
+      reports: new Set(["read"]),
+    },
     "Billing Specialist": {
       patients: new Set(["read", "write"]),
       providers: new Set(["read", "write"]),
       claims: new Set(["read", "write", "process", "submit"]),
       payments: new Set(["read", "write"]),
+    },
+    "Clinical Coder": {
+      patients: new Set(["read"]),
+      providers: new Set(["read"]),
+      claims: new Set(["read", "write", "process"]),
+      reports: new Set(["read"]),
+      audit: new Set(["read"]),
+    },
+    "Authorisations Coordinator": {
+      patients: new Set(["read"]),
+      providers: new Set(["read"]),
+      claims: new Set(["read", "write", "process"]),
+      reports: new Set(["read"]),
+      audit: new Set(["read"]),
     },
     "Healthcare Provider": {
       patients: new Set(["read"]),
@@ -45,6 +133,19 @@
       claims: new Set(["read"]),
       payments: new Set(["read", "write"]),
       reports: new Set(["read", "generate"]),
+    },
+    "Reconciliation Specialist": {
+      claims: new Set(["read"]),
+      payments: new Set(["read", "write"]),
+      reports: new Set(["read", "generate"]),
+      audit: new Set(["read"]),
+    },
+    "Credit Controller": {
+      patients: new Set(["read"]),
+      claims: new Set(["read"]),
+      payments: new Set(["read", "write"]),
+      reports: new Set(["read"]),
+      audit: new Set(["read"]),
     },
     "Compliance Auditor": {
       patients: new Set(["read"]),
@@ -276,21 +377,71 @@
     const aliases = {
       admin: "Administrator",
       administrator: "Administrator",
+      "front office": "Front Office",
+      frontdesk: "Front Office",
+      billingcore: "Billing",
       billing: "Billing Specialist",
+      "billing core": "Billing",
+      clinical: "Clinical",
+      clinicalcore: "Clinical",
+      financecore: "Finance",
+      finance: "Finance Officer",
+      auditcore: "Audit",
+      audit: "Audit",
+      manager: "Practice Manager",
+      "practice manager": "Practice Manager",
+      bureau: "Bureau Manager",
+      "bureau manager": "Bureau Manager",
+      reception: "Reception / Patient Access",
+      receptionist: "Reception / Patient Access",
+      "patient access": "Reception / Patient Access",
+      "reception / patient access": "Reception / Patient Access",
       "billing specialist": "Billing Specialist",
+      coder: "Clinical Coder",
+      "clinical coder": "Clinical Coder",
+      authz: "Authorisations Coordinator",
+      authorisations: "Authorisations Coordinator",
+      "authorisations coordinator": "Authorisations Coordinator",
       provider: "Healthcare Provider",
       "healthcare provider": "Healthcare Provider",
-      finance: "Finance Officer",
       "finance officer": "Finance Officer",
+      recon: "Reconciliation Specialist",
+      reconciliation: "Reconciliation Specialist",
+      "reconciliation specialist": "Reconciliation Specialist",
+      debtors: "Credit Controller",
+      debtor: "Credit Controller",
+      "credit controller": "Credit Controller",
       auditor: "Compliance Auditor",
       "compliance auditor": "Compliance Auditor",
     };
     const key = String(raw || "").toLowerCase().trim();
-    return aliases[key] || raw || "Billing Specialist";
+    return aliases[key] || raw || "Billing";
+  }
+
+  function getDashboardRoleFamily(role = state.role) {
+    const families = {
+      "Front Office": "Front Office",
+      Billing: "Billing",
+      Clinical: "Clinical",
+      Finance: "Finance",
+      Audit: "Audit",
+      "Practice Manager": "Administrator",
+      "Bureau Manager": "Administrator",
+      "Reception / Patient Access": "Front Office",
+      "Billing Specialist": "Billing",
+      "Clinical Coder": "Billing",
+      "Authorisations Coordinator": "Front Office",
+      "Healthcare Provider": "Clinical",
+      "Finance Officer": "Finance",
+      "Reconciliation Specialist": "Finance",
+      "Credit Controller": "Finance",
+      "Compliance Auditor": "Audit",
+    };
+    return families[role] || role || "Billing";
   }
 
   function getStoredRole() {
-    const raw = localStorage.getItem("api_role") || localStorage.getItem("role") || "Billing Specialist";
+    const raw = localStorage.getItem("api_role") || localStorage.getItem("role") || "Billing";
     return normalizeRole(raw);
   }
 
@@ -1057,7 +1208,7 @@
   }
 
   function getRoleScopedClaims(claims) {
-    if (state.role === "Administrator") {
+    if (["Administrator", "Practice Manager", "Bureau Manager"].includes(state.role)) {
       return claims || [];
     }
     return (claims || []).filter((claim) => {
@@ -1068,12 +1219,24 @@
   function getDashboardPrimaryAction() {
     const actions = {
       Administrator: { label: "Open users", href: "users.html" },
+      "Front Office": { label: "Open patients", href: "patients.html" },
+      Billing: { label: "Open claims", href: "claims.html" },
+      Clinical: { label: "Open patients", href: "patients.html" },
+      Finance: { label: "Open payments", href: "payments.html" },
+      Audit: { label: "Open audit", href: "audit.html" },
+      "Practice Manager": { label: "Open reports", href: "reports.html" },
+      "Bureau Manager": { label: "Open reports", href: "reports.html" },
+      "Reception / Patient Access": { label: "Open patients", href: "patients.html" },
       "Billing Specialist": { label: "Open claims", href: "claims.html" },
+      "Clinical Coder": { label: "Open claims", href: "claims.html" },
+      "Authorisations Coordinator": { label: "Open claims", href: "claims.html" },
       "Healthcare Provider": { label: "Open patients", href: "patients.html" },
       "Finance Officer": { label: "Open payments", href: "payments.html" },
+      "Reconciliation Specialist": { label: "Open payments", href: "payments.html" },
+      "Credit Controller": { label: "Open patients", href: "patients.html" },
       "Compliance Auditor": { label: "Open audit", href: "audit.html" },
     };
-    return actions[state.role] || actions["Billing Specialist"];
+    return actions[state.role] || actions.Billing;
   }
 
   function renderDashboardKpis(items) {
@@ -1111,7 +1274,7 @@
       return;
     }
 
-    const roles = ["Billing Specialist", "Healthcare Provider", "Finance Officer", "Compliance Auditor", "Administrator"];
+    const roles = ["Front Office", "Billing", "Clinical", "Finance", "Audit", "Administrator"];
     const isServerBoard = Array.isArray(claimsOrBoard) && claimsOrBoard[0] && Object.prototype.hasOwnProperty.call(claimsOrBoard[0], "claims");
     const board = isServerBoard
       ? claimsOrBoard
@@ -1119,7 +1282,7 @@
           const items = (claimsOrBoard || [])
             .filter((claim) => {
               const status = String(claim.status || "").toLowerCase();
-              return !["paid", "reconciled"].includes(status) || status === "reconciled" && getClaimCurrentOwner(claim) === "Compliance Auditor";
+              return !["paid", "reconciled"].includes(status) || status === "reconciled" && ["Audit"].includes(getClaimCurrentOwner(claim));
             })
             .sort((left, right) => Number(right.id || 0) - Number(left.id || 0));
           const owned = items.filter((claim) => getClaimCurrentOwner(claim) === role).slice(0, 5);
@@ -1200,17 +1363,20 @@
   }
 
   function getDashboardRolePriorities() {
+    const family = getDashboardRoleFamily();
     const priorities = {
       Administrator: ["blocked", "validation_exception", "exception", "rejected", "pended", "ready_to_submit", "submitted"],
-      "Billing Specialist": ["blocked", "pended", "rejected", "validation_exception", "ready_to_close", "ready_to_submit", "submitted"],
-      "Healthcare Provider": ["draft", "blocked", "pended", "ready_to_close"],
-      "Finance Officer": ["ready_to_submit", "submitted", "acknowledged", "paid", "exception", "reconciled"],
-      "Compliance Auditor": ["closed", "validation_exception", "submitted", "paid", "reconciled", "exception"],
+      "Front Office": ["draft", "pended"],
+      Billing: ["blocked", "ready_to_close", "validation_exception", "ready_to_submit", "rejected"],
+      Clinical: ["draft", "blocked", "pended", "validation_exception"],
+      Finance: ["submitted", "acknowledged", "paid", "exception"],
+      Audit: ["closed", "validation_exception", "reconciled", "exception"],
     };
-    return priorities[state.role] || priorities["Billing Specialist"];
+    return priorities[family] || priorities.Billing;
   }
 
   function buildDashboardWorkflow(summary, claims) {
+    const family = getDashboardRoleFamily();
     const configs = {
       Administrator: [
         { label: "Intake", statuses: ["draft", "blocked"], owner: "Admin and Billing", copy: "Platform-level visibility over draft capture and blocked readiness." },
@@ -1219,33 +1385,35 @@
         { label: "Finance", statuses: ["paid", "reconciled", "exception"], owner: "Finance", copy: "Cash posting, mismatch handling and reconciliation control." },
         { label: "Governance", statuses: ["rejected", "pended", "exception"], owner: "Audit and Admin", copy: "Cross-role exceptions requiring control review or policy intervention." },
       ],
-      "Billing Specialist": [
-        { label: "Capture", statuses: ["draft", "blocked"], owner: "Billing and Provider", copy: "Claims still missing readiness items or intake quality." },
-        { label: "Close", statuses: ["ready_to_close", "closed", "validation_exception"], owner: "Billing", copy: "Files moving through closure and post-closure validation." },
-        { label: "Submit", statuses: ["ready_to_submit", "submitted"], owner: "Billing", copy: "Validated claims that need payload generation or dispatch tracking." },
-        { label: "Recover", statuses: ["rejected", "pended"], owner: "Billing and Provider", copy: "Claims needing evidence, correction or resubmission." },
+      "Front Office": [
+        { label: "Patient intake", statuses: ["draft"], owner: "Front Office", copy: "Patient, member and visit capture before billing begins." },
+        { label: "Scheme follow-up", statuses: ["pended"], owner: "Front Office with clinical support", copy: "Cases waiting on scheme information, motivations or patient details." },
+        { label: "Collaboration need", statuses: ["draft", "pended"], owner: "Front Office, Billing, Clinical", copy: "Front-office actions must hand clean data into billing and clinical teams." },
       ],
-      "Healthcare Provider": [
-        { label: "Clinical intake", statuses: ["draft"], owner: "Provider", copy: "Encounters still being shaped into billable claim records." },
-        { label: "Readiness blockers", statuses: ["blocked", "pended"], owner: "Provider and Billing", copy: "Diagnosis, PMB or evidence gaps stopping progress." },
-        { label: "Ready for close", statuses: ["ready_to_close"], owner: "Billing handoff", copy: "Claims clinically complete enough for billing closure." },
-        { label: "Post-close exceptions", statuses: ["validation_exception"], owner: "Provider support", copy: "Clinical clarifications still affecting closure confidence." },
+      Billing: [
+        { label: "Readiness triage", statuses: ["blocked"], owner: "Billing", copy: "Billing owns readiness blockers and coordinates the fix path." },
+        { label: "Closure", statuses: ["ready_to_close"], owner: "Billing with clinical support", copy: "Claims clinically complete enough for coding and closure." },
+        { label: "Submission", statuses: ["ready_to_submit"], owner: "Billing with finance visibility", copy: "Billing is the single operational owner before claims move to finance." },
+        { label: "Recovery", statuses: ["rejected", "validation_exception"], owner: "Billing with front-office and clinical collaboration", copy: "Billing drives corrections, while collaborators supply the missing evidence or data." },
       ],
-      "Finance Officer": [
-        { label: "Ready for dispatch", statuses: ["ready_to_submit"], owner: "Billing to Finance", copy: "Claims positioned to convert into receivables." },
+      Clinical: [
+        { label: "Clinical capture", statuses: ["draft"], owner: "Clinical", copy: "Diagnosis, treatment and evidence capture feeding the claim." },
+        { label: "Support blockers", statuses: ["blocked", "pended"], owner: "Clinical supporting billing and front office", copy: "Clinical work unblocks coding, PMB and evidence issues." },
+        { label: "Correction loop", statuses: ["validation_exception"], owner: "Clinical supporting billing", copy: "Clinical clarifications are supplied back into the billing recovery path." },
+      ],
+      Finance: [
         { label: "In flight", statuses: ["submitted", "acknowledged"], owner: "Finance", copy: "Scheme-facing items being tracked for response and remittance." },
-        { label: "Posted", statuses: ["paid"], owner: "Finance", copy: "Paid claims awaiting clean reconciliation and ledger confidence." },
-        { label: "Exceptions", statuses: ["exception", "reconciled"], owner: "Finance and Audit", copy: "Mismatch review, partial-pay follow-up and final proof." },
+        { label: "Cash posting", statuses: ["paid"], owner: "Finance", copy: "Receipts and remittances are posted and prepared for assurance." },
+        { label: "Exceptions", statuses: ["exception"], owner: "Finance with billing support", copy: "Mismatch review has one finance owner with billing pulled in only when needed." },
       ],
-      "Compliance Auditor": [
-        { label: "Post-close review", statuses: ["closed", "validation_exception"], owner: "Audit", copy: "Closed claims where control evidence and rule output matter most." },
-        { label: "Submission evidence", statuses: ["submitted", "acknowledged"], owner: "Audit and Finance", copy: "Operational proof across dispatch, acknowledgements and responses." },
-        { label: "Financial integrity", statuses: ["paid", "exception"], owner: "Finance and Audit", copy: "Payment posting, exceptions and reconciliation evidence." },
-        { label: "Archive posture", statuses: ["reconciled"], owner: "Audit", copy: "Claims at the end of flow where archive and retention controls dominate." },
+      Audit: [
+        { label: "Post-close review", statuses: ["closed", "validation_exception"], owner: "Audit", copy: "Audit reviews control posture after billing closes the claim." },
+        { label: "Exception assurance", statuses: ["exception"], owner: "Audit supporting finance", copy: "Audit sees exceptions, but finance stays the operational owner." },
+        { label: "Archive and evidence", statuses: ["reconciled"], owner: "Audit", copy: "Audit owns final evidence posture once finance reconciles the cash outcome." },
       ],
     };
 
-    const stages = configs[state.role] || configs["Billing Specialist"];
+    const stages = configs[family] || configs.Billing;
     return stages.map((stage, index) => ({
       label: stage.label,
       owner: stage.owner,
@@ -1304,6 +1472,7 @@
     const topRuleText = topRules.join(", ") || "No rule pressure";
     const activePolicy = summary.active_policy?.profile || "SCHEME_A:OPTION_X";
     const activeVersion = `v${summary.active_policy?.version || 1}`;
+    const family = getDashboardRoleFamily();
 
     const roleConfigs = {
       Administrator: {
@@ -1334,14 +1503,42 @@
           { label: "Control posture", value: "POPIA, ECT, HPCSA", copy: "Privacy, integrity and archive controls carried through the workflow." },
         ],
       },
-      "Billing Specialist": {
+      "Front Office": {
+        pageTitle: "Front Office Operations",
+        pageSubtitle: "Patient access, member validation, family checks and clean handoff into billing.",
+        searchPlaceholder: "Search patient, member, authorisation or booking...",
+        primaryActionLabel: "Open patients",
+        badge: "Front Office",
+        heading: "Patient access is the first billing control.",
+        copy: "This workspace keeps the front office focused on patient capture, membership quality and smooth handoff into billing without owning downstream claim recovery.",
+        tags: ["Benefit checks", "Patient intake", "Front-desk controls"],
+        priorityLabel: "Access quality",
+        tenantScope: "Practice-scoped access desk",
+        complianceState: "POPIA access controls active",
+        worklistTitle: "Front-desk action queue",
+        worklistCopy: "Patient-access items still blocking clean billing handoff.",
+        worklistChip: "Access live queue",
+        sideTitle: "Intake posture",
+        sideCopy: "Signals that show whether patients and memberships are ready for downstream claims handling.",
+        focusCards: [
+          { label: "Ready for billing handoff", value: formatDashboardCount(summary.ready_to_close), copy: "Claims with patient access and basic validation completed.", tone: "teal" },
+          { label: "Pending blockers", value: formatDashboardCount(summary.rejected_or_pended), copy: `Most common issue: ${topRuleText}.`, tone: "amber" },
+          { label: "Submission-ready claims", value: formatDashboardCount(summary.ready_to_submit), copy: "Front-office capture already supporting downstream throughput.", tone: "blue" },
+        ],
+        sideItems: [
+          { label: "Member checks", value: "Benefits and family validation", copy: "Driven from the same patient and scheme context as billing." },
+          { label: "Top blocker", value: topRuleText, copy: "The dominant intake issue delaying claim readiness." },
+          { label: "Patient statements", value: "Collections aware", copy: "Front desk can see downstream billing impact and patient balances." },
+        ],
+      },
+      Billing: {
         pageTitle: "Billing Operations",
-        pageSubtitle: "Submission readiness, rejection recovery and payment follow-through for the active billing team.",
+        pageSubtitle: "Readiness triage, coding closure, claim submission and rejection recovery.",
         searchPlaceholder: "Search claim, member, batch or scheme...",
         primaryActionLabel: "Open claims",
-        badge: "Billing Specialist",
-        heading: "Claims flow shaped around throughput and recovery.",
-        copy: "This workspace keeps the queue centered on what can close, what can submit, and which exceptions are slowing cash movement.",
+        badge: "Billing",
+        heading: "Billing owns the operational claim flow.",
+        copy: "Billing is the single primary owner for readiness triage, closure, submission and recovery, while pulling in front office or clinical teams only where required.",
         tags: ["Scheme routing", "ICD-10 coding", "Submission ready"],
         priorityLabel: "Submission throughput",
         tenantScope: "Practice-scoped billing",
@@ -1362,14 +1559,14 @@
           { label: "Remit exceptions", value: formatDashboardCount(summary.reconciliation_exceptions), copy: "Partial pay and mismatch review still open." },
         ],
       },
-      "Healthcare Provider": {
-        pageTitle: "Clinical Claim Readiness",
-        pageSubtitle: "Provider-facing claim readiness with emphasis on diagnosis completeness, coding and clinical follow-up.",
+      Clinical: {
+        pageTitle: "Clinical Claim Support",
+        pageSubtitle: "Clinical documentation, diagnosis quality and evidence support for billable claims.",
         searchPlaceholder: "Search patient, claim or provider...",
         primaryActionLabel: "Open patients",
-        badge: "Healthcare Provider",
-        heading: "Clinical visibility before claims leave the practice.",
-        copy: "The provider dashboard prioritizes diagnosis quality, patient context and the claim actions that most affect medical scheme acceptance.",
+        badge: "Clinical",
+        heading: "Clinical teams support claim quality without duplicating billing ownership.",
+        copy: "Clinical users focus on diagnosis, PMB and evidence quality, then collaborate with billing only where claim progression needs clinical input.",
         tags: ["Clinical coding", "Patient context", "Provider evidence"],
         priorityLabel: "Diagnosis readiness",
         tenantScope: "Provider practice scope",
@@ -1390,14 +1587,14 @@
           { label: "Archive posture", value: "HPCSA archive logic", copy: "Record retention and evidence posture remain enforced." },
         ],
       },
-      "Finance Officer": {
+      Finance: {
         pageTitle: "Finance and Remittance",
         pageSubtitle: "Collections, remittance and reconciliation monitoring for scheme receipts and downstream finance review.",
         searchPlaceholder: "Search remittance, claim or payment reference...",
         primaryActionLabel: "Open payments",
-        badge: "Finance Officer",
+        badge: "Finance",
         heading: "Cash posture and reconciliation in one finance view.",
-        copy: "Track what is ready to convert into cash, what was paid short, and which reconciliation gaps need immediate finance follow-up.",
+        copy: "Finance owns all in-flight, paid and exception cash states, while billing and audit collaborate without taking over the queue.",
         tags: ["Remittance control", "Collections visibility", "Variance monitoring"],
         priorityLabel: "Cash conversion",
         tenantScope: "Finance practice scope",
@@ -1418,14 +1615,14 @@
           { label: "Scheme profile", value: activePolicy, copy: `Remittance context currently aligned to ${activeVersion}.` },
         ],
       },
-      "Compliance Auditor": {
+      Audit: {
         pageTitle: "Compliance Oversight",
         pageSubtitle: "Audit evidence, control posture and rule outcomes surfaced for governance and assurance teams.",
         searchPlaceholder: "Search control, claim, evidence or audit item...",
         primaryActionLabel: "Open audit",
-        badge: "Compliance Auditor",
+        badge: "Audit",
         heading: "Evidence-led oversight across privacy, coding and archive controls.",
-        copy: "Review live operational outputs through a control lens, with rule trends, policy versions and archive posture visible in one dashboard.",
+        copy: "Audit reviews the lifecycle at the control points that matter, without becoming a duplicate operational queue owner.",
         tags: ["POPIA posture", "HPCSA archive", "Evidence visibility"],
         priorityLabel: "Control assurance",
         tenantScope: "Governance scoped access",
@@ -1448,7 +1645,11 @@
       },
     };
 
-    return roleConfigs[state.role] || roleConfigs["Billing Specialist"];
+    const resolved = roleConfigs[state.role] || roleConfigs[family] || roleConfigs.Billing;
+    if (state.role && state.role !== family) {
+      return { ...resolved, badge: state.role };
+    }
+    return resolved;
   }
 
   async function loadDashboardSummary() {

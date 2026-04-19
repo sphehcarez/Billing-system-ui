@@ -53,22 +53,32 @@ class BillingAPI {
       // Normalize role aliases so they match ROLE_PERMISSIONS keys in app.js
       const roleAliases = {
         admin: "Administrator", administrator: "Administrator",
+        "front office": "Front Office", frontdesk: "Front Office",
+        billingcore: "Billing", "billing core": "Billing",
+        clinical: "Clinical", clinicalcore: "Clinical",
+        financecore: "Finance", auditcore: "Audit", audit: "Audit",
+        manager: "Practice Manager", "practice manager": "Practice Manager",
+        bureau: "Bureau Manager", "bureau manager": "Bureau Manager",
+        reception: "Reception / Patient Access", receptionist: "Reception / Patient Access",
+        "patient access": "Reception / Patient Access", "reception / patient access": "Reception / Patient Access",
         billing: "Billing Specialist", "billing specialist": "Billing Specialist",
+        coder: "Clinical Coder", "clinical coder": "Clinical Coder",
+        authz: "Authorisations Coordinator", authorisations: "Authorisations Coordinator", "authorisations coordinator": "Authorisations Coordinator",
         provider: "Healthcare Provider", "healthcare provider": "Healthcare Provider",
         finance: "Finance Officer", "finance officer": "Finance Officer",
+        recon: "Reconciliation Specialist", reconciliation: "Reconciliation Specialist", "reconciliation specialist": "Reconciliation Specialist",
+        debtor: "Credit Controller", debtors: "Credit Controller", "credit controller": "Credit Controller",
         auditor: "Compliance Auditor", "compliance auditor": "Compliance Auditor",
       };
       const rawRole = data.role || "";
       this.role = roleAliases[rawRole.toLowerCase().trim()] || rawRole;
+      this.tenantId = data.tenant_id || null;
+      this.practiceId = data.practice_id || null;
       localStorage.setItem("api_token", this.token);
       localStorage.setItem("api_role", this.role);
       localStorage.setItem("role", this.role);
-      if (this.tenantId) {
-        localStorage.setItem("api_tenant_id", this.tenantId);
-      }
-      if (this.practiceId) {
-        localStorage.setItem("api_practice_id", this.practiceId);
-      }
+      if (this.tenantId) localStorage.setItem("api_tenant_id", this.tenantId);
+      if (this.practiceId) localStorage.setItem("api_practice_id", this.practiceId);
       return data;
     } catch (error) {
       console.error("Login error:", error);

@@ -38,21 +38,12 @@
         </div>
 
         <div class="login-role-directory">
-          <button type="button" class="login-role-tile is-active" data-login-role="Administrator">
-            <strong>Administrator</strong>
-          </button>
-          <button type="button" class="login-role-tile" data-login-role="Billing Specialist">
-            <strong>Billing Specialist</strong>
-          </button>
-          <button type="button" class="login-role-tile" data-login-role="Healthcare Provider">
-            <strong>Healthcare Provider</strong>
-          </button>
-          <button type="button" class="login-role-tile" data-login-role="Finance Officer">
-            <strong>Finance Officer</strong>
-          </button>
-          <button type="button" class="login-role-tile" data-login-role="Compliance Auditor">
-            <strong>Compliance Auditor</strong>
-          </button>
+          <button type="button" class="login-role-tile" data-login-role="Administrator"><strong>Administrator</strong></button>
+          <button type="button" class="login-role-tile" data-login-role="Front Office"><strong>Front Office</strong></button>
+          <button type="button" class="login-role-tile is-active" data-login-role="Billing"><strong>Billing</strong></button>
+          <button type="button" class="login-role-tile" data-login-role="Clinical"><strong>Clinical</strong></button>
+          <button type="button" class="login-role-tile" data-login-role="Finance"><strong>Finance</strong></button>
+          <button type="button" class="login-role-tile" data-login-role="Audit"><strong>Audit</strong></button>
         </div>
 
         <div class="login-form-grid">
@@ -61,10 +52,11 @@
               <div class="label">Role</div>
               <select id="role" class="input">
                 <option>Administrator</option>
-                <option selected>Billing Specialist</option>
-                <option>Healthcare Provider</option>
-                <option>Finance Officer</option>
-                <option>Compliance Auditor</option>
+                <option>Front Office</option>
+                <option selected>Billing</option>
+                <option>Clinical</option>
+                <option>Finance</option>
+                <option>Audit</option>
               </select>
             </div>
             <div class="field">
@@ -90,6 +82,50 @@
                 <strong>admin</strong>
                 <p><code>admin123</code></p>
               </article>
+              <article class="seeded-access-card" data-seed-user="frontdesk" data-seed-pass="frontdesk123" data-seed-role="Front Office">
+                <span>Front Office</span>
+                <strong>frontdesk</strong>
+                <p><code>frontdesk123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="billingcore" data-seed-pass="billingcore123" data-seed-role="Billing">
+                <span>Billing</span>
+                <strong>billingcore</strong>
+                <p><code>billingcore123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="clinical" data-seed-pass="clinical123" data-seed-role="Clinical">
+                <span>Clinical</span>
+                <strong>clinical</strong>
+                <p><code>clinical123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="financecore" data-seed-pass="financecore123" data-seed-role="Finance">
+                <span>Finance</span>
+                <strong>financecore</strong>
+                <p><code>financecore123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="auditcore" data-seed-pass="auditcore123" data-seed-role="Audit">
+                <span>Audit</span>
+                <strong>auditcore</strong>
+                <p><code>auditcore123</code></p>
+              </article>
+            </div>
+            <details class="seeded-access-advanced">
+              <summary>Optional advanced specializations</summary>
+              <div class="seeded-access-grid">
+              <article class="seeded-access-card" data-seed-user="manager" data-seed-pass="manager123" data-seed-role="Practice Manager">
+                <span>Practice Manager</span>
+                <strong>manager</strong>
+                <p><code>manager123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="bureau" data-seed-pass="bureau123" data-seed-role="Bureau Manager">
+                <span>Bureau Manager</span>
+                <strong>bureau</strong>
+                <p><code>bureau123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="reception" data-seed-pass="reception123" data-seed-role="Reception / Patient Access">
+                <span>Reception / Patient Access</span>
+                <strong>reception</strong>
+                <p><code>reception123</code></p>
+              </article>
               <article class="seeded-access-card" data-seed-user="demo.user" data-seed-pass="password123" data-seed-role="Billing Specialist">
                 <span>Billing Specialist</span>
                 <strong>demo.user</strong>
@@ -99,6 +135,16 @@
                 <span>Billing Specialist</span>
                 <strong>billing</strong>
                 <p><code>billing123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="coder" data-seed-pass="coder123" data-seed-role="Clinical Coder">
+                <span>Clinical Coder</span>
+                <strong>coder</strong>
+                <p><code>coder123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="authz" data-seed-pass="authz123" data-seed-role="Authorisations Coordinator">
+                <span>Authorisations Coordinator</span>
+                <strong>authz</strong>
+                <p><code>authz123</code></p>
               </article>
               <article class="seeded-access-card" data-seed-user="provider" data-seed-pass="provider123" data-seed-role="Healthcare Provider">
                 <span>Healthcare Provider</span>
@@ -110,11 +156,23 @@
                 <strong>finance</strong>
                 <p><code>finance123</code></p>
               </article>
+              <article class="seeded-access-card" data-seed-user="recon" data-seed-pass="recon123" data-seed-role="Reconciliation Specialist">
+                <span>Reconciliation Specialist</span>
+                <strong>recon</strong>
+                <p><code>recon123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="debtors" data-seed-pass="debtors123" data-seed-role="Credit Controller">
+                <span>Credit Controller</span>
+                <strong>debtors</strong>
+                <p><code>debtors123</code></p>
+              </article>
               <article class="seeded-access-card" data-seed-user="auditor" data-seed-pass="auditor123" data-seed-role="Compliance Auditor">
                 <span>Compliance Auditor</span>
                 <strong>auditor</strong>
                 <p><code>auditor123</code></p>
               </article>
+              </div>
+            </details>
             </div>
           </div>
         </div>
