@@ -357,7 +357,7 @@
       closeButton.setAttribute("data-sidebar-close", "true");
       closeButton.setAttribute("aria-controls", "app-sidebar");
       closeButton.setAttribute("aria-label", "Close navigation");
-      closeButton.textContent = "×";
+      closeButton.textContent = "X";
       closeButton.addEventListener("click", () => setSidebarOpen(false));
       sidebarHead.appendChild(closeButton);
     }
@@ -507,7 +507,7 @@
       toggle.setAttribute("aria-expanded", String(sidebarOpen));
       toggle.setAttribute("aria-label", toggleLabel);
       toggle.setAttribute("title", toggleLabel);
-      toggle.textContent = narrowViewport ? "☰" : (sidebarOpen ? "⇤" : "⇥");
+      toggle.textContent = narrowViewport ? "=" : (sidebarOpen ? "<" : ">");
     }
 
     const closeButton = document.querySelector("[data-sidebar-close]");
@@ -1186,15 +1186,6 @@
             )
             .join("")
         : '<tr><td colspan="5" style="text-align:center;color:#999;">No worklist items in the current role scope.</td></tr>';
-        ? worklist.map(c => `
-            <tr>
-              <td class="code">${escapeHtml(c.claim_number)}</td>
-              <td>${escapeHtml(c.member_number || `Patient ${c.patient_id}`)}</td>
-              <td><span class="chip ${claimStatusClass(c)}">${escapeHtml(c.status)}</span></td>
-              <td>${escapeHtml(c.scheme_id || "—")}</td>
-              <td class="row-actions"><a class="chip info" href="claim_detail.html?id=${c.id}">Open</a></td>
-            </tr>`).join("")
-        : '<tr><td colspan="5" style="text-align:center;color:#999;">No items in work queue.</td></tr>';
     }
 
     // Charts
