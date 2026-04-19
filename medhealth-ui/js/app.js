@@ -1196,7 +1196,7 @@
       const tab    = state._claimsFilter;
       const query  = (state._claimsSearch || "").toLowerCase();
       const filtered = claims.filter(c => {
-        const tabMatch = tab === "all" || c.status === tab;
+        const tabMatch = tab === "all" || (c.status || "").toLowerCase() === tab;
         const searchMatch = !query
           || (c.claim_number || "").toLowerCase().includes(query)
           || (c.member_number || "").toLowerCase().includes(query)
@@ -1226,7 +1226,7 @@
     // Wire tabs
     document.querySelectorAll("[data-claim-tab]").forEach(btn => {
       btn.onclick = () => {
-        document.querySelectorAll("[data-claim-tab]").forEach(b => b.classList.replace("info","") || b.classList.remove("info"));
+        document.querySelectorAll("[data-claim-tab]").forEach(b => b.classList.remove("info"));
         btn.classList.add("info");
         state._claimsFilter = btn.getAttribute("data-claim-tab");
         applyClaimsFilter();
