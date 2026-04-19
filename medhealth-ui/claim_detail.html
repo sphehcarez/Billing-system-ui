@@ -350,6 +350,35 @@
             <div id="claim-pmb-summary" class="muted">Run readiness to load PMB identification, routing, and costing preview.</div>
           </div>
 
+          <div class="card role-progress-panel" id="roleProgressPanel" style="display:none;">
+            <h3>Workflow handoff</h3>
+            <div class="role-history">
+              <div class="role-item">
+                <span class="label">Current status</span>
+                <span class="value" id="currentRoleStatus">-</span>
+              </div>
+              <div class="role-item">
+                <span class="label">Last completed</span>
+                <span class="value" id="lastCompletedRole">-</span>
+              </div>
+              <div class="role-item">
+                <span class="label">Eligible next</span>
+                <span class="value" id="eligibleRoles">-</span>
+              </div>
+            </div>
+            <div id="stateProgression" class="state-progression"></div>
+          </div>
+
+          <div class="card onboarding-panel" id="onboardingPanel" style="display:none;">
+            <h3>Onboarding status</h3>
+            <div id="onboardingStatus" class="onboarding-status">
+              <span class="label">Provider onboarding</span>
+              <span class="value" id="providerOnboardingStatus">-</span>
+            </div>
+            <div id="onboardingBlockers" class="onboarding-blockers"></div>
+            <div id="onboardingActions" class="onboarding-actions"></div>
+          </div>
+
           <!-- Attachments summary -->
           <div class="card" id="attachments-summary-card">
             <div style="margin-bottom:8px;">

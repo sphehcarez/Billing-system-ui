@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="css/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
-<body>
+<body class="dashboard-page">
   <div class="shell">
     <aside class="sidebar">
       <div class="brand">
@@ -40,101 +40,73 @@
     <main class="main">
       <div class="topbar">
         <div class="h1">
-          <h1>Dashboard</h1>
-          <p>Operational overview across readiness, submissions, payments, and exceptions.</p>
+          <h1 id="dashboard-page-title">Dashboard</h1>
+          <p id="dashboard-page-subtitle">Operational overview across readiness, submissions, payments, and exceptions.</p>
         </div>
         <div class="actions">
           <div class="pill">
             <span class="code">Search</span>
-            <input placeholder="Claim ID, member number, batch ref..." />
+            <input id="dashboard-search-input" placeholder="Claim ID, member number, batch ref..." />
           </div>
           <button class="btn secondary" data-action="open-api-docs">API Docs</button>
-          <button class="btn" data-action="create-new">New</button>
+          <button class="btn" data-action="create-new" id="dashboard-create-button">New</button>
         </div>
       </div>
 
-      
-    <!-- KPI Row -->
-    <div class="grid">
-      <div class="card" style="grid-column:span 3;">
-        <div class="kpi">
-          <div class="muted">Total Claims</div>
-          <div class="value" id="kpi-total-claims">—</div>
-          <div class="delta" id="kpi-claims-delta">Loading…</div>
-        </div>
-      </div>
-      <div class="card" style="grid-column:span 3;">
-        <div class="kpi">
-          <div class="muted">Revenue Collected</div>
-          <div class="value" id="kpi-revenue">—</div>
-          <div class="delta">From completed payments</div>
-        </div>
-      </div>
-      <div class="card" style="grid-column:span 3;">
-        <div class="kpi">
-          <div class="muted">Outstanding Balance</div>
-          <div class="value" id="kpi-outstanding" style="color:var(--fail)">—</div>
-          <div class="delta">Across all patients</div>
-        </div>
-      </div>
-      <div class="card" style="grid-column:span 3;">
-        <div class="kpi">
-          <div class="muted">Active Patients</div>
-          <div class="value" id="kpi-patients">—</div>
-          <div class="delta" id="kpi-patients-delta">Registered in system</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Charts Row -->
-    <div class="grid" style="margin-top:16px;">
-      <div class="card" style="grid-column:span 4;">
-        <h3>Claims by Status</h3>
-        <div style="position:relative;height:200px;">
-          <canvas id="chart-claims-status"></canvas>
-        </div>
-        <div id="chart-claims-legend" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;font-size:12px;"></div>
-      </div>
-      <div class="card" style="grid-column:span 8;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <h3 style="margin:0;">AR Aging</h3>
-          <span class="muted" style="font-size:12px;">Claims outstanding by age bucket</span>
-        </div>
-        <div style="position:relative;height:200px;">
-          <canvas id="chart-ar-aging"></canvas>
-        </div>
-      </div>
-    </div>
-
-    <!-- Work queue + Quick stats -->
-    <div class="grid" style="margin-top:16px;">
-      <div class="card" style="grid-column:span 8;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <h3 style="margin:0;">Work queue</h3>
-          <div style="display:flex;gap:8px;">
-            <span class="chip" id="wq-count">Loading…</span>
-            <a class="chip info" href="claims.html">View all claims</a>
+      <section class="dashboard-hero">
+        <article class="dashboard-hero-card dashboard-hero-card-primary">
+          <span class="dashboard-role-badge" id="dashboard-role-badge">Workspace</span>
+          <h2 id="dashboard-role-heading">Role-led command view</h2>
+          <p id="dashboard-role-copy">The dashboard adapts its priorities, actions and signal density to the signed-in role.</p>
+          <div class="dashboard-hero-tags" id="dashboard-hero-tags"></div>
+        </article>
+        <article class="dashboard-hero-card dashboard-hero-card-secondary">
+          <div class="dashboard-hero-status">
+            <span>Priority focus</span>
+            <strong id="dashboard-priority-label">Claims flow</strong>
           </div>
+          <div class="dashboard-hero-status">
+            <span>Tenant scope</span>
+            <strong id="dashboard-tenant-scope">Scoped workspace</strong>
+          </div>
+          <div class="dashboard-hero-status">
+            <span>Compliance posture</span>
+            <strong id="dashboard-compliance-state">Controls active</strong>
+          </div>
+          <div class="dashboard-hero-accent" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+        </article>
+      </section>
+
+      <section class="dashboard-focus-grid" id="dashboard-focus-grid"></section>
+
+      <div class="grid dashboard-grid">
+        <div class="card dashboard-worklist-card" style="grid-column: span 8">
+          <div class="dashboard-section-head">
+            <div>
+              <h3 id="dashboard-worklist-title">Work queue</h3>
+              <p id="dashboard-worklist-copy" class="muted">Live role-specific queue from persisted lifecycle data.</p>
+            </div>
+            <span class="chip info" id="dashboard-worklist-chip">Live queue</span>
+          </div>
+          <table class="table">
+            <thead><tr><th>Claim</th><th>Primary reason</th><th>Status</th><th>Next action</th><th></th></tr></thead>
+            <tbody id="dashboard-worklist-rows">
+              <tr><td colspan="5" style="text-align:center;color:#999;">Loading worklist...</td></tr>
+            </tbody>
+          </table>
         </div>
-        <table class="table">
-          <thead><tr><th>Claim</th><th>Member</th><th>Status</th><th>Scheme</th><th>Action</th></tr></thead>
-          <tbody id="dashboard-worklist-rows">
-            <tr><td colspan="5" style="text-align:center;color:#999;">Loading worklist…</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="card" style="grid-column:span 4;">
-        <h3>Quick stats</h3>
-        <div class="panel" style="display:grid;gap:6px;">
-          <div class="kv"><span>Ready to close</span><strong id="dashboard-ready-to-close">—</strong></div>
-          <div class="kv"><span>Ready to submit</span><strong id="dashboard-ready-to-submit">—</strong></div>
-          <div class="kv"><span>Rejected / pended</span><strong id="dashboard-rejected-pended" style="color:var(--fail)">—</strong></div>
-          <div class="kv"><span>Reconciliation exceptions</span><strong id="dashboard-reconciliation-exceptions">—</strong></div>
-          <div class="kv"><span>Top rule hit</span><strong id="dashboard-policy-rule" style="font-size:12px;">—</strong></div>
-          <div class="kv"><span>Active policy</span><strong id="dashboard-policy-profile" style="font-size:12px;">—</strong></div>
+        <div class="card dashboard-side-card" style="grid-column: span 4">
+          <div class="dashboard-section-head">
+            <div>
+              <h3 id="dashboard-side-panel-title">Role intelligence</h3>
+              <p id="dashboard-side-panel-copy" class="muted">Signals and controls selected for the signed-in role.</p>
+            </div>
+          </div>
+          <div id="dashboard-side-panel-body" class="dashboard-side-panel-body"></div>
         </div>
       </div>
-    </div>
     
     </main>
   </div>

@@ -1,14 +1,15 @@
 import os
+import asyncio
 from datetime import UTC, datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from jose import ExpiredSignatureError, JWTError, jwt
 
-from db_runtime import database_healthcheck
-from postgres_store import PersistentPlatformStore
+from runtime_config import get_runtime_settings
+from store_provider import StoreProvider
 from platform_core import (
     ClaimClosureRequest,
     ClaimReadinessService,
@@ -37,6 +38,8 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5500",
     "null",
 ]
+
+_claim_subscribers: dict[int, Set[WebSocket]] = {}
 
 ROLE_PERMISSIONS = {
     "Administrator": {
@@ -86,25 +89,37 @@ ROLE_PERMISSIONS = {
 }
 
 class StoreProxy:
+    def __init__(self) -> None:
+        self._provider = StoreProvider()
+
+    def runtime_mode(self) -> str:
+        return self._provider.runtime_mode()
+
+    def runtime_message(self) -> str:
+        return self._provider.runtime_message()
+
     def __getattr__(self, name: str):
         def call(*args, **kwargs):
-            store = PersistentPlatformStore()
+            store, should_close = self._provider.get_store()
             try:
                 return getattr(store, name)(*args, **kwargs)
             finally:
-                store.close()
+                if should_close:
+                    store.close()
 
-        store = PersistentPlatformStore()
+        store, should_close = self._provider.get_store()
         try:
             attribute = getattr(store, name)
             if callable(attribute):
                 return call
             return attribute
         finally:
-            store.close()
+            if should_close:
+                store.close()
 
 
 db = StoreProxy()
+runtime_settings = get_runtime_settings()
 app = FastAPI(title="Medhealth Claims Rules Platform", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -145,9 +160,17 @@ def get_current_user(authorization: str | None = Header(default=None)) -> Dict[s
     username = payload.get("sub")
     role = payload.get("role")
     user_id = payload.get("user_id")
-    if not username or not role or not user_id:
+    tenant_id = payload.get("tenant_id")
+    practice_id = payload.get("practice_id")
+    if not username or not role or not user_id or not tenant_id:
         raise HTTPException(status_code=401, detail="Malformed token")
-    return {"username": username, "role": role, "user_id": user_id}
+    return {
+        "username": username,
+        "role": role,
+        "user_id": user_id,
+        "tenant_id": tenant_id,
+        "practice_id": practice_id,
+    }
 
 
 def require_permission(user: Dict[str, Any], resource: str, action: str) -> None:
@@ -160,6 +183,44 @@ def current_identity(user: Dict[str, Any]) -> tuple[str, str]:
     return user["username"], user["role"]
 
 
+def ensure_scope_access(current_user: Dict[str, Any], tenant_id: str) -> None:
+    if tenant_id != current_user["tenant_id"]:
+        raise HTTPException(status_code=403, detail="Cross-tenant access is not allowed")
+
+
+def ensure_claim_access(current_user: Dict[str, Any], claim_id: int) -> Dict[str, Any]:
+    claim = db.get_claim(claim_id)
+    provider = db.get_provider(claim["provider_id"])
+    ensure_scope_access(current_user, provider.tenant_id)
+    return claim
+
+
+async def broadcast_claim_update(claim_id: int, update_data: Dict[str, Any]) -> None:
+    subscribers = _claim_subscribers.get(claim_id)
+    if not subscribers:
+        return
+
+    disconnected: list[WebSocket] = []
+    for websocket in list(subscribers):
+        try:
+            await websocket.send_json(
+                {
+                    "type": "claim_update",
+                    "claim_id": claim_id,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "data": update_data,
+                }
+            )
+        except RuntimeError:
+            disconnected.append(websocket)
+
+    for websocket in disconnected:
+        subscribers.discard(websocket)
+
+    if not subscribers:
+        _claim_subscribers.pop(claim_id, None)
+
+
 @app.get("/")
 def root() -> Dict[str, str]:
     return {"message": "Medhealth claims rules platform", "docs": "/docs", "api": "/api/docs"}
@@ -167,7 +228,18 @@ def root() -> Dict[str, str]:
 
 @app.get("/health")
 def health() -> Dict[str, str]:
-    return database_healthcheck()
+    if db.runtime_mode() == "postgresql":
+        from db_runtime import database_healthcheck
+
+        health_status = database_healthcheck()
+        health_status["runtime"] = "postgresql"
+        return health_status
+    return {
+        "status": "ok",
+        "db": "in-memory",
+        "runtime": "in-memory",
+        "detail": db.runtime_message(),
+    }
 
 
 @app.post("/api/auth/login")
@@ -175,37 +247,92 @@ def login(request: LoginRequest) -> Dict[str, Any]:
     auth_record = db.auth_users.get(request.username)
     if not auth_record or auth_record["password"] != request.password:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = create_access_token({"sub": request.username, "role": auth_record["role"], "user_id": auth_record["user_id"]})
-    return {"access_token": token, "token_type": "bearer", "role": auth_record["role"]}
+    token = create_access_token(
+        {
+            "sub": request.username,
+            "role": auth_record["role"],
+            "user_id": auth_record["user_id"],
+            "tenant_id": auth_record["tenant_id"],
+            "practice_id": auth_record.get("practice_id"),
+        }
+    )
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": auth_record["role"],
+        "tenant_id": auth_record["tenant_id"],
+        "practice_id": auth_record.get("practice_id"),
+    }
 
 
 @app.get("/api/dashboard/summary")
 def dashboard_summary(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "read")
-    return db.dashboard_summary()
+    return db.dashboard_summary(tenant_id=current_user["tenant_id"])
+
+
+@app.get("/api/tenants")
+def list_tenants(current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    return [db.get_tenant(current_user["tenant_id"]).model_dump()]
+
+
+@app.get("/api/tenants/{tenant_id}")
+def get_tenant(tenant_id: str, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    ensure_scope_access(current_user, tenant_id)
+    return db.get_tenant(tenant_id).model_dump()
+
+
+@app.get("/api/practices")
+def list_practices(
+    tenant_id: str | None = None,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    scoped_tenant_id = tenant_id or current_user["tenant_id"]
+    ensure_scope_access(current_user, scoped_tenant_id)
+    return db.list_practices(tenant_id=scoped_tenant_id)
+
+
+@app.get("/api/practices/{practice_id}")
+def get_practice(practice_id: str, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    practice = db.get_practice(practice_id)
+    ensure_scope_access(current_user, practice.tenant_id)
+    return practice.model_dump()
+
+
+@app.post("/api/practices")
+def create_practice(payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    require_permission(current_user, "providers", "write")
+    actor, role = current_identity(current_user)
+    target_tenant_id = payload.get("tenant_id") or current_user["tenant_id"]
+    ensure_scope_access(current_user, target_tenant_id)
+    return db.create_practice(payload, actor, role, tenant_id=target_tenant_id)
 
 
 @app.get("/api/patients")
 def list_patients(current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     require_permission(current_user, "patients", "read")
-    return db.list_patients()
+    return db.list_patients(tenant_id=current_user["tenant_id"])
 
 
 @app.get("/api/patients/{patient_id}")
 def get_patient(patient_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "patients", "read")
-    return db.get_patient(patient_id).model_dump()
+    patient = db.get_patient(patient_id)
+    ensure_scope_access(current_user, patient.tenant_id)
+    return patient.model_dump()
 
 
 @app.get("/api/patients/{patient_id}/claim-context")
 def get_patient_claim_context(patient_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "patients", "read")
+    ensure_scope_access(current_user, db.get_patient(patient_id).tenant_id)
     return db.get_patient_claim_context(patient_id)
 
 
 @app.get("/api/patients/{patient_id}/timeline")
 def get_patient_timeline(patient_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "patients", "read")
+    ensure_scope_access(current_user, db.get_patient(patient_id).tenant_id)
     return db.get_patient_timeline(patient_id)
 
 
@@ -213,12 +340,19 @@ def get_patient_timeline(patient_id: int, current_user: Dict[str, Any] = Depends
 def create_patient(payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "patients", "write")
     actor, role = current_identity(current_user)
-    return db.create_patient(payload, actor, role)
+    return db.create_patient(
+        payload,
+        actor,
+        role,
+        tenant_id=current_user["tenant_id"],
+        practice_id=current_user.get("practice_id"),
+    )
 
 
 @app.put("/api/patients/{patient_id}")
 def update_patient(patient_id: int, payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "patients", "write")
+    ensure_scope_access(current_user, db.get_patient(patient_id).tenant_id)
     actor, role = current_identity(current_user)
     return db.update_patient(patient_id, payload, actor, role)
 
@@ -226,6 +360,7 @@ def update_patient(patient_id: int, payload: Dict[str, Any], current_user: Dict[
 @app.delete("/api/patients/{patient_id}", status_code=204)
 def delete_patient(patient_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> None:
     require_permission(current_user, "patients", "delete")
+    ensure_scope_access(current_user, db.get_patient(patient_id).tenant_id)
     actor, role = current_identity(current_user)
     db.delete_patient(patient_id, actor, role)
 
@@ -233,25 +368,34 @@ def delete_patient(patient_id: int, current_user: Dict[str, Any] = Depends(get_c
 @app.get("/api/providers")
 def list_providers(current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     require_permission(current_user, "providers", "read")
-    return db.list_providers()
+    return db.list_providers(tenant_id=current_user["tenant_id"])
 
 
 @app.get("/api/providers/{provider_id}")
 def get_provider(provider_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "providers", "read")
-    return db.get_provider(provider_id).model_dump()
+    provider = db.get_provider(provider_id)
+    ensure_scope_access(current_user, provider.tenant_id)
+    return provider.model_dump()
 
 
 @app.post("/api/providers")
 def create_provider(payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "providers", "write")
     actor, role = current_identity(current_user)
-    return db.create_provider(payload, actor, role)
+    return db.create_provider(
+        payload,
+        actor,
+        role,
+        tenant_id=current_user["tenant_id"],
+        practice_id=current_user.get("practice_id"),
+    )
 
 
 @app.put("/api/providers/{provider_id}")
 def update_provider(provider_id: int, payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "providers", "write")
+    ensure_scope_access(current_user, db.get_provider(provider_id).tenant_id)
     actor, role = current_identity(current_user)
     return db.update_provider(provider_id, payload, actor, role)
 
@@ -259,6 +403,7 @@ def update_provider(provider_id: int, payload: Dict[str, Any], current_user: Dic
 @app.delete("/api/providers/{provider_id}", status_code=204)
 def delete_provider(provider_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> None:
     require_permission(current_user, "providers", "delete")
+    ensure_scope_access(current_user, db.get_provider(provider_id).tenant_id)
     actor, role = current_identity(current_user)
     db.delete_provider(provider_id, actor, role)
 
@@ -266,26 +411,65 @@ def delete_provider(provider_id: int, current_user: Dict[str, Any] = Depends(get
 @app.get("/api/claims")
 def list_claims(current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     require_permission(current_user, "claims", "read")
-    return db.list_claims()
+    return db.list_claims(tenant_id=current_user["tenant_id"])
 
 
 @app.get("/api/claims/worklist")
 def claim_worklist(current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     require_permission(current_user, "claims", "read")
-    return db.list_worklist()
+    return db.list_worklist(tenant_id=current_user["tenant_id"])
 
 
 @app.get("/api/claims/{claim_id}")
 def get_claim(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "read")
-    return db.get_claim(claim_id)
+    return ensure_claim_access(current_user, claim_id)
+
+
+@app.websocket("/ws/claims/{claim_id}")
+async def websocket_claim_updates(
+    websocket: WebSocket,
+    claim_id: int,
+    token: str | None = Query(default=None),
+) -> None:
+    if not token:
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return
+
+    try:
+        current_user = get_current_user(token)
+    except HTTPException:
+        await websocket.close(code=1008, reason="Invalid authentication token")
+        return
+
+    try:
+        ensure_claim_access(current_user, claim_id)
+    except HTTPException:
+        await websocket.close(code=1008, reason="Unauthorized")
+        return
+
+    await websocket.accept()
+    subscribers = _claim_subscribers.setdefault(claim_id, set())
+    subscribers.add(websocket)
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        subscribers.discard(websocket)
+        if not subscribers:
+            _claim_subscribers.pop(claim_id, None)
 
 
 @app.post("/api/claims")
 def create_claim(payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "write")
     actor, role = current_identity(current_user)
-    return db.create_claim(payload, actor, role).model_dump()
+    return db.create_claim(payload, actor, role, tenant_id=current_user["tenant_id"]).model_dump()
 
 
 @app.put("/api/claims/{claim_id}")
@@ -377,8 +561,22 @@ def update_claim_line_item_diagnosis_links(
 @app.post("/api/claims/{claim_id}/readiness")
 def run_readiness(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "process")
+    ensure_claim_access(current_user, claim_id)
     actor, role = current_identity(current_user)
-    return db.run_readiness(claim_id, actor, role)
+    result = db.run_readiness(claim_id, actor, role)
+    claim = db.get_claim(claim_id)
+    asyncio.run(
+        broadcast_claim_update(
+            claim_id,
+            {
+                "status": claim["status"],
+                "affected_roles": result.get("affected_roles", []),
+                "state_progression": result.get("state_progression", []),
+                "onboarding_blockers": result.get("onboarding_blockers", []),
+            },
+        )
+    )
+    return result
 
 
 @app.post("/api/claims/{claim_id}/readiness/run")
@@ -389,8 +587,22 @@ def run_readiness_alias(claim_id: int, current_user: Dict[str, Any] = Depends(ge
 @app.post("/api/claims/{claim_id}/close")
 def close_claim(claim_id: int, request: ClaimClosureRequest | None = None, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "process")
+    ensure_claim_access(current_user, claim_id)
     actor, role = current_identity(current_user)
-    return db.close_claim(claim_id, request or ClaimClosureRequest(), actor, role)
+    result = db.close_claim(claim_id, request or ClaimClosureRequest(), actor, role)
+    claim = db.get_claim(claim_id)
+    asyncio.run(
+        broadcast_claim_update(
+            claim_id,
+            {
+                "status": claim["status"],
+                "affected_roles": result.get("affected_roles", []),
+                "state_progression": result.get("state_progression", []),
+                "onboarding_blockers": result.get("onboarding_blockers", []),
+            },
+        )
+    )
+    return result
 
 
 @app.post("/api/claims/{claim_id}/closure/confirm")
@@ -401,8 +613,22 @@ def close_claim_alias(claim_id: int, request: ClaimClosureRequest | None = None,
 @app.post("/api/claims/{claim_id}/validate")
 def post_closure_validate(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "process")
+    ensure_claim_access(current_user, claim_id)
     actor, role = current_identity(current_user)
-    return db.run_post_closure_validation(claim_id, actor, role)
+    result = db.run_post_closure_validation(claim_id, actor, role)
+    claim = db.get_claim(claim_id)
+    asyncio.run(
+        broadcast_claim_update(
+            claim_id,
+            {
+                "status": claim["status"],
+                "affected_roles": result.get("affected_roles", []),
+                "state_progression": result.get("state_progression", []),
+                "onboarding_blockers": result.get("onboarding_blockers", []),
+            },
+        )
+    )
+    return result
 
 
 @app.post("/api/claims/{claim_id}/validation/post-closure")
@@ -413,6 +639,7 @@ def post_closure_validate_alias(claim_id: int, current_user: Dict[str, Any] = De
 @app.post("/api/claims/{claim_id}/payload")
 def build_payload(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "process")
+    ensure_claim_access(current_user, claim_id)
     actor, role = current_identity(current_user)
     return db.build_payload(claim_id, actor, role)
 
@@ -420,18 +647,21 @@ def build_payload(claim_id: int, current_user: Dict[str, Any] = Depends(get_curr
 @app.get("/api/claims/{claim_id}/payloads/{version}")
 def get_claim_payload(claim_id: int, version: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "read")
+    ensure_claim_access(current_user, claim_id)
     return db.get_payload_for_claim_version(claim_id, version)
 
 
 @app.get("/api/claims/{claim_id}/payloads/{version}/structured")
 def get_structured_claim_payload(claim_id: int, version: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "read")
+    ensure_claim_access(current_user, claim_id)
     return db.get_structured_payload(claim_id, version)
 
 
 @app.post("/api/claims/{claim_id}/payloads/{version}/edi/generate")
 def generate_claim_edi(claim_id: int, version: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "process")
+    ensure_claim_access(current_user, claim_id)
     actor, role = current_identity(current_user)
     return db.generate_edi_artifact(claim_id, version, actor, role)
 
@@ -439,6 +669,7 @@ def generate_claim_edi(claim_id: int, version: int, current_user: Dict[str, Any]
 @app.post("/api/claims/{claim_id}/payloads/{version}/edi/validate")
 def validate_claim_edi(claim_id: int, version: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "process")
+    ensure_claim_access(current_user, claim_id)
     actor, role = current_identity(current_user)
     return db.validate_edi_artifact(claim_id, version, actor, role)
 
@@ -446,6 +677,7 @@ def validate_claim_edi(claim_id: int, version: int, current_user: Dict[str, Any]
 @app.get("/api/claims/{claim_id}/payloads/{version}/edi/download", response_class=PlainTextResponse)
 def download_claim_edi(claim_id: int, version: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> PlainTextResponse:
     require_permission(current_user, "claims", "read")
+    ensure_claim_access(current_user, claim_id)
     content = db.download_edi_artifact(claim_id, version)
     return PlainTextResponse(
         content,
@@ -462,6 +694,7 @@ def submit_claim_edi(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     require_permission(current_user, "claims", "submit")
+    ensure_claim_access(current_user, claim_id)
     actor, role = current_identity(current_user)
     return db.submit_edi_artifact(claim_id, version, channel, idempotency_key, actor, role)
 
@@ -469,8 +702,22 @@ def submit_claim_edi(
 @app.post("/api/claims/{claim_id}/submit")
 def submit_claim(claim_id: int, request: ClaimSubmissionRequest, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "submit")
+    ensure_claim_access(current_user, claim_id)
     actor, role = current_identity(current_user)
-    return db.submit_claim(claim_id, request, actor, role)
+    result = db.submit_claim(claim_id, request, actor, role)
+    claim = db.get_claim(claim_id)
+    asyncio.run(
+        broadcast_claim_update(
+            claim_id,
+            {
+                "status": claim["status"],
+                "affected_roles": result.get("affected_roles", []),
+                "state_progression": result.get("state_progression", []),
+                "onboarding_blockers": result.get("onboarding_blockers", []),
+            },
+        )
+    )
+    return result
 
 
 @app.post("/api/submissions/claims/{claim_id}")
@@ -492,12 +739,14 @@ def submission_logs(submission_id: str, current_user: Dict[str, Any] = Depends(g
 @app.get("/api/claims/{claim_id}/transport-logs")
 def claim_transport_logs(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     require_permission(current_user, "claims", "read")
+    ensure_claim_access(current_user, claim_id)
     return [item.model_dump() for item in db.get_transport_logs_for_claim(claim_id)]
 
 
 @app.get("/api/claims/{claim_id}/remittance")
 def claim_remittance(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "read")
+    ensure_claim_access(current_user, claim_id)
     return db.get_claim_remittance(claim_id)
 
 
@@ -509,12 +758,14 @@ def claim_remittance_alias(claim_id: int, current_user: Dict[str, Any] = Depends
 @app.get("/api/payments/claims/{claim_id}/reconciliation")
 def claim_reconciliation(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "payments", "read")
+    ensure_claim_access(current_user, claim_id)
     return db.get_claim_reconciliation(claim_id)
 
 
 @app.get("/api/claims/{claim_id}/evidence")
 def claim_evidence(claim_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "claims", "read")
+    ensure_claim_access(current_user, claim_id)
     return db.get_evidence_packet(claim_id)
 
 
@@ -559,25 +810,34 @@ def update_payment(payment_id: int, payload: Dict[str, Any], current_user: Dict[
 @app.get("/api/users")
 def list_users(current_user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     require_permission(current_user, "users", "read")
-    return db.list_users()
+    return db.list_users(tenant_id=current_user["tenant_id"])
 
 
 @app.get("/api/users/{user_id}")
 def get_user(user_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "users", "read")
-    return db.get_user(user_id).model_dump()
+    user = db.get_user(user_id)
+    ensure_scope_access(current_user, user.tenant_id)
+    return user.model_dump()
 
 
 @app.post("/api/users")
 def create_user(payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "users", "write")
     actor, role = current_identity(current_user)
-    return db.create_user(payload, actor, role)
+    return db.create_user(
+        payload,
+        actor,
+        role,
+        tenant_id=current_user["tenant_id"],
+        practice_id=current_user.get("practice_id"),
+    )
 
 
 @app.put("/api/users/{user_id}")
 def update_user(user_id: int, payload: Dict[str, Any], current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     require_permission(current_user, "users", "write")
+    ensure_scope_access(current_user, db.get_user(user_id).tenant_id)
     actor, role = current_identity(current_user)
     return db.update_user(user_id, payload, actor, role)
 
@@ -585,6 +845,7 @@ def update_user(user_id: int, payload: Dict[str, Any], current_user: Dict[str, A
 @app.delete("/api/users/{user_id}", status_code=204)
 def delete_user(user_id: int, current_user: Dict[str, Any] = Depends(get_current_user)) -> None:
     require_permission(current_user, "users", "delete")
+    ensure_scope_access(current_user, db.get_user(user_id).tenant_id)
     actor, role = current_identity(current_user)
     db.delete_user(user_id, actor, role)
 
@@ -829,6 +1090,6 @@ if __name__ == "__main__":
 
     uvicorn.run(
         app,
-        host=os.getenv("MEDHEALTH_HOST", "0.0.0.0"),
-        port=int(os.getenv("MEDHEALTH_PORT", "8001")),
+        host=runtime_settings.host,
+        port=runtime_settings.port,
     )

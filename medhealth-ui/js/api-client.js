@@ -26,6 +26,8 @@ class BillingAPI {
   constructor() {
     this.token = localStorage.getItem("api_token") || null;
     this.role = localStorage.getItem("api_role") || localStorage.getItem("role") || null;
+    this.tenantId = localStorage.getItem("api_tenant_id") || null;
+    this.practiceId = localStorage.getItem("api_practice_id") || null;
     this.baseUrl = API_BASE_URL;
     this.origin = API_ORIGIN;
   }
@@ -61,6 +63,12 @@ class BillingAPI {
       localStorage.setItem("api_token", this.token);
       localStorage.setItem("api_role", this.role);
       localStorage.setItem("role", this.role);
+      if (this.tenantId) {
+        localStorage.setItem("api_tenant_id", this.tenantId);
+      }
+      if (this.practiceId) {
+        localStorage.setItem("api_practice_id", this.practiceId);
+      }
       return data;
     } catch (error) {
       console.error("Login error:", error);
@@ -75,9 +83,13 @@ class BillingAPI {
   logout() {
     this.token = null;
     this.role = null;
+    this.tenantId = null;
+    this.practiceId = null;
     localStorage.removeItem("api_token");
     localStorage.removeItem("api_role");
     localStorage.removeItem("role");
+    localStorage.removeItem("api_tenant_id");
+    localStorage.removeItem("api_practice_id");
   }
 
   isAuthenticated() {
@@ -218,6 +230,15 @@ class BillingAPI {
 
   async deleteProvider(id) {
     return this._request(`/providers/${id}`, "DELETE");
+  }
+
+  async getTenants() {
+    return this._request("/tenants", "GET");
+  }
+
+  async getPractices(tenantId = null) {
+    const suffix = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : "";
+    return this._request(`/practices${suffix}`, "GET");
   }
 
   // =========================================================================

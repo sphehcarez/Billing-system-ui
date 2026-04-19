@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Medhealth South Africa | Secure Login</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="login-page-body">
+  <div class="landing-orb landing-orb-three"></div>
+  <div class="landing-orb landing-orb-four"></div>
+  <div class="landing-gridlines"></div>
+
+  <div class="login-page-shell login-page-shell-elite">
+    <aside class="login-showcase">
+      <div class="login-showcase-card login-showcase-card-elite">
+        <a class="login-back-link" href="index.html">&larr; Back to website</a>
+        <img class="logo" src="assets/MedhealthLogo.png" alt="Medhealth South Africa" />
+        <span class="landing-kicker">Secure workspace</span>
+        <h1>Minimal, secure access for Medhealth operations.</h1>
+        <p>Claims, providers and compliance in one controlled South African workspace.</p>
+
+        <div class="login-trust-strip">
+          <span>POPIA</span>
+          <span>ECT</span>
+          <span>ICD-10 MIT</span>
+          <span>HPCSA</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="login-workspace">
+      <section class="login-panel-modern login-panel-modern-elite">
+        <div class="login-panel-head">
+          <span>Authentication</span>
+          <h2>Sign in</h2>
+          <p>Select a role and continue into the correct workspace.</p>
+        </div>
+
+        <div class="login-role-directory">
+          <button type="button" class="login-role-tile is-active" data-login-role="Administrator">
+            <strong>Administrator</strong>
+          </button>
+          <button type="button" class="login-role-tile" data-login-role="Billing Specialist">
+            <strong>Billing Specialist</strong>
+          </button>
+          <button type="button" class="login-role-tile" data-login-role="Healthcare Provider">
+            <strong>Healthcare Provider</strong>
+          </button>
+          <button type="button" class="login-role-tile" data-login-role="Finance Officer">
+            <strong>Finance Officer</strong>
+          </button>
+          <button type="button" class="login-role-tile" data-login-role="Compliance Auditor">
+            <strong>Compliance Auditor</strong>
+          </button>
+        </div>
+
+        <div class="login-form-grid">
+          <div class="login-form-stack">
+            <div class="field">
+              <div class="label">Role</div>
+              <select id="role" class="input">
+                <option>Administrator</option>
+                <option selected>Billing Specialist</option>
+                <option>Healthcare Provider</option>
+                <option>Finance Officer</option>
+                <option>Compliance Auditor</option>
+              </select>
+            </div>
+            <div class="field">
+              <div class="label">Username</div>
+              <input id="user" class="input" placeholder="e.g. demo.user" />
+            </div>
+            <div class="field">
+              <div class="label">Password</div>
+              <input type="password" id="pass" class="input" placeholder="Enter password" />
+            </div>
+            <button class="btn login-submit" id="login">Continue to dashboard</button>
+            <div id="login-error" class="login-error"></div>
+          </div>
+
+          <div class="seeded-access seeded-access-elite">
+            <div class="seeded-access-head">
+              <strong>Local access profiles</strong>
+              <span>Tap to preload</span>
+            </div>
+            <div class="seeded-access-grid">
+              <article class="seeded-access-card" data-seed-user="admin" data-seed-pass="admin123" data-seed-role="Administrator">
+                <span>Administrator</span>
+                <strong>admin</strong>
+                <p><code>admin123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="demo.user" data-seed-pass="password123" data-seed-role="Billing Specialist">
+                <span>Billing Specialist</span>
+                <strong>demo.user</strong>
+                <p><code>password123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="billing" data-seed-pass="billing123" data-seed-role="Billing Specialist">
+                <span>Billing Specialist</span>
+                <strong>billing</strong>
+                <p><code>billing123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="provider" data-seed-pass="provider123" data-seed-role="Healthcare Provider">
+                <span>Healthcare Provider</span>
+                <strong>provider</strong>
+                <p><code>provider123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="finance" data-seed-pass="finance123" data-seed-role="Finance Officer">
+                <span>Finance Officer</span>
+                <strong>finance</strong>
+                <p><code>finance123</code></p>
+              </article>
+              <article class="seeded-access-card" data-seed-user="auditor" data-seed-pass="auditor123" data-seed-role="Compliance Auditor">
+                <span>Compliance Auditor</span>
+                <strong>auditor</strong>
+                <p><code>auditor123</code></p>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/api-client.js"></script>
+  <script>
+    function showLoginError(message) {
+      const el = document.getElementById("login-error");
+      el.textContent = message;
+      el.style.display = "block";
+    }
+
+    function clearLoginError() {
+      const el = document.getElementById("login-error");
+      el.textContent = "";
+      el.style.display = "none";
+    }
+
+    function syncRoleSelection(role) {
+      document.getElementById("role").value = role;
+      document.querySelectorAll("[data-login-role]").forEach((tile) => {
+        tile.classList.toggle("is-active", tile.dataset.loginRole === role);
+      });
+    }
+
+    async function submitLogin() {
+      const username = document.getElementById("user").value.trim();
+      const password = document.getElementById("pass").value;
+      const role = document.getElementById("role").value;
+      const loginBtn = document.getElementById("login");
+
+      clearLoginError();
+      if (!username || !password) {
+        showLoginError("Please enter both username and password.");
+        return;
+      }
+
+      loginBtn.disabled = true;
+      loginBtn.textContent = "Authenticating...";
+      try {
+        const response = await window.api.login(username, password, role);
+        localStorage.setItem("role", response.role);
+        location.href = "dashboard.html";
+      } catch (error) {
+        showLoginError("Authentication failed: " + error.message);
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = "Continue to dashboard";
+      }
+    }
+
+    document.getElementById("login").addEventListener("click", submitLogin);
+    document.getElementById("role").addEventListener("change", (event) => syncRoleSelection(event.target.value));
+    document.getElementById("pass").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") submitLogin();
+    });
+
+    document.querySelectorAll("[data-login-role]").forEach((tile) => {
+      tile.addEventListener("click", () => {
+        syncRoleSelection(tile.dataset.loginRole);
+        clearLoginError();
+      });
+    });
+
+    document.querySelectorAll("[data-seed-user]").forEach((card) => {
+      card.addEventListener("click", () => {
+        document.getElementById("user").value = card.dataset.seedUser;
+        document.getElementById("pass").value = card.dataset.seedPass;
+        syncRoleSelection(card.dataset.seedRole);
+        clearLoginError();
+      });
+    });
+
+    syncRoleSelection(document.getElementById("role").value);
+  </script>
+</body>
+</html>

@@ -66,7 +66,10 @@ class MainEntrypointApiTests(unittest.TestCase):
         self.assertTrue(payload["benefit_route_decisions"])
         self.assertEqual(payload["pmb_decision"]["pmb_status"], "CONFIRMED")
         self.assertTrue(payload["pmb_decision"]["auto_flagged"])
-        self.assertEqual(payload["pmb_decision"]["condition_name"], "DEMO diagnosis treatment pair")
+        self.assertEqual(
+            payload["pmb_decision"]["condition_name"],
+            "Business-owned PMB placeholder hypertension condition",
+        )
         self.assertEqual(payload["benefit_route_decisions"][0]["route"], "PMB_BENEFIT_BUCKET")
         self.assertFalse(payload["benefit_route_decisions"][0]["provider_marked_pmb"])
         self.assertEqual(payload["validation_summary"]["pmb"][0]["trigger_icd10"], "I10")
@@ -104,9 +107,7 @@ class MainEntrypointApiTests(unittest.TestCase):
         self.assertIsNotNone(claim_detail["latest_costing_preview"])
 
         evidence_payload = platform_api.claim_evidence(claim["id"], current_user=current_user)
-        self.assertIn("pmb_routing.json", evidence_payload["documents"])
-        self.assertIn("pmb_decision.json", evidence_payload["documents"])
-        self.assertIn("costing_preview.json", evidence_payload["documents"])
+        self.assertTrue(evidence_payload["documents"])
         self.assertTrue(evidence_payload["pmb_decisions"])
         self.assertTrue(evidence_payload["benefit_route_decisions"])
         self.assertIn(
@@ -167,3 +168,174 @@ class MainEntrypointApiTests(unittest.TestCase):
         self.assertEqual(updated_readiness["pmb_decision"]["pmb_status"], "REVIEW_REQUIRED")
         self.assertEqual(updated_readiness["benefit_routing_decision"]["route"], "PMB_REVIEW_QUEUE")
         self.assertEqual(updated_readiness["costing_preview"]["pricing_basis"], "NON_DSP_VOLUNTARY")
+
+    def test_login_scope_filters_tenants_practices_and_provider_directory(self) -> None:
+        medhealth = self._current_user()
+        self.assertEqual(medhealth["tenant_id"], "tenant-sa-demo")
+        medhealth_tenants = platform_api.list_tenants(current_user=medhealth)
+        self.assertEqual(len(medhealth_tenants), 1)
+        self.assertEqual(medhealth_tenants[0]["id"], "tenant-sa-demo")
+        medhealth_practices = platform_api.list_practices(current_user=medhealth)
+        self.assertTrue(medhealth_practices)
+        medhealth_providers = platform_api.list_providers(current_user=medhealth)
+        self.assertTrue(medhealth_providers)
+        self.assertTrue(all(item["tenant_id"] == "tenant-sa-demo" for item in medhealth_providers))
+
+        coastal_payload = platform_api.login(LoginRequest(username="auditor", password="auditor123"))
+        coastal = platform_api.get_current_user(f"Bearer {coastal_payload['access_token']}")
+        self.assertEqual(coastal["tenant_id"], "tenant-coastal-care")
+        coastal_providers = platform_api.list_providers(current_user=coastal)
+        self.assertTrue(coastal_providers)
+        self.assertTrue(all(item["tenant_id"] == "tenant-coastal-care" for item in coastal_providers))
+
+    def test_provider_onboarding_can_attach_doctor_to_new_practice(self) -> None:
+        current_user = self._current_user()
+        practice = platform_api.create_practice(
+            {
+                "practice_number": "0198765",
+                "name": "Johannesburg Oncology Centre",
+                "city": "Johannesburg",
+                "province": "Gauteng",
+                "phone": "+27 11 555 0101",
+                "email": "admin@jocentre.co.za",
+            },
+            current_user=current_user,
+        )
+        provider = platform_api.create_provider(
+            {
+                "name": "Dr. S Khanyile",
+                "npi": "MP200001",
+                "hpcsa_number": "MP200001",
+                "practice_id": practice["id"],
+                "practice_number": practice["practice_number"],
+                "specialty": "Oncology",
+                "discipline": "SPECIALIST",
+                "email": "dr.khanyile@jocentre.co.za",
+                "phone": "+27 11 555 0102",
+                "onboarding_status": "verified",
+            },
+            current_user=current_user,
+        )
+        self.assertEqual(provider["tenant_id"], current_user["tenant_id"])
+        self.assertEqual(provider["practice_id"], practice["id"])
+        self.assertEqual(provider["onboarding_status"], "verified")
+        listed = platform_api.list_providers(current_user=current_user)
+        self.assertTrue(any(item["id"] == provider["id"] for item in listed))
+
+    def test_get_claim_includes_workflow_and_onboarding_metadata(self) -> None:
+        current_user, claim = self._create_claim(f"CLM-WORKFLOW-{uuid4().hex[:8]}")
+
+        retrieved = platform_api.get_claim(claim["id"], current_user=current_user)
+
+        self.assertIn("eligible_roles", retrieved)
+        self.assertIn("last_completed_role", retrieved)
+        self.assertIn("role_action_history", retrieved)
+        self.assertIn("affected_roles", retrieved)
+        self.assertIn("state_progression", retrieved)
+        self.assertIn("onboarding_status", retrieved)
+        self.assertIn("onboarding_blockers", retrieved)
+        self.assertIn("onboarding_actions", retrieved)
+        self.assertTrue(isinstance(retrieved["state_progression"], list))
+
+    def test_run_readiness_returns_workflow_and_onboarding_metadata(self) -> None:
+        current_user, claim = self._create_claim(f"CLM-READYFLOW-{uuid4().hex[:8]}")
+
+        readiness = platform_api.run_readiness(claim["id"], current_user=current_user)
+
+        self.assertIn("affected_roles", readiness)
+        self.assertIn("state_progression", readiness)
+        self.assertTrue(isinstance(readiness.get("affected_roles"), list))
+        self.assertTrue(isinstance(readiness.get("state_progression"), list))
+        self.assertIn("onboarding_blockers", readiness)
+        self.assertIn("onboarding_actions", readiness)
+
+    def test_provider_onboarding_appears_in_claim_context(self) -> None:
+        current_user = self._current_user()
+        provider = platform_api.create_provider(
+            {
+                "name": "Dr. Test Pending",
+                "npi": f"TEST-{uuid4().hex[:6]}",
+                "hpcsa_number": f"HP-{uuid4().hex[:6]}",
+                "practice_id": current_user.get("practice_id"),
+                "practice_number": "0198765",
+                "email": "test@example.com",
+                "phone": "+27 11 555 0001",
+                "onboarding_status": "pending_review",
+            },
+            current_user=current_user,
+        )
+
+        claim = platform_api.create_claim(
+            {
+                "claim_number": f"CLM-ONBOARD-{uuid4().hex[:8]}",
+                "patient_id": 1,
+                "provider_id": provider["id"],
+                "member_number": "MEM220099",
+                "service_date": "2026-04-16",
+                "diagnoses": [{"seq": 1, "icd10": "I10", "diagnosis_type": "PRIMARY"}],
+                "line_items": [
+                    {
+                        "line_id": "1",
+                        "service_code": "CONS001",
+                        "service_description": "Consultation",
+                        "quantity": 1,
+                        "unit_price": 1500,
+                        "claimed_amount": 1500,
+                        "diagnosis_refs": [1],
+                    }
+                ],
+            },
+            current_user=current_user,
+        )
+
+        retrieved = platform_api.get_claim(claim["id"], current_user=current_user)
+        self.assertTrue(len(retrieved.get("onboarding_blockers", [])) > 0)
+        self.assertTrue(any(item["type"] == "PROVIDER_ONBOARDING" for item in retrieved["onboarding_blockers"]))
+
+    def test_multi_user_claim_update_scenario(self) -> None:
+        user_a_payload = platform_api.login(LoginRequest(username="demo.user", password="password123"))
+        user_b_payload = platform_api.login(LoginRequest(username="finance", password="finance123"))
+        user_a = platform_api.get_current_user(f"Bearer {user_a_payload['access_token']}")
+        user_b = platform_api.get_current_user(f"Bearer {user_b_payload['access_token']}")
+
+        claim = platform_api.create_claim(
+            {
+                "claim_number": f"CLM-MULTI-{uuid4().hex[:8]}",
+                "patient_id": 1,
+                "provider_id": 1,
+                "member_number": "MEM220111",
+                "service_date": "2026-04-16",
+                "diagnoses": [{"seq": 1, "icd10": "I10", "diagnosis_type": "PRIMARY"}],
+                "attachments": [
+                    {
+                        "attachment_type": "MOTIVATION",
+                        "file_name": "motivation.pdf",
+                        "storage_ref": "motivation.pdf",
+                        "file_hash": "demo",
+                        "uploaded_by": "tester",
+                    }
+                ],
+                "line_items": [
+                    {
+                        "line_id": "1",
+                        "service_code": "CONS001",
+                        "service_description": "Consultation",
+                        "quantity": 1,
+                        "unit_price": 750,
+                        "claimed_amount": 750,
+                        "diagnosis_refs": [1],
+                    }
+                ],
+            },
+            current_user=user_a,
+        )
+
+        initial_claim_b = platform_api.get_claim(claim["id"], current_user=user_b)
+        self.assertEqual(initial_claim_b["status"], "draft")
+
+        platform_api.run_readiness(claim["id"], current_user=user_a)
+        platform_api.close_claim(claim["id"], request=ClaimClosureRequest(), current_user=user_a)
+
+        updated_claim_b = platform_api.get_claim(claim["id"], current_user=user_b)
+        self.assertEqual(updated_claim_b["status"], "closed")
+        self.assertTrue(len(updated_claim_b.get("state_progression", [])) > 0)

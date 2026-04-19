@@ -56,28 +56,18 @@
     },
   };
 
-  function validateSaId(idNumber) {
-    const s = String(idNumber || "").trim();
-    if (!/^\d{13}$/.test(s)) return { valid: false, message: "SA ID must be exactly 13 digits." };
-    const yy = parseInt(s.slice(0, 2), 10);
-    const mm = parseInt(s.slice(2, 4), 10);
-    const dd = parseInt(s.slice(4, 6), 10);
-    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return { valid: false, message: "SA ID contains invalid date of birth." };
-    // Luhn check
-    let sum = 0;
-    for (let i = 0; i < 12; i++) {
-      let d = parseInt(s[i], 10);
-      if (i % 2 !== 0) { d *= 2; if (d > 9) d -= 9; }
-      sum += d;
-    }
-    const check = (10 - (sum % 10)) % 10;
-    if (check !== parseInt(s[12], 10)) return { valid: false, message: "SA ID failed Luhn checksum." };
-    const century = yy <= 25 ? 2000 : 1900;
-    const dob = `${century + yy}-${String(mm).padStart(2,"0")}-${String(dd).padStart(2,"0")}`;
-    const gender = parseInt(s.slice(6, 10), 10) >= 5000 ? "Male" : "Female";
-    const citizen = s[10] === "0" ? "SA Citizen" : "Permanent Resident";
-    return { valid: true, dob, gender, citizen };
-  }
+  const NAV_ICONS = {
+    dashboard: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v5h-7zM13 11h7v9h-7zM4 13h7v7H4z"/></svg>',
+    patients: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12c2.76 0 5-2.46 5-5.5S14.76 1 12 1 7 3.46 7 6.5 9.24 12 12 12zm0 2c-4.42 0-8 2.91-8 6.5V23h16v-2.5c0-3.59-3.58-6.5-8-6.5z"/></svg>',
+    providers: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3h-3.18C15.4 1.84 14.3 1 13 1h-2c-1.3 0-2.4.84-2.82 2H5a2 2 0 0 0-2 2v15a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3V5a2 2 0 0 0-2-2zm-8 0h2v2h-2zm7 17a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5h2v3h10V5h2zM11 10H9v2h2v2h2v-2h2v-2h-2V8h-2z"/></svg>',
+    claims: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h8l5 5v13a2 2 0 0 1-2 2H7a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3zm7 1.5V8h4.5M8 12h8v2H8zm0 4h8v2H8z"/></svg>',
+    payments: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2H3zm0 4h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm9 1.5c-2.2 0-4 1.34-4 3s1.8 3 4 3 4-1.34 4-3-1.8-3-4-3zm0 1.5c1.1 0 2 .45 2 1s-.9 1-2 1-2-.45-2-1 .9-1 2-1z"/></svg>',
+    reports: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14a2 2 0 0 1 2 2v14l-4-3-4 3-4-3-4 3V5a2 2 0 0 1 2-2zm3 5h8v2H8zm0 4h8v2H8z"/></svg>',
+    audit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c5.5 0 9.5 4.13 10 8.8-.5 4.67-4.5 8.8-10 8.8S2.5 16.47 2 11.8C2.5 7.13 6.5 3 12 3zm0 3.2a5.6 5.6 0 1 0 0 11.2 5.6 5.6 0 0 0 0-11.2zm0 2.2a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 0 1 0-6.8z"/></svg>',
+    users: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4zM8 12a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm0 2c-2.76 0-5 1.79-5 4v2h9v-2c0-2.21-1-4-4-4zm8 0c-2.76 0-5 2.24-5 5v1h10v-1c0-2.76-2.24-5-5-5z"/></svg>',
+    settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94a7.43 7.43 0 0 0 .05-.94 7.43 7.43 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.23 7.23 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54a7.23 7.23 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.66 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.43 7.43 0 0 0-.05.94 7.43 7.43 0 0 0 .05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.23 1.13-.55 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5z"/></svg>',
+    signout: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5v-2H5V6h5zm7.59 7-2.3-2.29L16.7 7.3 21.41 12l-4.71 4.7-1.41-1.41L17.59 13H9v-2z"/></svg>',
+  };
 
   const CREATE_CONFIG = {
     "patients.html": {
@@ -227,9 +217,11 @@
     page: getCurrentPage(),
     role: getStoredRole(),
     claimId: getClaimIdFromLocation(),
+    sidebarOpen: null,
     connection: { status: "checking", message: "Checking API connection..." },
     patients: [],
     providers: [],
+    practices: [],
     claims: [],
     auditLogs: [],
     selectedProviderId: null,
@@ -248,6 +240,7 @@
     highlightedAttachmentTypes: { required: [], recommended: [] },
     icd10Reference: [],
     ediStepperState: { generate: "idle", validate: "idle", submit: "idle", response: "idle" },
+    claimRealtime: { claimId: null, socket: null, pollInterval: null, polling: false },
   };
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -255,11 +248,12 @@
       return;
     }
 
-    if (state.page !== "index.html" && !window.api.isAuthenticated()) {
-      location.href = "index.html";
+    if (!["index.html", "login.html"].includes(state.page) && !window.api.isAuthenticated()) {
+      location.href = "login.html";
       return;
     }
 
+    initializeSidebarShell();
     applyRoleToLayout();
     configureTopbar();
     bindGlobalHandlers();
@@ -267,6 +261,7 @@
     scheduleConnectionChecks();
     void initializePage();
   });
+  window.addEventListener("beforeunload", clearClaimRealtime);
 
   function getCurrentPage() {
     return location.pathname.split("/").pop() || "index.html";
@@ -299,6 +294,206 @@
     return normalizeRole(raw);
   }
 
+  function isNarrowViewport() {
+    return window.matchMedia("(max-width: 980px)").matches;
+  }
+
+  function getStoredSidebarOpen() {
+    const stored = localStorage.getItem("medhealth_sidebar_open");
+    if (stored === "true") return true;
+    if (stored === "false") return false;
+    return !isNarrowViewport();
+  }
+
+  function initializeSidebarShell() {
+    const shell = document.querySelector(".shell");
+    const sidebar = document.querySelector(".sidebar");
+    if (!shell || !sidebar || ["index.html", "login.html"].includes(state.page)) {
+      return;
+    }
+
+    sidebar.setAttribute("id", "app-sidebar");
+    decorateSidebarNavigation(sidebar);
+
+    let sidebarHead = sidebar.querySelector(".sidebar-head");
+    if (!sidebarHead) {
+      sidebarHead = document.createElement("div");
+      sidebarHead.className = "sidebar-head";
+      const brand = sidebar.querySelector(".brand");
+      if (brand) {
+        brand.parentNode.insertBefore(sidebarHead, brand);
+        sidebarHead.appendChild(brand);
+      } else {
+        sidebar.insertBefore(sidebarHead, sidebar.firstChild);
+      }
+    }
+
+    if (!sidebar.querySelector("[data-sidebar-close]")) {
+      const closeButton = document.createElement("button");
+      closeButton.type = "button";
+      closeButton.className = "sidebar-toggle sidebar-toggle--sidebar";
+      closeButton.setAttribute("data-sidebar-close", "true");
+      closeButton.setAttribute("aria-controls", "app-sidebar");
+      closeButton.setAttribute("aria-label", "Close navigation");
+      closeButton.textContent = "×";
+      closeButton.addEventListener("click", () => setSidebarOpen(false));
+      sidebarHead.appendChild(closeButton);
+    }
+
+    if (!shell.querySelector(".sidebar-backdrop")) {
+      const backdrop = document.createElement("button");
+      backdrop.type = "button";
+      backdrop.className = "sidebar-backdrop";
+      backdrop.setAttribute("aria-label", "Close navigation");
+      backdrop.addEventListener("click", () => setSidebarOpen(false));
+      shell.appendChild(backdrop);
+    }
+
+    mountSidebarToggleButton();
+    state.sidebarOpen = getStoredSidebarOpen();
+    applySidebarState();
+
+    window.addEventListener("resize", handleSidebarResize);
+    document.addEventListener("keydown", handleSidebarEscape);
+  }
+
+  function mountSidebarToggleButton() {
+    if (document.querySelector("[data-sidebar-toggle]")) {
+      return;
+    }
+
+    const target = document.querySelector(".topbar") || document.querySelector(".cockpit-header");
+    if (!target) {
+      return;
+    }
+
+    const heading = target.querySelector(".h1") || target.querySelector(".cockpit-id");
+    if (!heading) {
+      return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = target.classList.contains("cockpit-header") ? "cockpit-topbar-start" : "topbar-start";
+    heading.parentNode.insertBefore(wrapper, heading);
+    wrapper.appendChild(createSidebarToggleButton());
+    wrapper.appendChild(heading);
+  }
+
+  function decorateSidebarNavigation(sidebar) {
+    sidebar.querySelectorAll(".nav a[data-module]").forEach((link) => {
+      if (link.querySelector(".nav-link-icon")) {
+        return;
+      }
+      const badge = link.querySelector(".badge");
+      const badgeClone = badge ? badge.cloneNode(true) : null;
+      const labelText = link.getAttribute("data-nav-label") || link.textContent.replace(badge?.textContent || "", "").trim();
+      const iconName = link.getAttribute("data-module") || "";
+
+      link.textContent = "";
+      link.classList.add("nav-link");
+      link.setAttribute("data-nav-label", labelText);
+      link.setAttribute("aria-label", labelText);
+      link.setAttribute("title", labelText);
+
+      const icon = document.createElement("span");
+      icon.className = "nav-link-icon";
+      icon.innerHTML = NAV_ICONS[iconName] || NAV_ICONS.dashboard;
+
+      const label = document.createElement("span");
+      label.className = "nav-link-label";
+      label.textContent = labelText;
+
+      link.append(icon, label);
+      if (badgeClone) {
+        link.appendChild(badgeClone);
+      }
+    });
+
+    const signout = sidebar.querySelector('.footer a[href="index.html"], .footer a[href="login.html"]');
+    if (signout && !signout.querySelector(".sidebar-signout-icon")) {
+      signout.setAttribute("href", "login.html");
+      const labelText = signout.textContent.trim() || "Sign out";
+      signout.textContent = "";
+      signout.classList.add("sidebar-signout");
+      signout.setAttribute("data-nav-label", labelText);
+      signout.setAttribute("aria-label", labelText);
+      signout.setAttribute("title", labelText);
+
+      const icon = document.createElement("span");
+      icon.className = "sidebar-signout-icon";
+      icon.innerHTML = NAV_ICONS.signout;
+
+      const label = document.createElement("span");
+      label.className = "sidebar-signout-label";
+      label.textContent = labelText;
+      signout.append(icon, label);
+    }
+  }
+
+  function createSidebarToggleButton() {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "sidebar-toggle sidebar-toggle--header";
+    button.setAttribute("data-sidebar-toggle", "true");
+    button.setAttribute("aria-controls", "app-sidebar");
+    button.addEventListener("click", () => setSidebarOpen(!state.sidebarOpen));
+    return button;
+  }
+
+  function handleSidebarResize() {
+    if (["index.html", "login.html"].includes(state.page)) {
+      return;
+    }
+    if (state.sidebarOpen == null) {
+      state.sidebarOpen = getStoredSidebarOpen();
+    }
+    applySidebarState();
+  }
+
+  function handleSidebarEscape(event) {
+    if (event.key === "Escape" && isNarrowViewport() && state.sidebarOpen) {
+      setSidebarOpen(false);
+    }
+  }
+
+  function setSidebarOpen(isOpen) {
+    state.sidebarOpen = Boolean(isOpen);
+    localStorage.setItem("medhealth_sidebar_open", String(state.sidebarOpen));
+    applySidebarState();
+  }
+
+  function applySidebarState() {
+    const shell = document.querySelector(".shell");
+    const sidebar = document.querySelector(".sidebar");
+    const toggle = document.querySelector("[data-sidebar-toggle]");
+    if (!shell || !sidebar) {
+      return;
+    }
+
+    const sidebarOpen = Boolean(state.sidebarOpen);
+    const narrowViewport = isNarrowViewport();
+
+    shell.classList.toggle("sidebar-open", narrowViewport && sidebarOpen);
+    shell.classList.toggle("sidebar-closed", narrowViewport && !sidebarOpen);
+    shell.classList.toggle("sidebar-collapsed", !narrowViewport && !sidebarOpen);
+    sidebar.setAttribute("aria-hidden", String(narrowViewport ? !sidebarOpen : false));
+
+    const toggleLabel = narrowViewport
+      ? (sidebarOpen ? "Close navigation" : "Open navigation")
+      : (sidebarOpen ? "Collapse navigation" : "Expand navigation");
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", String(sidebarOpen));
+      toggle.setAttribute("aria-label", toggleLabel);
+      toggle.setAttribute("title", toggleLabel);
+      toggle.textContent = narrowViewport ? "☰" : (sidebarOpen ? "⇤" : "⇥");
+    }
+
+    const closeButton = document.querySelector("[data-sidebar-close]");
+    if (closeButton) {
+      closeButton.style.display = isNarrowViewport() ? "" : "none";
+    }
+  }
+
   function hasPermission(resource, action) {
     const permissions = ROLE_PERMISSIONS[state.role]?.[resource];
     return Boolean(permissions && permissions.has(action));
@@ -318,7 +513,7 @@
     });
 
     const pageModule = state.page === "claim_detail.html" ? "claims" : state.page.replace(".html", "");
-    if (state.page !== "index.html" && state.page !== "dashboard.html" && !allowedModules.has(pageModule)) {
+    if (!["index.html", "login.html", "dashboard.html"].includes(state.page) && !allowedModules.has(pageModule)) {
       location.href = "dashboard.html";
       return;
     }
@@ -326,6 +521,11 @@
     document.querySelectorAll(".nav a").forEach((link) => {
       const href = link.getAttribute("href");
       link.classList.toggle("active", href === state.page);
+      link.addEventListener("click", () => {
+        if (isNarrowViewport()) {
+          setSidebarOpen(false);
+        }
+      });
     });
   }
 
@@ -387,7 +587,7 @@
   }
 
   function scheduleConnectionChecks() {
-    if (state.page === "index.html") {
+    if (["index.html", "login.html"].includes(state.page)) {
       return;
     }
     window.setInterval(() => {
@@ -609,8 +809,9 @@
       void handleAction(actionButton);
     });
 
-    const logoutLink = document.querySelector("a[href='index.html']");
+    const logoutLink = document.querySelector("a[href='index.html'], a[href='login.html']");
     if (logoutLink) {
+      logoutLink.setAttribute("href", "login.html");
       logoutLink.addEventListener("click", () => {
         window.api.logout();
       });
@@ -654,13 +855,240 @@
     }
   }
 
+  function formatDashboardCount(value) {
+    return String(value || 0);
+  }
+
+  function getDashboardTopRuleNames(summary) {
+    return Object.keys(summary.top_rule_hits || {}).slice(0, 2);
+  }
+
+  function renderDashboardHeroTags(tags) {
+    const container = document.getElementById("dashboard-hero-tags");
+    if (!container) {
+      return;
+    }
+    container.innerHTML = (tags || [])
+      .map((tag) => `<span class="dashboard-hero-tag">${escapeHtml(tag)}</span>`)
+      .join("");
+  }
+
+  function renderDashboardFocusCards(cards) {
+    const container = document.getElementById("dashboard-focus-grid");
+    if (!container) {
+      return;
+    }
+    container.innerHTML = (cards || [])
+      .map(
+        (card) => `
+          <article class="dashboard-focus-card dashboard-focus-card-${escapeHtml(card.tone || "default")}">
+            <span class="dashboard-focus-label">${escapeHtml(card.label)}</span>
+            <strong>${escapeHtml(card.value)}</strong>
+            <p>${escapeHtml(card.copy)}</p>
+          </article>
+        `,
+      )
+      .join("");
+  }
+
+  function renderDashboardSidePanel(items) {
+    const container = document.getElementById("dashboard-side-panel-body");
+    if (!container) {
+      return;
+    }
+    container.innerHTML = (items || [])
+      .map(
+        (item) => `
+          <article class="dashboard-side-item">
+            <span>${escapeHtml(item.label)}</span>
+            <strong>${escapeHtml(item.value)}</strong>
+            <p>${escapeHtml(item.copy)}</p>
+          </article>
+        `,
+      )
+      .join("");
+  }
+
+  function getDashboardRoleConfig(summary) {
+    const topRules = getDashboardTopRuleNames(summary);
+    const topRuleText = topRules.join(", ") || "No rule pressure";
+    const activePolicy = summary.active_policy?.profile || "SCHEME_A:OPTION_X";
+    const activeVersion = `v${summary.active_policy?.version || 1}`;
+
+    const roleConfigs = {
+      Administrator: {
+        pageTitle: "Administrator Command",
+        pageSubtitle: "Platform-wide control across tenants, practices, rules, users and claim flow.",
+        searchPlaceholder: "Search tenant, user, claim or provider...",
+        createLabel: "New tenant object",
+        badge: "Administrator",
+        heading: "Platform command across every operational surface.",
+        copy: "Monitor governance, throughput and configuration drift from one executive workspace built for South African medical operations.",
+        tags: ["Tenant-aware access", "POPIA controls active", "Policy governance live"],
+        priorityLabel: "Governance and scale",
+        tenantScope: "Cross-tenant oversight",
+        complianceState: "Audit and archive controls active",
+        worklistTitle: "Platform intervention queue",
+        worklistCopy: "Items that need configuration, escalation or administrator attention first.",
+        worklistChip: "Admin priority",
+        sideTitle: "Governance snapshot",
+        sideCopy: "High-level controls and policy posture for platform operators.",
+        focusCards: [
+          { label: "Ready to submit", value: formatDashboardCount(summary.ready_to_submit), copy: "Claims clear for downstream submission.", tone: "teal" },
+          { label: "Rejection pressure", value: formatDashboardCount(summary.rejected_or_pended), copy: `Top friction: ${topRuleText}.`, tone: "amber" },
+          { label: "Reconciliation exceptions", value: formatDashboardCount(summary.reconciliation_exceptions), copy: "Finance variances still requiring review.", tone: "slate" },
+        ],
+        sideItems: [
+          { label: "Active policy", value: activePolicy, copy: `Current scheme profile ${activeVersion}.` },
+          { label: "Top rules", value: topRuleText, copy: "Live signals from readiness and lifecycle checks." },
+          { label: "Control posture", value: "POPIA, ECT, HPCSA", copy: "Privacy, integrity and archive controls carried through the workflow." },
+        ],
+      },
+      "Billing Specialist": {
+        pageTitle: "Billing Operations",
+        pageSubtitle: "Submission readiness, rejection recovery and payment follow-through for the active billing team.",
+        searchPlaceholder: "Search claim, member, batch or scheme...",
+        createLabel: "New billing item",
+        badge: "Billing Specialist",
+        heading: "Claims flow shaped around throughput and recovery.",
+        copy: "This workspace keeps the queue centered on what can close, what can submit, and which exceptions are slowing cash movement.",
+        tags: ["Scheme routing", "ICD-10 coding", "Submission ready"],
+        priorityLabel: "Submission throughput",
+        tenantScope: "Practice-scoped billing",
+        complianceState: "Coding and audit controls active",
+        worklistTitle: "Claims work queue",
+        worklistCopy: "Claims closest to closure, submission or rejection recovery for the current practice scope.",
+        worklistChip: "Billing live queue",
+        sideTitle: "Submission intelligence",
+        sideCopy: "The controls and policy signals that drive everyday claim action.",
+        focusCards: [
+          { label: "Ready to close", value: formatDashboardCount(summary.ready_to_close), copy: "Files closeable after current readiness checks.", tone: "teal" },
+          { label: "Ready to submit", value: formatDashboardCount(summary.ready_to_submit), copy: "Validated claims waiting for payload or dispatch.", tone: "blue" },
+          { label: "Rejected or pended", value: formatDashboardCount(summary.rejected_or_pended), copy: `Primary recovery drivers: ${topRuleText}.`, tone: "amber" },
+        ],
+        sideItems: [
+          { label: "Active scheme profile", value: activePolicy, copy: `Billing logic currently on ${activeVersion}.` },
+          { label: "Top rule pattern", value: topRuleText, copy: "Use this to target fixes before resubmission." },
+          { label: "Remit exceptions", value: formatDashboardCount(summary.reconciliation_exceptions), copy: "Partial pay and mismatch review still open." },
+        ],
+      },
+      "Healthcare Provider": {
+        pageTitle: "Clinical Claim Readiness",
+        pageSubtitle: "Provider-facing claim readiness with emphasis on diagnosis completeness, coding and clinical follow-up.",
+        searchPlaceholder: "Search patient, claim or provider...",
+        createLabel: "New clinical item",
+        badge: "Healthcare Provider",
+        heading: "Clinical visibility before claims leave the practice.",
+        copy: "The provider dashboard prioritizes diagnosis quality, patient context and the claim actions that most affect medical scheme acceptance.",
+        tags: ["Clinical coding", "Patient context", "Provider evidence"],
+        priorityLabel: "Diagnosis readiness",
+        tenantScope: "Provider practice scope",
+        complianceState: "Clinical audit trail active",
+        worklistTitle: "Clinical review queue",
+        worklistCopy: "Claims and patient-linked items where provider input most affects readiness and PMB quality.",
+        worklistChip: "Clinical action",
+        sideTitle: "Clinical quality signals",
+        sideCopy: "Coding and readiness indicators surfaced for provider review.",
+        focusCards: [
+          { label: "Ready to close", value: formatDashboardCount(summary.ready_to_close), copy: "Encounters nearing billing completion.", tone: "blue" },
+          { label: "Coding friction", value: formatDashboardCount(summary.rejected_or_pended), copy: `Leading coding issues: ${topRuleText}.`, tone: "amber" },
+          { label: "Submission-ready claims", value: formatDashboardCount(summary.ready_to_submit), copy: "Claims clinically complete and ready for billing handoff.", tone: "teal" },
+        ],
+        sideItems: [
+          { label: "Active coding profile", value: activePolicy, copy: `Readiness checks running on ${activeVersion}.` },
+          { label: "Primary rule trigger", value: topRules[0] || "No rule pressure", copy: "The strongest current clinical or coding blocker." },
+          { label: "Archive posture", value: "HPCSA archive logic", copy: "Record retention and evidence posture remain enforced." },
+        ],
+      },
+      "Finance Officer": {
+        pageTitle: "Finance and Remittance",
+        pageSubtitle: "Collections, remittance and reconciliation monitoring for scheme receipts and downstream finance review.",
+        searchPlaceholder: "Search remittance, claim or payment reference...",
+        createLabel: "New finance record",
+        badge: "Finance Officer",
+        heading: "Cash posture and reconciliation in one finance view.",
+        copy: "Track what is ready to convert into cash, what was paid short, and which reconciliation gaps need immediate finance follow-up.",
+        tags: ["Remittance control", "Collections visibility", "Variance monitoring"],
+        priorityLabel: "Cash conversion",
+        tenantScope: "Finance practice scope",
+        complianceState: "Integrity controls active",
+        worklistTitle: "Finance exception queue",
+        worklistCopy: "Claims and remittance items most likely to affect collections, reconciliation or follow-up.",
+        worklistChip: "Finance review",
+        sideTitle: "Collections signals",
+        sideCopy: "Core financial indicators driven from the same persisted claim lifecycle.",
+        focusCards: [
+          { label: "Ready to submit", value: formatDashboardCount(summary.ready_to_submit), copy: "Claim volume positioned to convert into receivables.", tone: "teal" },
+          { label: "Reconciliation exceptions", value: formatDashboardCount(summary.reconciliation_exceptions), copy: "Variance, mismatch and partial-pay items still open.", tone: "amber" },
+          { label: "Rejected or pended", value: formatDashboardCount(summary.rejected_or_pended), copy: "Claims at risk of slowing collections.", tone: "slate" },
+        ],
+        sideItems: [
+          { label: "Finance control", value: "ECT integrity posture", copy: "Immutable backup and traceability controls remain in force." },
+          { label: "Top claim risk", value: topRuleText, copy: "Primary reasons behind delayed cash flow." },
+          { label: "Scheme profile", value: activePolicy, copy: `Remittance context currently aligned to ${activeVersion}.` },
+        ],
+      },
+      "Compliance Auditor": {
+        pageTitle: "Compliance Oversight",
+        pageSubtitle: "Audit evidence, control posture and rule outcomes surfaced for governance and assurance teams.",
+        searchPlaceholder: "Search control, claim, evidence or audit item...",
+        createLabel: "New audit item",
+        badge: "Compliance Auditor",
+        heading: "Evidence-led oversight across privacy, coding and archive controls.",
+        copy: "Review live operational outputs through a control lens, with rule trends, policy versions and archive posture visible in one dashboard.",
+        tags: ["POPIA posture", "HPCSA archive", "Evidence visibility"],
+        priorityLabel: "Control assurance",
+        tenantScope: "Governance scoped access",
+        complianceState: "Compliance controls active",
+        worklistTitle: "Control review queue",
+        worklistCopy: "Operational items that deserve audit attention because they affect policy, coding or evidence posture.",
+        worklistChip: "Audit focus",
+        sideTitle: "Control evidence",
+        sideCopy: "Key controls and the signals that show whether governance remains intact.",
+        focusCards: [
+          { label: "Rule-driven exceptions", value: formatDashboardCount(summary.rejected_or_pended), copy: `Leading exceptions: ${topRuleText}.`, tone: "amber" },
+          { label: "Policy version", value: activeVersion, copy: `Active profile ${activePolicy}.`, tone: "blue" },
+          { label: "Reconciliation exceptions", value: formatDashboardCount(summary.reconciliation_exceptions), copy: "Financial integrity items open for evidence review.", tone: "slate" },
+        ],
+        sideItems: [
+          { label: "Privacy control", value: "POPIA audit logs", copy: "Access and workflow activity remain visible for review." },
+          { label: "Coding control", value: topRules[0] || "No ICD pressure", copy: "Current rule pattern most relevant to coding oversight." },
+          { label: "Archive control", value: "6 to 25 year retention", copy: "HPCSA-aligned record retention logic enforced by workflow." },
+        ],
+      },
+    };
+
+    return roleConfigs[state.role] || roleConfigs["Billing Specialist"];
+  }
+
   async function loadDashboardSummary() {
-    const [claims, payments, patients, patientsList] = await Promise.all([
-      window.api.getClaims().catch(() => []),
-      window.api.getPayments().catch(() => []),
-      window.api.getDashboardSummary().catch(() => null),
-      window.api.getPatients().catch(() => []),
-    ]);
+    const summary = await window.api.getDashboardSummary();
+    const config = getDashboardRoleConfig(summary);
+
+    document.body?.setAttribute("data-dashboard-role", state.role.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+    setTextById("dashboard-page-title", config.pageTitle);
+    setTextById("dashboard-page-subtitle", config.pageSubtitle);
+    setTextById("dashboard-role-badge", config.badge);
+    setTextById("dashboard-role-heading", config.heading);
+    setTextById("dashboard-role-copy", config.copy);
+    setTextById("dashboard-priority-label", config.priorityLabel);
+    setTextById("dashboard-tenant-scope", config.tenantScope);
+    setTextById("dashboard-compliance-state", config.complianceState);
+    setTextById("dashboard-worklist-title", config.worklistTitle);
+    setTextById("dashboard-worklist-copy", config.worklistCopy);
+    setTextById("dashboard-worklist-chip", config.worklistChip);
+    setTextById("dashboard-side-panel-title", config.sideTitle);
+    setTextById("dashboard-side-panel-copy", config.sideCopy);
+    setTextById("dashboard-create-button", config.createLabel);
+
+    const searchInput = document.getElementById("dashboard-search-input");
+    if (searchInput) {
+      searchInput.placeholder = config.searchPlaceholder;
+    }
+
+    renderDashboardHeroTags(config.tags);
+    renderDashboardFocusCards(config.focusCards);
+    renderDashboardSidePanel(config.sideItems);
 
     // KPI computations
     const totalRevenue = payments
@@ -701,54 +1129,35 @@
     const tbody = document.getElementById("dashboard-worklist-rows");
     if (tbody) {
       tbody.innerHTML = worklist.length
-        ? worklist.map(c => `
-            <tr>
-              <td class="code">${escapeHtml(c.claim_number)}</td>
-              <td>${escapeHtml(c.member_number || `Patient ${c.patient_id}`)}</td>
-              <td><span class="chip ${claimStatusClass(c)}">${escapeHtml(c.status)}</span></td>
-              <td>${escapeHtml(c.scheme_id || "—")}</td>
-              <td class="row-actions"><a class="chip info" href="claim_detail.html?id=${c.id}">Open</a></td>
-            </tr>`).join("")
-        : '<tr><td colspan="5" style="text-align:center;color:#999;">No items in work queue.</td></tr>';
-    }
-
-    // Charts
-    _renderClaimsStatusChart(claims);
-    _renderArAgingChart(claims);
-  }
-
-  function _renderClaimsStatusChart(claims) {
-    const canvas = document.getElementById("chart-claims-status");
-    if (!canvas || !window.Chart) return;
-    const counts = {};
-    claims.forEach(c => { counts[c.status] = (counts[c.status] || 0) + 1; });
-    const labels = Object.keys(counts);
-    const colours = {
-      draft: "#94a3b8", blocked: "#ef4444", submitted: "#3b82f6",
-      closed: "#10b981", reconciled: "#059669", rejected: "#dc2626",
-      paid_partial: "#f59e0b", ready_to_close: "#22c55e",
-    };
-    const data = labels.map(l => counts[l]);
-    const bgColors = labels.map(l => colours[l] || "#6b7280");
-    if (canvas._chart) canvas._chart.destroy();
-    canvas._chart = new Chart(canvas, {
-      type: "doughnut",
-      data: { labels, datasets: [{ data, backgroundColor: bgColors, borderWidth: 2 }] },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { callbacks: {
-          label: ctx => ` ${ctx.label}: ${ctx.parsed} claims`
-        }}},
-      },
-    });
-    const legend = document.getElementById("chart-claims-legend");
-    if (legend) {
-      legend.innerHTML = labels.map((l, i) =>
-        `<span style="display:flex;align-items:center;gap:4px;">
-          <span style="width:10px;height:10px;border-radius:50%;background:${bgColors[i]};flex-shrink:0;"></span>
-          <span>${escapeHtml(l)}: ${data[i]}</span>
-        </span>`
-      ).join("");
+        ? worklist
+            .map(
+              (item) => {
+                const statusBadges = [
+                  (item.onboarding_blockers || []).length
+                    ? '<span class="badge badge-warning">Onboarding blocked</span>'
+                    : "",
+                  (item.affected_roles || []).length
+                    ? `<span class="badge badge-info">Roles: ${escapeHtml((item.affected_roles || []).join(", "))}</span>`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join("");
+                return `
+                <tr>
+                  <td class="code">${escapeHtml(item.claim_number)}</td>
+                  <td>
+                    <div>${escapeHtml(item.reasons?.[0] || "-")}</div>
+                    ${statusBadges ? `<div class="dashboard-worklist-badges">${statusBadges}</div>` : ""}
+                  </td>
+                  <td><span class="chip ${statusClass(item.status)}">${escapeHtml(item.status)}</span></td>
+                  <td>${escapeHtml(item.next_action || "Review claim")}</td>
+                  <td class="row-actions"><a class="chip info" href="claim_detail.html?id=${item.claim_id}">Open</a></td>
+                </tr>
+              `;
+              },
+            )
+            .join("")
+        : '<tr><td colspan="5" style="text-align:center;color:#999;">No worklist items in the current role scope.</td></tr>';
     }
   }
 
@@ -1117,8 +1526,10 @@
   async function loadProviders() {
     const providers = await window.api.getProviders();
     state.providers = providers;
+    state.practices = state.practices.length ? state.practices : await window.api.getPractices().catch(() => []);
     state.claims = state.claims.length ? state.claims : await window.api.getClaims().catch(() => []);
     state.patients = state.patients.length ? state.patients : await window.api.getPatients().catch(() => []);
+    const practicesById = new Map((state.practices || []).map((practice) => [practice.id, practice]));
     renderTable(
       providers,
       6,
@@ -1128,7 +1539,7 @@
             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._app&&window._app.selectProvider(${provider.id});}">
           <td class="code">${escapeHtml(provider.npi)}</td>
           <td>${escapeHtml(provider.name)}</td>
-          <td>${escapeHtml(provider.specialty)}</td>
+          <td>${escapeHtml(practicesById.get(provider.practice_id)?.name || provider.specialty)}</td>
           <td>${escapeHtml(provider.email)}</td>
           <td><span class="chip ${statusClass(provider.status)}">${escapeHtml(provider.status)}</span></td>
           <td class="row-actions" onclick="event.stopPropagation()">${renderProviderActions(provider.id)}</td>
@@ -1150,6 +1561,7 @@
       container.innerHTML = '<div class="muted">Select a provider to view details.</div>';
       return;
     }
+    const practice = (state.practices || []).find((item) => item.id === provider.practice_id);
     const providerClaims = (state.claims || []).filter(c => c.provider_id === provider.id);
     const submitted = providerClaims.filter(c => c.status === "submitted").length;
     const closed    = providerClaims.filter(c => c.status === "closed").length;
@@ -1166,7 +1578,7 @@
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
           <div>
             <strong style="font-size:1rem;">${escapeHtml(provider.name)}</strong>
-            <div class="muted" style="margin-top:2px;">${escapeHtml(provider.specialty)}</div>
+            <div class="muted" style="margin-top:2px;">${escapeHtml(provider.specialty)}${practice ? ` · ${escapeHtml(practice.name)}` : ""}</div>
           </div>
           <span class="chip ${statusClass(provider.status)}">${escapeHtml(provider.status)}</span>
         </div>
@@ -1709,6 +2121,7 @@
       claim.latest_benefit_route_decision,
       claim.latest_costing_preview,
     );
+    renderClaimWorkflowPanels(claim);
     renderSubmissionStepper(state.ediStepperState);
     renderStructuredPayload();
     renderEdiPanel();
