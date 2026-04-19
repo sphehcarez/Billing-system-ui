@@ -294,8 +294,26 @@
     return Number.isInteger(claimId) && claimId > 0 ? claimId : null;
   }
 
+  function normalizeRole(raw) {
+    const aliases = {
+      admin: "Administrator",
+      administrator: "Administrator",
+      billing: "Billing Specialist",
+      "billing specialist": "Billing Specialist",
+      provider: "Healthcare Provider",
+      "healthcare provider": "Healthcare Provider",
+      finance: "Finance Officer",
+      "finance officer": "Finance Officer",
+      auditor: "Compliance Auditor",
+      "compliance auditor": "Compliance Auditor",
+    };
+    const key = String(raw || "").toLowerCase().trim();
+    return aliases[key] || raw || "Billing Specialist";
+  }
+
   function getStoredRole() {
-    return localStorage.getItem("api_role") || localStorage.getItem("role") || "Billing Specialist";
+    const raw = localStorage.getItem("api_role") || localStorage.getItem("role") || "Billing Specialist";
+    return normalizeRole(raw);
   }
 
   function isNarrowViewport() {
@@ -1249,6 +1267,36 @@
     });
   }
 
+  function _renderArAgingChart(claims) {
+    const canvas = document.getElementById("chart-ar-aging");
+    if (!canvas || !window.Chart) return;
+    const now = Date.now();
+    const buckets = { "0–30d": 0, "31–60d": 0, "61–90d": 0, "90+d": 0 };
+    claims.filter(c => !["reconciled","rejected"].includes(c.status)).forEach(c => {
+      const created = c.created_at ? new Date(c.created_at).getTime() : now;
+      const days = Math.floor((now - created) / 86400000);
+      if (days <= 30) buckets["0–30d"]++;
+      else if (days <= 60) buckets["31–60d"]++;
+      else if (days <= 90) buckets["61–90d"]++;
+      else buckets["90+d"]++;
+    });
+    if (canvas._chart) canvas._chart.destroy();
+    canvas._chart = new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: Object.keys(buckets),
+        datasets: [{ label: "Claims", data: Object.values(buckets),
+          backgroundColor: ["#22c55e","#f59e0b","#ea580c","#ef4444"],
+          borderRadius: 4 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+      },
+    });
+  }
+
   async function handleAction(button) {
     if (button.disabled) {
       return;
@@ -1349,6 +1397,12 @@
         case "evidence-packet":
           await handleViewEvidence();
           break;
+        case "generate-ai-note":
+          handleGenerateAiNote();
+          break;
+        case "save-ai-note":
+          handleSaveAiNote();
+          break;
         case "download-report":
           await handleDownloadReport(id);
           break;
@@ -1366,7 +1420,7 @@
           await handleDeletePatient(id);
           break;
         case "view-patient-claim-context":
-          await handleViewPatientClaimContext(id);
+          await openPatientProfile(id);
           break;
         case "edit-provider":
           await handleEditProvider(id);
@@ -1446,7 +1500,7 @@
       : "background:#fffbeb;color:#92400e;border:1px solid #f59e0b;";
     return `
       <tr style="cursor:pointer" tabindex="0"
-          onclick="openPatientProfile(${patient.id})"
+          onclick="if(!event.target.closest('.row-actions'))openPatientProfile(${patient.id})"
           onkeydown="if(event.key==='Enter'||event.key===' ')openPatientProfile(${patient.id})">
         <td class="code">${escapeHtml(patient.mrn)}</td>
         <td>${escapeHtml(patient.name)}</td>
@@ -1455,7 +1509,7 @@
         <td><span class="chip ${statusClass(patient.status)}">${escapeHtml(patient.status)}</span></td>
         <td><span style="padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600;${readinessStyle}">${readinessLabel}</span></td>
         <td data-balance-id="${patient.id}">—</td>
-        <td class="row-actions" onclick="event.stopPropagation()">${renderPatientActions(patient.id)}</td>
+        <td class="row-actions">${renderPatientActions(patient.id)}</td>
       </tr>`;
   }
 
@@ -1508,7 +1562,7 @@
   }
 
   async function _loadPatientBalances(patients) {
-    for (const p of patients) {
+    await Promise.all(patients.map(async (p) => {
       try {
         const bal = await window.api.getPatientBalance(p.id);
         const cell = document.querySelector(`[data-balance-id="${p.id}"]`);
@@ -1518,7 +1572,7 @@
           if (cents > 0) cell.style.color = "#b42318";
         }
       } catch (_) { /* balance display is non-critical */ }
-    }
+    }));
   }
 
   function renderPatientClaimContext() {
@@ -1660,7 +1714,7 @@
       const tab    = state._claimsFilter;
       const query  = (state._claimsSearch || "").toLowerCase();
       const filtered = claims.filter(c => {
-        const tabMatch = tab === "all" || c.status === tab;
+        const tabMatch = tab === "all" || (c.status || "").toLowerCase() === tab;
         const searchMatch = !query
           || (c.claim_number || "").toLowerCase().includes(query)
           || (c.member_number || "").toLowerCase().includes(query)
@@ -1690,7 +1744,7 @@
     // Wire tabs
     document.querySelectorAll("[data-claim-tab]").forEach(btn => {
       btn.onclick = () => {
-        document.querySelectorAll("[data-claim-tab]").forEach(b => b.classList.replace("info","") || b.classList.remove("info"));
+        document.querySelectorAll("[data-claim-tab]").forEach(b => b.classList.remove("info"));
         btn.classList.add("info");
         state._claimsFilter = btn.getAttribute("data-claim-tab");
         applyClaimsFilter();
@@ -1726,14 +1780,11 @@
     setTextById("pay-kpi-methods", methods || "—");
     setTextById("pay-kpi-unreconciled", String(unreconciledCount));
 
-    // Patient balances total from all patients
-    let totalOutstanding = 0;
-    for (const p of patients.slice(0, 20)) {
-      try {
-        const bal = await window.api.getPatientBalance(p.id).catch(() => ({ balance_cents: 0 }));
-        totalOutstanding += bal.balance_cents || 0;
-      } catch (_) { /* skip */ }
-    }
+    // Patient balances total — fetch in parallel, not serially
+    const balResults = await Promise.all(
+      patients.slice(0, 20).map(p => window.api.getPatientBalance(p.id).catch(() => ({ balance_cents: 0 })))
+    );
+    const totalOutstanding = balResults.reduce((s, b) => s + (b.balance_cents || 0), 0);
     setTextById("pay-kpi-balances", formatCurrency(totalOutstanding / 100));
 
     state._payFilter = state._payFilter || "all";
@@ -1741,7 +1792,7 @@
       const tab = state._payFilter;
       const filtered = payments.filter(p => {
         if (tab === "all") return true;
-        if (tab === "completed" || tab === "pending") return p.status === tab;
+        if (tab === "completed" || tab === "pending") return (p.status || "").toLowerCase() === tab;
         if (tab === "eft" || tab === "cash") return (p.method || "").toLowerCase() === tab;
         return true;
       });
@@ -2181,173 +2232,262 @@
     renderStructuredPayload();
     renderEdiPanel();
     renderTransportTimeline();
-    subscribeClaimRealtimeUpdates(claim.id);
+    loadAiNote();
   }
 
-  function renderClaimWorkflowPanels(claim) {
-    const rolePanel = document.getElementById("roleProgressPanel");
-    const onboardingPanel = document.getElementById("onboardingPanel");
-    const affectedRoles = claim.affected_roles || [];
-    const onboardingBlockers = claim.onboarding_blockers || [];
+  // ── ICD-10 AI search engine ──────────────────────────────────────────────
 
-    if (rolePanel) {
-      rolePanel.style.display = affectedRoles.length || (claim.state_progression || []).length ? "" : "none";
-    }
-    setTextById("currentRoleStatus", upperCaseValue(claim.status || "draft"));
-    setTextById("lastCompletedRole", claim.last_completed_role || "None");
-    setTextById("eligibleRoles", (claim.eligible_roles || []).join(", ") || "None");
+  // Concept synonyms: natural-language terms mapped to ICD-10 keyword clusters
+  const ICD10_CONCEPTS = [
+    { terms: ["heart attack","myocardial infarction","mi","cardiac arrest","ami"], keywords: ["myocardial","infarction","cardiac"] },
+    { terms: ["chest pain","chest tightness","chest pressure"], keywords: ["chest","pain","angina","pectoris"] },
+    { terms: ["broken arm","arm fracture","fractured arm"], keywords: ["fracture","radius","ulna","humerus","arm"] },
+    { terms: ["broken leg","leg fracture","fractured leg"], keywords: ["fracture","femur","tibia","fibula","leg"] },
+    { terms: ["stroke","brain attack","cva","cerebrovascular accident"], keywords: ["cerebral","infarction","stroke","cerebrovascular"] },
+    { terms: ["diabetes","blood sugar","hyperglycemia"], keywords: ["diabetes","mellitus","glucose","hyperglycemia"] },
+    { terms: ["hypertension","high blood pressure","hbp"], keywords: ["hypertension","blood pressure","essential"] },
+    { terms: ["pneumonia","lung infection","chest infection"], keywords: ["pneumonia","pneumonitis","lung","respiratory"] },
+    { terms: ["asthma","wheeze","wheezing","bronchospasm"], keywords: ["asthma","bronchial","obstructive","airway"] },
+    { terms: ["depression","sad","low mood","depressive"], keywords: ["depression","depressive","major","mood"] },
+    { terms: ["anxiety","panic","anxious","worry"], keywords: ["anxiety","panic","phobia","generalized"] },
+    { terms: ["back pain","backache","lumbar pain","spinal pain"], keywords: ["back","lumbar","dorsal","spine","vertebra"] },
+    { terms: ["headache","head pain","migraine","cephalagia"], keywords: ["headache","migraine","cephalgia","cranial"] },
+    { terms: ["flu","influenza","gripe"], keywords: ["influenza","flu","viral"] },
+    { terms: ["covid","coronavirus","sars-cov"], keywords: ["covid","coronavirus","sars","u07"] },
+    { terms: ["uti","urinary tract infection","bladder infection"], keywords: ["urinary","cystitis","pyelonephritis","bladder"] },
+    { terms: ["kidney","renal","nephritis"], keywords: ["kidney","renal","nephritis","nephropathy"] },
+    { terms: ["cancer","malignancy","tumor","tumour","carcinoma"], keywords: ["malignant","neoplasm","carcinoma","cancer"] },
+    { terms: ["pregnancy","pregnant","antenatal","maternity"], keywords: ["pregnancy","obstetric","antenatal","trimester"] },
+    { terms: ["infection","sepsis","septicemia"], keywords: ["infection","sepsis","septicemia","bacterial","viral"] },
+    { terms: ["joint pain","arthritis","arthralgias"], keywords: ["arthritis","arthralgia","joint","synovitis"] },
+    { terms: ["skin rash","dermatitis","eczema"], keywords: ["dermatitis","eczema","skin","rash","contact"] },
+    { terms: ["iron deficiency","anaemia","anemia"], keywords: ["anaemia","anemia","deficiency","iron"] },
+    { terms: ["copd","chronic obstructive","emphysema"], keywords: ["chronic","obstructive","pulmonary","emphysema","copd"] },
+    { terms: ["appendicitis","appendix"], keywords: ["appendicitis","appendix","appendicular"] },
+  ];
 
-    const progressionEl = document.getElementById("stateProgression");
-    if (progressionEl) {
-      progressionEl.innerHTML = (claim.state_progression || [])
-        .map(
-          (item) => `
-            <div class="progression-item">
-              <div class="status">${escapeHtml(item.status || "-")}</div>
-              <div class="timestamp">${item.completed_at ? escapeHtml(formatDateTime(item.completed_at)) : "Pending"}</div>
-            </div>
-          `,
-        )
-        .join("");
-    }
+  function _icd10Score(item, rawQuery) {
+    const q = rawQuery.toLowerCase().trim();
+    if (!q) return 0;
 
-    if (onboardingPanel) {
-      onboardingPanel.style.display = onboardingBlockers.length ? "" : "none";
-    }
-    setTextById("providerOnboardingStatus", claim.onboarding_status || "Unknown");
+    const code = (item.code || "").toLowerCase().replace(/\./g, "");
+    const desc = (item.description || "").toLowerCase();
+    const qNoDot = q.replace(/\./g, "");
 
-    const blockersEl = document.getElementById("onboardingBlockers");
-    if (blockersEl) {
-      blockersEl.innerHTML = onboardingBlockers
-        .map(
-          (blocker) => `
-            <div class="blocker ${escapeHtml(blocker.severity || "INFO")}">
-              <div class="reason">${escapeHtml(blocker.reason_code || blocker.type || "ONBOARDING_BLOCKER")}</div>
-              <div class="message">${escapeHtml(blocker.message || "Onboarding attention required.")}</div>
-              <div class="remediation">${escapeHtml(blocker.remediation || "Review the onboarding profile and complete the missing steps.")}</div>
-            </div>
-          `,
-        )
-        .join("");
-    }
+    let score = 0;
 
-    const actionsEl = document.getElementById("onboardingActions");
-    if (actionsEl) {
-      actionsEl.innerHTML = (claim.onboarding_actions || [])
-        .map(
-          (action) => `
-            <a href="${escapeHtml(action.target || "#")}" class="action-button">
-              ${escapeHtml(action.label || "Open")}
-            </a>
-          `,
-        )
-        .join("");
-    }
-  }
+    // Exact code match
+    if (code === qNoDot) return 1000;
+    // Code prefix
+    if (code.startsWith(qNoDot)) score += 200;
+    // Code contains
+    else if (code.includes(qNoDot)) score += 80;
 
-  function clearClaimRealtime() {
-    if (state.claimRealtime.socket) {
-      try {
-        state.claimRealtime.socket.onclose = null;
-        state.claimRealtime.socket.close();
-      } catch (_) {
-        // Ignore close errors for stale sockets.
+    // AI concept boost: check if query matches a known concept cluster
+    for (const concept of ICD10_CONCEPTS) {
+      const termMatch = concept.terms.some(t => q.includes(t) || t.includes(q));
+      if (termMatch) {
+        const keywordHits = concept.keywords.filter(kw => desc.includes(kw)).length;
+        score += keywordHits * 35;
       }
     }
-    if (state.claimRealtime.pollInterval) {
-      clearInterval(state.claimRealtime.pollInterval);
+
+    // Word-by-word forgiving match
+    const queryWords = q.split(/\s+/).filter(Boolean);
+    const descWords = desc.split(/\s+/);
+    let wordHits = 0;
+    for (const qw of queryWords) {
+      // exact word match
+      if (descWords.some(dw => dw === qw)) { wordHits += 20; continue; }
+      // prefix word match
+      if (descWords.some(dw => dw.startsWith(qw))) { wordHits += 12; continue; }
+      // substring in desc
+      if (desc.includes(qw)) { wordHits += 6; continue; }
+      // fuzzy: 1-char transposition tolerance for words >=4 chars
+      if (qw.length >= 4 && descWords.some(dw => _levenshtein(qw, dw) <= 1)) { wordHits += 4; }
     }
-    state.claimRealtime = { claimId: null, socket: null, pollInterval: null, polling: false };
+    score += wordHits;
+
+    // Penalise for unmatched query words (forgiving: don't require all words)
+    const matchedWords = queryWords.filter(qw =>
+      desc.includes(qw) || code.includes(qw.replace(/\./g, ""))
+    ).length;
+    if (matchedWords === 0 && score < 5) score = 0;
+
+    // Boost shorter descriptions (more specific codes rank higher when equal)
+    if (score > 0) score += Math.max(0, 40 - desc.length * 0.3);
+
+    return score;
   }
 
-  async function refreshClaimDetailFromRealtime(claimId) {
-    if (state.page !== "claim_detail.html" || Number(state.claimId) !== Number(claimId)) {
-      return;
-    }
-    await loadClaimDetail();
-  }
-
-  function fallbackClaimPolling(claimId) {
-    if (state.claimRealtime.polling || state.claimRealtime.claimId !== claimId) {
-      return;
-    }
-    state.claimRealtime.polling = true;
-    state.claimRealtime.pollInterval = window.setInterval(async () => {
-      try {
-        const claim = await window.api.getClaim(claimId);
-        const currentStatus = document.getElementById("currentRoleStatus")?.textContent?.toLowerCase();
-        if (currentStatus !== String(claim.status || "").toLowerCase()) {
-          await refreshClaimDetailFromRealtime(claimId);
-        }
-      } catch (error) {
-        console.error("Claim polling error:", error);
+  function _levenshtein(a, b) {
+    if (Math.abs(a.length - b.length) > 2) return 99;
+    const dp = Array.from({ length: a.length + 1 }, (_, i) =>
+      Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+    );
+    for (let i = 1; i <= a.length; i++) {
+      for (let j = 1; j <= b.length; j++) {
+        dp[i][j] = a[i-1] === b[j-1]
+          ? dp[i-1][j-1]
+          : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
       }
-    }, 5000);
+    }
+    return dp[a.length][b.length];
   }
 
-  function subscribeClaimRealtimeUpdates(claimId) {
-    const token = localStorage.getItem("api_token");
-    if (!token) {
-      return;
-    }
-    if (state.claimRealtime.claimId === claimId && (state.claimRealtime.socket || state.claimRealtime.pollInterval)) {
-      return;
-    }
-
-    clearClaimRealtime();
-    state.claimRealtime.claimId = claimId;
-
-    const origin = window.api?.origin || `${window.location.protocol}//${window.location.hostname}:8001`;
-    const wsUrl = `${origin.replace(/^http/, "ws")}/ws/claims/${claimId}?token=${encodeURIComponent(`Bearer ${token}`)}`;
-
-    try {
-      const socket = new WebSocket(wsUrl);
-      state.claimRealtime.socket = socket;
-
-      socket.onmessage = async (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === "claim_update") {
-          await refreshClaimDetailFromRealtime(claimId);
-        }
-      };
-      socket.onerror = () => {
-        fallbackClaimPolling(claimId);
-      };
-      socket.onclose = () => {
-        fallbackClaimPolling(claimId);
-      };
-    } catch (error) {
-      console.warn("Claim realtime subscription failed, falling back to polling:", error);
-      fallbackClaimPolling(claimId);
-    }
+  function _icd10IsAiMatch(item, rawQuery) {
+    const q = rawQuery.toLowerCase().trim();
+    const desc = (item.description || "").toLowerCase();
+    return ICD10_CONCEPTS.some(concept =>
+      concept.terms.some(t => q.includes(t) || t.includes(q)) &&
+      concept.keywords.some(kw => desc.includes(kw))
+    );
   }
 
   function renderDiagnosisReferenceOptions() {
-    const datalist = document.getElementById("icd10-options");
-    if (!datalist) return;
+    const dropdown = document.getElementById("icd10-ai-dropdown");
     const searchInput = document.getElementById("diagnosis-search-input");
+    if (!dropdown || !searchInput) return;
 
-    function buildOptions(query) {
-      const codes = state.icd10Reference || [];
-      const q = (query || "").toLowerCase().trim();
-      const matches = q.length < 2
-        ? codes.slice(0, 80)
-        : codes.filter(item =>
-            item.code.toLowerCase().includes(q) ||
-            (item.description || "").toLowerCase().includes(q)
-          ).slice(0, 80);
-      datalist.innerHTML = matches
-        .map(item => {
-          const label = escapeHtml(`${item.code} - ${item.description || ""}`);
-          return `<option value="${label}">${label}</option>`;
-        })
-        .join("");
+    let activeIdx = -1;
+    let currentResults = [];
+
+    function closeDropdown() {
+      dropdown.style.display = "none";
+      searchInput.setAttribute("aria-expanded", "false");
+      activeIdx = -1;
     }
 
-    buildOptions("");
-    if (searchInput && !searchInput._icd10Wired) {
-      searchInput._icd10Wired = true;
-      searchInput.addEventListener("input", () => buildOptions(searchInput.value));
+    function selectResult(item) {
+      searchInput.value = `${item.code} - ${item.description || ""}`;
+      searchInput.dataset.selectedCode = item.code;
+      closeDropdown();
+    }
+
+    function renderDropdown(query) {
+      const codes = state.icd10Reference || [];
+      const q = (query || "").trim();
+
+      if (!q) {
+        currentResults = codes.slice(0, 12);
+      } else {
+        const ql = q.toLowerCase();
+        const qNoDot = ql.replace(/\./g, "");
+        const qWords = ql.split(/\s+/).filter(Boolean);
+
+        // Fast pre-filter: keep only codes where code or description contains
+        // at least one query token — avoids running full scoring on every entry
+        const candidates = codes.filter(item => {
+          const code = (item.code || "").toLowerCase().replace(/\./g, "");
+          const desc = (item.description || "").toLowerCase();
+          if (code.includes(qNoDot)) return true;
+          return qWords.some(w => desc.includes(w) || code.includes(w));
+        });
+
+        // Fall back to full list only for very short/unmatched queries
+        const pool = candidates.length ? candidates : codes.slice(0, 300);
+
+        const scored = pool
+          .map(item => ({ item, score: _icd10Score(item, q) }))
+          .filter(x => x.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 20);
+        currentResults = scored.map(x => x.item);
+      }
+
+      if (!currentResults.length) {
+        dropdown.innerHTML = `<div style="padding:12px 14px;color:var(--ink-400);font-size:13px;">No ICD-10 codes match — try different terms.</div>`;
+        dropdown.style.display = "";
+        return;
+      }
+
+      const isAiQuery = ICD10_CONCEPTS.some(c => c.terms.some(t => {
+        const lq = q.toLowerCase();
+        return lq.includes(t) || t.includes(lq);
+      }));
+
+      dropdown.innerHTML = currentResults.map((item, i) => {
+        const aiMatch = q && _icd10IsAiMatch(item, q);
+        const codeHtml = escapeHtml(item.code);
+        const descHtml = escapeHtml(item.description || "");
+        const aiTag = aiMatch
+          ? `<span style="background:var(--brand-600,#2563eb);color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;margin-left:6px;">AI</span>`
+          : "";
+        return `<div role="option" data-icd10-idx="${i}"
+          style="padding:9px 14px;cursor:pointer;display:flex;flex-direction:column;gap:2px;
+                 border-bottom:1px solid var(--line-100,#f3f4f6);"
+          onmousedown="event.preventDefault()"
+          onmouseover="this.style.background='var(--surface-1,#f8fafc)'"
+          onmouseout="this.style.background=''">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-family:monospace;font-size:12px;font-weight:700;color:var(--ink-800)">${codeHtml}</span>
+            ${aiTag}
+          </div>
+          <span style="font-size:12px;color:var(--ink-600)">${descHtml}</span>
+        </div>`;
+      }).join("");
+
+      if (isAiQuery && q) {
+        dropdown.insertAdjacentHTML("afterbegin",
+          `<div style="padding:7px 14px;background:linear-gradient(90deg,#eff6ff,#f0fdf4);border-bottom:1px solid var(--line-100);font-size:11px;color:var(--ink-500);display:flex;align-items:center;gap:6px;">
+            <span style="background:var(--brand-600,#2563eb);color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;">AI</span>
+            Showing concept-matched results for <em>"${escapeHtml(q)}"</em>
+          </div>`
+        );
+      }
+
+      dropdown.style.display = "";
+      searchInput.setAttribute("aria-expanded", "true");
+      activeIdx = -1;
+
+      dropdown.querySelectorAll("[data-icd10-idx]").forEach(el => {
+        el.addEventListener("click", () => {
+          const idx = Number(el.dataset.icd10Idx);
+          if (currentResults[idx]) selectResult(currentResults[idx]);
+        });
+      });
+    }
+
+    function highlightItem(idx) {
+      const items = dropdown.querySelectorAll("[data-icd10-idx]");
+      items.forEach((el, i) => {
+        el.style.background = i === idx ? "var(--surface-1,#f8fafc)" : "";
+      });
+    }
+
+    if (!searchInput._icd10AiWired) {
+      searchInput._icd10AiWired = true;
+
+      let _icd10DebounceTimer = null;
+      searchInput.addEventListener("input", () => {
+        delete searchInput.dataset.selectedCode;
+        clearTimeout(_icd10DebounceTimer);
+        _icd10DebounceTimer = setTimeout(() => renderDropdown(searchInput.value), 160);
+      });
+      searchInput.addEventListener("focus", () => {
+        if (!searchInput.value) renderDropdown("");
+      });
+      searchInput.addEventListener("blur", () => {
+        setTimeout(closeDropdown, 150);
+      });
+      searchInput.addEventListener("keydown", (e) => {
+        const items = dropdown.querySelectorAll("[data-icd10-idx]");
+        if (!items.length) return;
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          activeIdx = Math.min(activeIdx + 1, items.length - 1);
+          highlightItem(activeIdx);
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          activeIdx = Math.max(activeIdx - 1, 0);
+          highlightItem(activeIdx);
+        } else if (e.key === "Enter" && activeIdx >= 0) {
+          e.preventDefault();
+          if (currentResults[activeIdx]) selectResult(currentResults[activeIdx]);
+        } else if (e.key === "Escape") {
+          closeDropdown();
+        }
+      });
     }
   }
 
@@ -2690,10 +2830,35 @@
   function renderSubmissionStepper(stepStates) {
     const stepper = document.getElementById("submission-stepper");
     if (!stepper) return;
-    const keys = ["generate", "validate", "submit", "response"];
+
+    // Derive lifecycle stage states from claim data
+    const claim = state.claimDetail || {};
+    const readinessDone = claim.readiness_status === "PASS";
+    const closureDone = !!claim.latest_snapshot;
+    const postclosureDone = claim.validation_status === "PASS";
+
+    const lifecycleStates = {
+      readiness: readinessDone ? "complete" : "idle",
+      closure: closureDone ? "complete" : "idle",
+      postclosure: postclosureDone ? "complete" : (claim.validation_status && claim.validation_status !== "PASS") ? "error" : "idle",
+    };
+
+    const allStates = { ...lifecycleStates, ...stepStates };
+    const keys = ["readiness", "closure", "postclosure", "generate", "validate", "submit", "response"];
     keys.forEach((key) => {
       const step = stepper.querySelector(`[data-step="${key}"]`);
-      if (step) step.dataset.state = stepStates[key] || "idle";
+      if (step) step.dataset.state = allStates[key] || "idle";
+    });
+
+    // Mark active step: first one that isn't complete
+    let activeSet = false;
+    keys.forEach((key) => {
+      const step = stepper.querySelector(`[data-step="${key}"]`);
+      if (!step) return;
+      if (!activeSet && step.dataset.state === "idle") {
+        step.dataset.state = "active";
+        activeSet = true;
+      }
     });
   }
 
@@ -2919,10 +3084,12 @@
   }
 
   function normalizeIcd10InputValue(value) {
-    return String(value || "")
-      .trim()
-      .split(/\s|-/)[0]
-      .toUpperCase();
+    const raw = String(value || "").trim();
+    // Accept "CODE - description" format from AI dropdown
+    const fromDropdown = raw.match(/^([A-Z][0-9A-Z.]{1,6})\s*-/i);
+    if (fromDropdown) return fromDropdown[1].toUpperCase();
+    // Accept plain code with or without dot
+    return raw.split(/\s/)[0].toUpperCase();
   }
 
   function setDiagnosisFeedback(message, tone = "info") {
@@ -3015,6 +3182,124 @@
     setDiagnosisFeedback("Primary diagnosis auto-fixed. Readiness is rerunning.", "success");
     await rerunReadinessFromDiagnosisAction("Primary diagnosis auto-fixed");
   }
+
+  // ── AI Notes ────────────────────────────────────────────────────────────
+
+  function _aiNoteStorageKey(claimId) {
+    return `medhealth_ai_note_${claimId}`;
+  }
+
+  function _patientNoteIndexKey(patientId) {
+    return `medhealth_patient_notes_${patientId}`;
+  }
+
+  function loadAiNote() {
+    const claimId = resolveClaimId(state.claimId);
+    if (!claimId) return;
+    const stored = localStorage.getItem(_aiNoteStorageKey(claimId));
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored);
+      const ta = document.getElementById("ai-note-textarea");
+      const savedAt = document.getElementById("ai-note-saved-at");
+      if (ta) ta.value = parsed.note || "";
+      if (savedAt) savedAt.textContent = parsed.savedAt ? `Saved ${parsed.savedAt}` : "";
+    } catch (_) {}
+  }
+
+  function generateAiNoteText() {
+    const claim = state.claimDetail || {};
+    const diagnoses = state.claimDiagnoses || [];
+    const lines = state.claimLineItems || [];
+
+    const primary = diagnoses.find(d => d.is_primary);
+    const secondary = diagnoses.filter(d => !d.is_primary);
+    const member = claim.member_number || `Patient ${claim.patient_id}`;
+    const date = new Date().toLocaleDateString("en-ZA", { year:"numeric", month:"long", day:"numeric" });
+    const claimRef = claim.claim_number || claim.id || "—";
+    const status = claim.status || "UNKNOWN";
+    const readiness = claim.readiness_status || "PENDING";
+    const totalCents = lines.reduce((s, l) => s + (l.amount_cents || 0), 0);
+
+    const diagLine = primary
+      ? `Primary diagnosis: ${primary.icd10_code}${secondary.length ? `; Secondary: ${secondary.map(d => d.icd10_code).join(", ")}` : ""}.`
+      : "No primary diagnosis captured.";
+
+    const procedureCodes = lines.map(l => l.tariff_code || l.nappi_code || l.code).filter(Boolean);
+    const procedureLine = procedureCodes.length
+      ? `Procedures billed: ${procedureCodes.join(", ")}.`
+      : "No procedure line items recorded.";
+
+    const pmbDecision = claim.latest_pmb_decision;
+    const pmbLine = pmbDecision
+      ? `PMB evaluation: ${pmbDecision.pmb_applicable ? "PMB applicable" : "Non-PMB"} — condition "${pmbDecision.condition_name || pmbDecision.condition_id || "—"}".`
+      : "PMB evaluation not yet run.";
+
+    const validationLine = claim.validation_status
+      ? `Post-closure validation: ${claim.validation_status}.`
+      : "Awaiting post-closure validation.";
+
+    return [
+      `AI Clinical Note — ${date}`,
+      `Claim: ${claimRef} | Member: ${member} | Status: ${status} | Readiness: ${readiness}`,
+      "",
+      diagLine,
+      procedureLine,
+      pmbLine,
+      validationLine,
+      totalCents > 0 ? `Total billed: ${formatCurrency(totalCents / 100)}.` : "",
+      "",
+      "Note generated automatically from claim data. Review and amend before filing.",
+    ].filter(l => l !== null).join("\n");
+  }
+
+  function handleGenerateAiNote() {
+    const ta = document.getElementById("ai-note-textarea");
+    if (!ta) return;
+    ta.value = generateAiNoteText();
+    const banner = document.getElementById("ai-note-banner");
+    if (banner) {
+      banner.textContent = "AI note generated from current claim data. Edit as needed, then save.";
+      banner.className = "inline-banner info";
+      banner.removeAttribute("hidden");
+      setTimeout(() => banner.setAttribute("hidden", ""), 4000);
+    }
+  }
+
+  function handleSaveAiNote() {
+    const claimId = resolveClaimId(state.claimId);
+    const patientId = state.claimDetail?.patient_id;
+    const ta = document.getElementById("ai-note-textarea");
+    if (!claimId || !ta) return;
+
+    const note = ta.value.trim();
+    const savedAt = new Date().toLocaleString("en-ZA");
+    const claimRef = state.claimDetail?.claim_number || String(claimId);
+
+    // Save note for this claim
+    localStorage.setItem(_aiNoteStorageKey(claimId), JSON.stringify({ note, savedAt, claimRef, patientId }));
+
+    // Update patient note index so the drawer can find it
+    if (patientId) {
+      let index = [];
+      try { index = JSON.parse(localStorage.getItem(_patientNoteIndexKey(patientId)) || "[]"); } catch(_) {}
+      if (!index.includes(String(claimId))) index.push(String(claimId));
+      localStorage.setItem(_patientNoteIndexKey(patientId), JSON.stringify(index));
+    }
+
+    const savedAtEl = document.getElementById("ai-note-saved-at");
+    if (savedAtEl) savedAtEl.textContent = `Saved ${savedAt}`;
+
+    const banner = document.getElementById("ai-note-banner");
+    if (banner) {
+      banner.textContent = "Note saved and will appear on the patient profile.";
+      banner.className = "inline-banner success";
+      banner.removeAttribute("hidden");
+      setTimeout(() => banner.setAttribute("hidden", ""), 3500);
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
 
   async function handleApplyLineDiagnosisLinks() {
     const selectedLineIds = Array.from(document.querySelectorAll("[data-line-select]:checked")).map((input) =>
@@ -4029,7 +4314,12 @@
             .map((item) => item.line_id);
       renderClaimLineItems();
     }
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Brief highlight so user sees which section was jumped to
+    target.style.transition = "outline 0s";
+    target.style.outline = "2px solid var(--brand-400, #60a5fa)";
+    target.style.outlineOffset = "3px";
+    setTimeout(() => { target.style.outline = ""; target.style.outlineOffset = ""; }, 1400);
     if (String(targetName).toLowerCase() === "diagnoses") {
       focusDiagnosisSearchInput();
     }
@@ -4451,6 +4741,18 @@
     }
   }
 
+  function _loadPatientAiNotes(patientId) {
+    try {
+      const index = JSON.parse(localStorage.getItem(_patientNoteIndexKey(patientId)) || "[]");
+      return index
+        .map(claimId => {
+          try { return JSON.parse(localStorage.getItem(_aiNoteStorageKey(claimId)) || "null"); } catch(_) { return null; }
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
+    } catch(_) { return []; }
+  }
+
   function renderPatientProfileDrawer(patientId, profile, balance, invoices = []) {
     let drawer = document.getElementById("patient-profile-drawer");
     if (!drawer) {
@@ -4509,6 +4811,25 @@
         <div style="margin-top:0.5rem;font-size:0.75rem;color:#6b7280">Total outstanding: <strong style="color:#991b1b">${formatCurrency(openInvoices.reduce((s, inv) => s + Math.max(0, (inv.total_cents||0) - (inv.paid_cents||0)), 0) / 100)}</strong></div>
       </div>` : (balanceCents > 0 ? "" : `<div style="background:#ecfdf5;border-radius:8px;padding:0.75rem;margin-top:0.875rem;font-size:0.8rem;color:#065f46">No outstanding invoices.</div>`);
 
+    // AI notes for this patient
+    const aiNotes = _loadPatientAiNotes(patientId);
+    const aiNotesHtml = aiNotes.length ? `
+      <div style="background:#eff6ff;border-radius:8px;padding:0.875rem;margin-top:0.875rem;font-size:0.8rem">
+        <div style="font-weight:600;margin-bottom:0.5rem;display:flex;align-items:center;gap:6px;">
+          <span>Clinical Notes</span>
+          <span style="background:#2563eb;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;">AI</span>
+          <span style="color:#6b7280;font-weight:400">(${aiNotes.length})</span>
+        </div>
+        ${aiNotes.map(n => `
+          <details style="margin-bottom:6px;border:1px solid #bfdbfe;border-radius:6px;overflow:hidden;">
+            <summary style="padding:6px 10px;cursor:pointer;background:#dbeafe;font-size:11px;color:#1e40af;font-weight:600;list-style:none;display:flex;justify-content:space-between;">
+              <span>Claim ${escapeHtml(n.claimRef || "—")}</span>
+              <span style="font-weight:400;color:#6b7280">${escapeHtml(n.savedAt || "")}</span>
+            </summary>
+            <pre style="margin:0;padding:8px 10px;font-size:11px;white-space:pre-wrap;word-break:break-word;background:#fff;color:#374151;line-height:1.55;">${escapeHtml(n.note || "")}</pre>
+          </details>`).join("")}
+      </div>` : "";
+
     drawer.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
         <h3 style="margin:0;font-size:1rem">${escapeHtml(profile.patient?.name || "Patient Profile")}</h3>
@@ -4523,6 +4844,7 @@
       ${memberHtml}
       ${billingHtml}
       ${invoicesHtml}
+      ${aiNotesHtml}
       <div style="margin-top:1.25rem;display:flex;flex-direction:column;gap:0.5rem">
         ${(profile.claim_id || profile.active_claim_id) ? `<a href="claim_detail.html?id=${profile.claim_id || profile.active_claim_id}" class="btn" style="text-align:center;font-size:0.875rem">Open Active Claim</a>` : ""}
         ${(profile.claim_id || profile.active_claim_id) ? `<a href="claim_detail.html?id=${profile.claim_id || profile.active_claim_id}#diagnoses" class="btn secondary" style="text-align:center;font-size:0.875rem">Jump to Diagnoses</a>` : ""}
