@@ -3533,6 +3533,49 @@
       .join("");
   }
 
+  function getRecommendedPrimaryDiagnosis(diagnoses, lineItems) {
+    if (!Array.isArray(diagnoses) || !diagnoses.length || diagnoses.some((item) => item.is_primary)) {
+      return null;
+    }
+    if (diagnoses.length === 1) {
+      return {
+        diagnosis_id: diagnoses[0].diagnosis_id,
+        reason: "Only diagnosis on the claim, so it should usually be the primary ICD-10.",
+      };
+    }
+
+    const linkCounts = new Map(diagnoses.map((item) => [item.diagnosis_id, 0]));
+    (lineItems || []).forEach((line) => {
+      (line.diagnosis_ids || []).forEach((diagnosisId) => {
+        if (linkCounts.has(diagnosisId)) {
+          linkCounts.set(diagnosisId, (linkCounts.get(diagnosisId) || 0) + 1);
+        }
+      });
+    });
+
+    const ranked = [...diagnoses]
+      .map((diagnosis, index) => ({
+        diagnosis,
+        linkCount: linkCounts.get(diagnosis.diagnosis_id) || 0,
+        index,
+      }))
+      .sort((left, right) => {
+        if (left.linkCount !== right.linkCount) return right.linkCount - left.linkCount;
+        return left.index - right.index;
+      });
+
+    const best = ranked[0];
+    const second = ranked[1];
+    if (!best || best.linkCount <= 0 || (second && best.linkCount === second.linkCount)) {
+      return null;
+    }
+
+    return {
+      diagnosis_id: best.diagnosis.diagnosis_id,
+      reason: `Linked to ${best.linkCount} billed line item${best.linkCount === 1 ? "" : "s"}, so it is the strongest primary candidate.`,
+    };
+  }
+
   function renderClaimLineDiagnosisOptions() {
     const select = document.getElementById("line-diagnosis-bulk-select");
     if (!select) {
