@@ -14,6 +14,14 @@ class PlatformCoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = PlatformStore()
 
+    def test_inmemory_store_prepopulates_icd10_reference_catalog(self) -> None:
+        self.assertGreaterEqual(len(self.store.icd10_codes), 75)
+        self.assertEqual(
+            self.store.icd10_codes["I10"].description,
+            "Essential hypertension",
+        )
+        self.assertIn("Z00.00", self.store.icd10_codes)
+
     def test_missing_primary_icd_blocks_readiness_with_navigation_action(self) -> None:
         result = self.store.run_readiness(2, "tester", "Billing Specialist")
         self.assertEqual(result["outcome"], "BLOCK")

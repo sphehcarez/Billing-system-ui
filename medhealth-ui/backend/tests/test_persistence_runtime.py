@@ -6,6 +6,14 @@ from db_runtime import create_session
 from demo_seed import DEMO_OPTION, DEMO_SCHEME
 
 
+def test_persistent_reference_seed_contains_prepopulated_icd10_catalog(reference_store):
+    codes = reference_store.list_icd10_reference()
+    assert len(codes) >= 75
+    by_code = {item["code"]: item for item in codes}
+    assert by_code["I10"]["description"] == "Essential hypertension"
+    assert by_code["Z00.00"]["status"] == "ACTIVE"
+
+
 def test_pmb_detection_service_matches_mapping_from_database(reference_store):
     claim = reference_store.create_claim(
         {

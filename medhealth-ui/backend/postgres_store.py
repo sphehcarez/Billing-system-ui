@@ -121,11 +121,14 @@ class PersistentPlatformStore(LegacyPlatformStore):
         self._owns_session = session is None
         self._initialize_empty_state()
         self._load_from_database()
+        default_icd10_added = self._ensure_default_icd10_reference_seeded()
         self._reset_counters()
         self.icd10_validation_service = ICD10ValidationService(self)
         self.pmb_detection_service = PMBDetectionService(self)
         self.benefit_routing_service = BenefitRoutingService(self)
         self.costing_preview_service = CostingPreviewService(self)
+        if default_icd10_added:
+            self.save()
 
     def close(self) -> None:
         if self._owns_session:

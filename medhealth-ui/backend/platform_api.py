@@ -38,6 +38,7 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5500",
     "null",
 ]
+ALLOWED_ORIGIN_REGEX = r"^https://([a-z0-9-]+\.)?(lhr\.life|localhost\.run)$"
 
 _claim_subscribers: dict[int, Set[WebSocket]] = {}
 
@@ -223,6 +224,7 @@ app = FastAPI(title="Medhealth Claims Rules Platform", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

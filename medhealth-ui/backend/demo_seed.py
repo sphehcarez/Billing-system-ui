@@ -22,6 +22,13 @@ from platform_core import (
     utc_now,
 )
 from postgres_store import PersistentPlatformStore
+from icd10_seed_catalog import (
+    ICD10_REFERENCE_EFFECTIVE_FROM,
+    ICD10_REFERENCE_KEY,
+    ICD10_REFERENCE_SOURCE,
+    ICD10_REFERENCE_VERSION,
+    ICD10_STARTER_CODES,
+)
 
 # ---------------------------------------------------------------------------
 # Fixed random seed – must be at module level so every import is deterministic
@@ -258,64 +265,7 @@ PATIENTS_DATA = _build_patients()
 # ---------------------------------------------------------------------------
 # ICD-10 codes for claims
 # ---------------------------------------------------------------------------
-ICD10_CODES: Dict[str, str] = {
-    # Cardiovascular
-    "I10":    "Essential hypertension",
-    "I20.9":  "Angina pectoris, unspecified",
-    "I21.9":  "Acute myocardial infarction, unspecified",
-    "I25.10": "Atherosclerotic heart disease of native coronary artery without angina",
-    "I48.91": "Unspecified atrial fibrillation",
-    "I50.9":  "Unspecified heart failure",
-    "I63.9":  "Cerebral infarction, unspecified",
-    # Endocrine / metabolic
-    "E11.9":  "Type 2 diabetes mellitus, without complications",
-    "E11.65": "Type 2 diabetes mellitus with hyperglycaemia",
-    "E78.5":  "Hyperlipidaemia, unspecified",
-    "E66.9":  "Obesity, unspecified",
-    "E03.9":  "Hypothyroidism, unspecified",
-    "E05.90": "Thyrotoxicosis, unspecified, without thyrotoxic crisis",
-    # Respiratory
-    "J06.9":  "Acute upper respiratory infection, unspecified",
-    "J11.1":  "Influenza with other respiratory manifestations",
-    "J18.9":  "Pneumonia, unspecified organism",
-    "J20.9":  "Acute bronchitis, unspecified",
-    "J44.9":  "Chronic obstructive pulmonary disease, unspecified",
-    "J45.909":"Unspecified asthma, uncomplicated",
-    # Musculoskeletal
-    "M17.11": "Primary osteoarthritis, right knee",
-    "M17.12": "Primary osteoarthritis, left knee",
-    "M54.5":  "Low back pain",
-    "M54.2":  "Cervicalgia",
-    "M79.3":  "Panniculitis",
-    "M06.9":  "Rheumatoid arthritis, unspecified",
-    "M81.0":  "Age-related osteoporosis without current pathological fracture",
-    # Gastrointestinal
-    "K02.9":  "Dental caries, unspecified",
-    "K21.0":  "Gastro-oesophageal reflux disease with oesophagitis",
-    "K25.9":  "Gastric ulcer, unspecified as acute or chronic, without haemorrhage or perforation",
-    "K35.80": "Other and unspecified acute appendicitis without abscess",
-    "K92.1":  "Melaena",
-    # Genitourinary / renal
-    "N18.3":  "Chronic kidney disease, stage 3 (moderate)",
-    "N39.0":  "Urinary tract infection, site not specified",
-    "N40.0":  "Benign prostatic hyperplasia without lower urinary tract symptoms",
-    "N94.3":  "Premenstrual tension syndrome",
-    # Mental health
-    "F32.9":  "Major depressive disorder, single episode, unspecified",
-    "F41.1":  "Generalised anxiety disorder",
-    "F10.20": "Alcohol dependence, uncomplicated",
-    "F43.10": "Post-traumatic stress disorder, unspecified",
-    # Infections / other
-    "A09":    "Other and unspecified gastroenteritis and colitis of infectious origin",
-    "B34.1":  "Respiratory syncytial virus infection",
-    "B20":    "Human immunodeficiency virus disease",
-    "J35.03": "Chronic tonsillitis and adenoiditis",
-    "L20.9":  "Atopic dermatitis, unspecified",
-    "L50.0":  "Allergic urticaria",
-    "C34.90": "Malignant neoplasm of bronchus and lung, unspecified, unspecified side",
-    "Z23":    "Encounter for immunisation",
-    "Z00.00": "Encounter for general adult medical examination without abnormal findings",
-}
+ICD10_CODES: Dict[str, str] = dict(ICD10_STARTER_CODES)
 # Extra ICD codes used by UAT / realistic scenarios (kept for backward compat)
 ICD10_EXTRA: Dict[str, str] = {}
 
@@ -583,10 +533,10 @@ def seed_uat_scenarios(store: PersistentPlatformStore) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _ensure_reference_versions(store: PersistentPlatformStore) -> None:
-    store.reference_versions["icd10_mit"] = ReferenceVersion(
-        reference_key="icd10_mit",
-        version="ICD10-ZA-2026-Q2",
-        effective_from="2024-01-01",
+    store.reference_versions[ICD10_REFERENCE_KEY] = ReferenceVersion(
+        reference_key=ICD10_REFERENCE_KEY,
+        version=ICD10_REFERENCE_VERSION,
+        effective_from=ICD10_REFERENCE_EFFECTIVE_FROM,
     )
     for key, version in {
         "pmb":               "PMB-ZA-2026-Q2",
@@ -749,7 +699,7 @@ def _ensure_settings(store: PersistentPlatformStore) -> None:
 
 
 def _ensure_icd10_codes(store: PersistentPlatformStore) -> None:
-    version = store.reference_versions["icd10_mit"].version
+    version = store.reference_versions[ICD10_REFERENCE_KEY].version
     all_codes = {**ICD10_CODES, **ICD10_EXTRA}
     for code, description in all_codes.items():
         store.icd10_codes[code] = ICD10Code(
@@ -757,8 +707,8 @@ def _ensure_icd10_codes(store: PersistentPlatformStore) -> None:
             description=description,
             version=version,
             active=True,
-            effective_from="2024-01-01",
-            source="Synthetic SA medical scheme reference data – ICD-10-CM",
+            effective_from=ICD10_REFERENCE_EFFECTIVE_FROM,
+            source=ICD10_REFERENCE_SOURCE,
             status="ACTIVE",
         )
 

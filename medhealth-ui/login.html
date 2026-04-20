@@ -216,7 +216,11 @@
       loginBtn.disabled = true;
       loginBtn.textContent = "Authenticating...";
       try {
-        const response = await window.api.login(username, password, role);
+        const api = window.api || (window.BillingAPI ? (window.api = new window.BillingAPI()) : null);
+        if (!api) {
+          throw new Error("API client did not load. Refresh the page and confirm js/api-client.js is reachable.");
+        }
+        const response = await api.login(username, password, role);
         localStorage.setItem("role", response.role);
         location.href = "dashboard.html";
       } catch (error) {

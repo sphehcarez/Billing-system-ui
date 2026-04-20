@@ -4,11 +4,20 @@
  */
 
 function resolveApiBaseUrl() {
+  const isLocalOrigin = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
   const explicitMeta = document.querySelector('meta[name="medhealth-api-base"]')?.content?.trim();
+  const queryOverride = new URLSearchParams(window.location.search).get("apiBase")?.trim();
   const storedOverride = localStorage.getItem("medhealth_api_base_url")?.trim();
-  const candidate = explicitMeta || storedOverride;
+  const candidate = queryOverride || explicitMeta || (!isLocalOrigin ? storedOverride : "");
   if (candidate) {
-    return new URL(candidate, window.location.origin).toString().replace(/\/$/, "");
+    const normalized = new URL(candidate, window.location.origin).toString().replace(/\/$/, "");
+    if (queryOverride) {
+      localStorage.setItem("medhealth_api_base_url", normalized);
+    }
+    return normalized;
+  }
+  if (isLocalOrigin) {
+    localStorage.removeItem("medhealth_api_base_url");
   }
   if (window.location.port === "8001") {
     return new URL("/api", window.location.origin).toString().replace(/\/$/, "");
@@ -606,4 +615,5 @@ class BillingAPI {
 }
 
 // Create global API instance
+window.BillingAPI = BillingAPI;
 window.api = new BillingAPI();

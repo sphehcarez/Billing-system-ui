@@ -10,6 +10,14 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from icd10_seed_catalog import (
+    ICD10_REFERENCE_EFFECTIVE_FROM,
+    ICD10_REFERENCE_KEY,
+    ICD10_REFERENCE_SOURCE,
+    ICD10_REFERENCE_VERSION,
+    ICD10_STARTER_CODES,
+)
+
 
 StageName = Literal[
     "READINESS",
@@ -2110,10 +2118,10 @@ class PlatformStore:
         self.claim_history[f"{claim.id}:{claim.version}"] = self._claim_payload(claim)
 
     def seed(self) -> None:
-        self.reference_versions["icd10_mit"] = ReferenceVersion(
-            reference_key="icd10_mit",
-            version="MIT-2026-01",
-            effective_from="2026-01-01",
+        self.reference_versions[ICD10_REFERENCE_KEY] = ReferenceVersion(
+            reference_key=ICD10_REFERENCE_KEY,
+            version=ICD10_REFERENCE_VERSION,
+            effective_from=ICD10_REFERENCE_EFFECTIVE_FROM,
         )
         self.reference_versions["pmb"] = ReferenceVersion(
             reference_key="pmb",
@@ -2268,27 +2276,33 @@ class PlatformStore:
         self._seed_claims()
         self.generate_report("summary", "Seeded UAT")
 
-    def _seed_coding_and_pmb_reference(self) -> None:
-        mit_version = self.reference_versions["icd10_mit"].version
-        for code, description in {
-            "I10": "Configured ICD-10 development reference",
-            "S72.0": "Configured ICD-10 development reference",
-            "M54.5": "Configured ICD-10 development reference",
-            "J11.1": "Configured ICD-10 development reference",
-            "K02.1": "Configured ICD-10 development reference",
-            "C50.9": "Configured ICD-10 development reference",
-            "I11.0": "Configured ICD-10 development reference",
-            "E11.9": "Configured ICD-10 development reference",
-            "H52.4": "Configured ICD-10 development reference",
-            "Z00.0": "Configured ICD-10 development reference",
-        }.items():
+    def _ensure_default_icd10_reference_seeded(self) -> int:
+        if ICD10_REFERENCE_KEY not in self.reference_versions:
+            self.reference_versions[ICD10_REFERENCE_KEY] = ReferenceVersion(
+                reference_key=ICD10_REFERENCE_KEY,
+                version=ICD10_REFERENCE_VERSION,
+                effective_from=ICD10_REFERENCE_EFFECTIVE_FROM,
+            )
+
+        added = 0
+        version = self.reference_versions[ICD10_REFERENCE_KEY].version
+        for code, description in ICD10_STARTER_CODES.items():
+            if code in self.icd10_codes:
+                continue
             self.icd10_codes[code] = ICD10Code(
                 code=code,
                 description=description,
-                version=mit_version,
-                effective_from="2024-01-01",
-                source="development_placeholder_business_owned_required",
+                version=version,
+                active=True,
+                effective_from=ICD10_REFERENCE_EFFECTIVE_FROM,
+                source=ICD10_REFERENCE_SOURCE,
+                status="ACTIVE",
             )
+            added += 1
+        return added
+
+    def _seed_coding_and_pmb_reference(self) -> None:
+        self._ensure_default_icd10_reference_seeded()
 
         self.pmb_conditions["PMB-CONFIG-001"] = PMBCondition(
             condition_id="PMB-CONFIG-001",
