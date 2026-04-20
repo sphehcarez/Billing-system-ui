@@ -49,7 +49,7 @@ class BillingAPI {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
         body: JSON.stringify({ username, password, role }),
       });
 
@@ -123,8 +123,67 @@ class BillingAPI {
     return `${this.origin}/health`;
   }
 
+  // =========================================================================
+  // RESPONSE CACHE  (stale-while-revalidate, GET only, 45-second TTL)
+  // =========================================================================
+  _cacheKey(endpoint) {
+    return `mh_cache_${this.token ? this.token.slice(-8) : "anon"}_${endpoint}`;
+  }
+
+  _cacheGet(endpoint) {
+    try {
+      const raw = sessionStorage.getItem(this._cacheKey(endpoint));
+      if (!raw) return null;
+      const { data, ts } = JSON.parse(raw);
+      if (Date.now() - ts > 45_000) return null; // 45 s TTL
+      return data;
+    } catch (_) { return null; }
+  }
+
+  _cacheSet(endpoint, data) {
+    try {
+      sessionStorage.setItem(this._cacheKey(endpoint), JSON.stringify({ data, ts: Date.now() }));
+    } catch (_) {}
+  }
+
+  _cacheInvalidate(prefix) {
+    try {
+      Object.keys(sessionStorage)
+        .filter(k => k.startsWith("mh_cache_") && k.includes(prefix))
+        .forEach(k => sessionStorage.removeItem(k));
+    } catch (_) {}
+  }
+
   async _request(endpoint, method = "GET", body = null) {
-    const headers = {};
+    // Serve GET requests from cache, refresh in background
+    if (method === "GET" && body === null) {
+      const cached = this._cacheGet(endpoint);
+      if (cached !== null) {
+        // Return cached data immediately, silently refresh in background
+        this._fetchRaw(endpoint, method, body).then(fresh => {
+          if (fresh !== null) this._cacheSet(endpoint, fresh);
+        }).catch(() => {});
+        return cached;
+      }
+    }
+
+    const data = await this._fetchRaw(endpoint, method, body);
+
+    if (method === "GET" && body === null && data !== null) {
+      this._cacheSet(endpoint, data);
+    } else if (method !== "GET") {
+      // Invalidate related cache entries on writes
+      const base = "/" + endpoint.split("/")[1];
+      this._cacheInvalidate(base);
+    }
+
+    return data;
+  }
+
+  async _fetchRaw(endpoint, method = "GET", body = null) {
+    const headers = {
+      "ngrok-skip-browser-warning": "true",
+    };
 
     if (this.token) {
       headers.Authorization = `Bearer ${this.token}`;
@@ -475,7 +534,7 @@ class BillingAPI {
   }
 
   async _requestWithHeaders(endpoint, method, body, extraHeaders) {
-    const headers = {};
+    const headers = { "ngrok-skip-browser-warning": "true" };
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     if (body !== null) headers["Content-Type"] = "application/json";
     Object.assign(headers, extraHeaders);

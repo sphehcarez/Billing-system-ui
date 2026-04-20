@@ -15,6 +15,8 @@ Implementation work for this checklist is already in the codebase. The most rece
 
 If work is continuing from here, the next step is not this checklist item set; it is a new scope on top of the completed claim role handoff and onboarding workflow integration.
 
+Temporary note: tiny repository change added on 2026-04-19 for Git change detection.
+
 ---
 
 ## Phase 1: Backend Claim Model Extension

@@ -13,22 +13,10 @@
       "users",
       "settings",
     ],
-    "Front Office": ["dashboard", "patients", "claims", "payments"],
-    Billing: ["dashboard", "patients", "providers", "claims", "payments", "reports"],
-    Clinical: ["dashboard", "patients", "claims"],
-    Finance: ["dashboard", "claims", "payments", "reports"],
-    Audit: ["dashboard", "claims", "payments", "reports", "audit"],
-    "Practice Manager": ["dashboard", "patients", "providers", "claims", "payments", "reports", "users", "settings"],
-    "Bureau Manager": ["dashboard", "patients", "providers", "claims", "payments", "reports", "audit", "users", "settings"],
-    "Reception / Patient Access": ["dashboard", "patients", "claims", "payments"],
-    "Billing Specialist": ["dashboard", "patients", "providers", "claims", "payments", "reports"],
-    "Clinical Coder": ["dashboard", "patients", "providers", "claims", "reports", "audit"],
-    "Authorisations Coordinator": ["dashboard", "patients", "claims", "reports"],
+    "Billing Specialist": ["dashboard", "patients", "providers", "claims", "payments"],
     "Healthcare Provider": ["dashboard", "patients", "claims"],
-    "Finance Officer": ["dashboard", "claims", "payments", "reports"],
-    "Reconciliation Specialist": ["dashboard", "claims", "payments", "reports", "audit"],
-    "Credit Controller": ["dashboard", "patients", "claims", "payments", "reports"],
-    "Compliance Auditor": ["dashboard", "claims", "payments", "reports", "audit"],
+    "Finance Officer": ["dashboard", "payments", "reports"],
+    "Compliance Auditor": ["dashboard", "reports", "audit"],
   };
 
   const ROLE_PERMISSIONS = {
@@ -42,87 +30,11 @@
       users: new Set(["read", "write", "delete"]),
       settings: new Set(["read", "write"]),
     },
-    "Front Office": {
-      patients: new Set(["read", "write"]),
-      providers: new Set(["read"]),
-      claims: new Set(["read", "write"]),
-      payments: new Set(["read", "write"]),
-      reports: new Set(["read"]),
-    },
-    Billing: {
-      patients: new Set(["read", "write"]),
-      providers: new Set(["read", "write"]),
-      claims: new Set(["read", "write", "process", "submit"]),
-      payments: new Set(["read", "write"]),
-      reports: new Set(["read", "generate"]),
-      audit: new Set(["read"]),
-    },
-    Clinical: {
-      patients: new Set(["read"]),
-      providers: new Set(["read"]),
-      claims: new Set(["read", "process"]),
-      audit: new Set(["read"]),
-    },
-    Finance: {
-      claims: new Set(["read"]),
-      payments: new Set(["read", "write"]),
-      reports: new Set(["read", "generate"]),
-      audit: new Set(["read"]),
-    },
-    Audit: {
-      patients: new Set(["read"]),
-      providers: new Set(["read"]),
-      claims: new Set(["read"]),
-      payments: new Set(["read"]),
-      reports: new Set(["read"]),
-      audit: new Set(["read"]),
-    },
-    "Practice Manager": {
-      patients: new Set(["read", "write"]),
-      providers: new Set(["read", "write"]),
-      claims: new Set(["read", "write", "process", "submit"]),
-      payments: new Set(["read", "write"]),
-      reports: new Set(["read", "generate"]),
-      audit: new Set(["read"]),
-      users: new Set(["read", "write"]),
-      settings: new Set(["read"]),
-    },
-    "Bureau Manager": {
-      patients: new Set(["read", "write"]),
-      providers: new Set(["read", "write"]),
-      claims: new Set(["read", "write", "process", "submit"]),
-      payments: new Set(["read", "write"]),
-      reports: new Set(["read", "generate"]),
-      audit: new Set(["read"]),
-      users: new Set(["read", "write"]),
-      settings: new Set(["read"]),
-    },
-    "Reception / Patient Access": {
-      patients: new Set(["read", "write"]),
-      providers: new Set(["read"]),
-      claims: new Set(["read", "write"]),
-      payments: new Set(["read", "write"]),
-      reports: new Set(["read"]),
-    },
     "Billing Specialist": {
       patients: new Set(["read", "write"]),
       providers: new Set(["read", "write"]),
       claims: new Set(["read", "write", "process", "submit"]),
       payments: new Set(["read", "write"]),
-    },
-    "Clinical Coder": {
-      patients: new Set(["read"]),
-      providers: new Set(["read"]),
-      claims: new Set(["read", "write", "process"]),
-      reports: new Set(["read"]),
-      audit: new Set(["read"]),
-    },
-    "Authorisations Coordinator": {
-      patients: new Set(["read"]),
-      providers: new Set(["read"]),
-      claims: new Set(["read", "write", "process"]),
-      reports: new Set(["read"]),
-      audit: new Set(["read"]),
     },
     "Healthcare Provider": {
       patients: new Set(["read"]),
@@ -133,19 +45,6 @@
       claims: new Set(["read"]),
       payments: new Set(["read", "write"]),
       reports: new Set(["read", "generate"]),
-    },
-    "Reconciliation Specialist": {
-      claims: new Set(["read"]),
-      payments: new Set(["read", "write"]),
-      reports: new Set(["read", "generate"]),
-      audit: new Set(["read"]),
-    },
-    "Credit Controller": {
-      patients: new Set(["read"]),
-      claims: new Set(["read"]),
-      payments: new Set(["read", "write"]),
-      reports: new Set(["read"]),
-      audit: new Set(["read"]),
     },
     "Compliance Auditor": {
       patients: new Set(["read"]),
@@ -340,7 +239,6 @@
     page: getCurrentPage(),
     role: getStoredRole(),
     claimId: getClaimIdFromLocation(),
-    routeContext: getModuleRouteContext(),
     sidebarOpen: null,
     connection: { status: "checking", message: "Checking API connection..." },
     patients: [],
@@ -396,92 +294,25 @@
     return Number.isInteger(claimId) && claimId > 0 ? claimId : null;
   }
 
-  function getModuleRouteContext() {
-    const params = new URLSearchParams(location.search);
-    const focusClaimId = Number(params.get("claim"));
-    const selectedPatientId = Number(params.get("patient"));
-    const selectedProviderId = Number(params.get("provider"));
-    const owner = params.get("owner");
-    const status = String(params.get("status") || "").toLowerCase();
-    return {
-      owner: owner ? normalizeRole(owner) : "",
-      status,
-      source: params.get("source") || "",
-      focusClaimId: Number.isInteger(focusClaimId) && focusClaimId > 0 ? focusClaimId : null,
-      selectedPatientId: Number.isInteger(selectedPatientId) && selectedPatientId > 0 ? selectedPatientId : null,
-      selectedProviderId: Number.isInteger(selectedProviderId) && selectedProviderId > 0 ? selectedProviderId : null,
-    };
-  }
-
   function normalizeRole(raw) {
     const aliases = {
       admin: "Administrator",
       administrator: "Administrator",
-      "front office": "Front Office",
-      frontdesk: "Front Office",
-      billingcore: "Billing",
       billing: "Billing Specialist",
-      "billing core": "Billing",
-      clinical: "Clinical",
-      clinicalcore: "Clinical",
-      financecore: "Finance",
-      finance: "Finance Officer",
-      auditcore: "Audit",
-      audit: "Audit",
-      manager: "Practice Manager",
-      "practice manager": "Practice Manager",
-      bureau: "Bureau Manager",
-      "bureau manager": "Bureau Manager",
-      reception: "Reception / Patient Access",
-      receptionist: "Reception / Patient Access",
-      "patient access": "Reception / Patient Access",
-      "reception / patient access": "Reception / Patient Access",
       "billing specialist": "Billing Specialist",
-      coder: "Clinical Coder",
-      "clinical coder": "Clinical Coder",
-      authz: "Authorisations Coordinator",
-      authorisations: "Authorisations Coordinator",
-      "authorisations coordinator": "Authorisations Coordinator",
       provider: "Healthcare Provider",
       "healthcare provider": "Healthcare Provider",
+      finance: "Finance Officer",
       "finance officer": "Finance Officer",
-      recon: "Reconciliation Specialist",
-      reconciliation: "Reconciliation Specialist",
-      "reconciliation specialist": "Reconciliation Specialist",
-      debtors: "Credit Controller",
-      debtor: "Credit Controller",
-      "credit controller": "Credit Controller",
       auditor: "Compliance Auditor",
       "compliance auditor": "Compliance Auditor",
     };
     const key = String(raw || "").toLowerCase().trim();
-    return aliases[key] || raw || "Billing";
-  }
-
-  function getDashboardRoleFamily(role = state.role) {
-    const families = {
-      "Front Office": "Front Office",
-      Billing: "Billing",
-      Clinical: "Clinical",
-      Finance: "Finance",
-      Audit: "Audit",
-      "Practice Manager": "Administrator",
-      "Bureau Manager": "Administrator",
-      "Reception / Patient Access": "Front Office",
-      "Billing Specialist": "Billing",
-      "Clinical Coder": "Billing",
-      "Authorisations Coordinator": "Front Office",
-      "Healthcare Provider": "Clinical",
-      "Finance Officer": "Finance",
-      "Reconciliation Specialist": "Finance",
-      "Credit Controller": "Finance",
-      "Compliance Auditor": "Audit",
-    };
-    return families[role] || role || "Billing";
+    return aliases[key] || raw || "Billing Specialist";
   }
 
   function getStoredRole() {
-    const raw = localStorage.getItem("api_role") || localStorage.getItem("role") || "Billing";
+    const raw = localStorage.getItem("api_role") || localStorage.getItem("role") || "Billing Specialist";
     return normalizeRole(raw);
   }
 
@@ -602,7 +433,7 @@
 
     const signout = sidebar.querySelector('.footer a[href="index.html"], .footer a[href="login.html"]');
     if (signout && !signout.querySelector(".sidebar-signout-icon")) {
-      signout.setAttribute("href", "index.html");
+      signout.setAttribute("href", "login.html");
       const labelText = signout.textContent.trim() || "Sign out";
       signout.textContent = "";
       signout.classList.add("sidebar-signout");
@@ -727,124 +558,6 @@
       statusPill.className = "connection-pill";
       statusPill.setAttribute("id", "connection-status-pill");
       statusPill.innerHTML = '<span class="connection-dot"></span><span id="connection-status-label">Checking API…</span>';
-      actionsBar.insertBefore(statusPill, actionsBar.firstChild);
-
-      const manualLink = document.createElement("a");
-      manualLink.href = "manual.html";
-      manualLink.className = "btn secondary";
-      manualLink.setAttribute("data-manual-link", "true");
-      manualLink.textContent = "User Manual";
-      actionsBar.insertBefore(manualLink, statusPill.nextSibling);
-    }
-
-    const createButton = document.querySelector('[data-action="create-new"]');
-    if (!createButton) {
-      return;
-    }
-
-    const config = CREATE_CONFIG[state.page];
-    if (!config) {
-      createButton.style.display = "none";
-      return;
-    }
-
-    const requiredAction = config.requiredAction || "write";
-    if (!hasPermission(config.resource, requiredAction)) {
-      createButton.style.display = "none";
-    }
-  }
-
-  function initializeSidebarShell() {
-    const shell = document.querySelector(".shell");
-    const sidebar = document.querySelector(".sidebar");
-    if (!shell || !sidebar || ["index.html", "login.html"].includes(state.page)) {
-      return;
-    }
-
-    sidebar.setAttribute("id", "app-sidebar");
-    decorateSidebarNavigation(sidebar);
-
-    let sidebarHead = sidebar.querySelector(".sidebar-head");
-    if (!sidebarHead) {
-      sidebarHead = document.createElement("div");
-      sidebarHead.className = "sidebar-head";
-      const brand = sidebar.querySelector(".brand");
-      if (brand) {
-        brand.parentNode.insertBefore(sidebarHead, brand);
-        sidebarHead.appendChild(brand);
-      } else {
-        sidebar.insertBefore(sidebarHead, sidebar.firstChild);
-      }
-    }
-
-    if (!sidebar.querySelector("[data-sidebar-close]")) {
-      const closeButton = document.createElement("button");
-      closeButton.type = "button";
-      closeButton.className = "sidebar-toggle sidebar-toggle--sidebar";
-      closeButton.setAttribute("data-sidebar-close", "true");
-      closeButton.setAttribute("aria-controls", "app-sidebar");
-      closeButton.setAttribute("aria-label", "Close navigation");
-      closeButton.textContent = "X";
-      closeButton.addEventListener("click", () => setSidebarOpen(false));
-      sidebarHead.appendChild(closeButton);
-    }
-
-    if (!shell.querySelector(".sidebar-backdrop")) {
-      const backdrop = document.createElement("button");
-      backdrop.type = "button";
-      backdrop.className = "sidebar-backdrop";
-      backdrop.setAttribute("aria-label", "Close navigation");
-      backdrop.addEventListener("click", () => setSidebarOpen(false));
-      shell.appendChild(backdrop);
-    }
-
-    mountSidebarToggleButton();
-    state.sidebarOpen = getStoredSidebarOpen();
-    applySidebarState();
-
-    window.addEventListener("resize", handleSidebarResize);
-    document.addEventListener("keydown", handleSidebarEscape);
-  }
-
-  function applySidebarState() {
-    const shell = document.querySelector(".shell");
-    const sidebar = document.querySelector(".sidebar");
-    const toggle = document.querySelector("[data-sidebar-toggle]");
-    if (!shell || !sidebar) {
-      return;
-    }
-
-    const sidebarOpen = Boolean(state.sidebarOpen);
-    const narrowViewport = isNarrowViewport();
-
-    shell.classList.toggle("sidebar-open", narrowViewport && sidebarOpen);
-    shell.classList.toggle("sidebar-closed", narrowViewport && !sidebarOpen);
-    shell.classList.toggle("sidebar-collapsed", !narrowViewport && !sidebarOpen);
-    sidebar.setAttribute("aria-hidden", String(narrowViewport ? !sidebarOpen : false));
-
-    const toggleLabel = narrowViewport
-      ? (sidebarOpen ? "Close navigation" : "Open navigation")
-      : (sidebarOpen ? "Collapse navigation" : "Expand navigation");
-    if (toggle) {
-      toggle.setAttribute("aria-expanded", String(sidebarOpen));
-      toggle.setAttribute("aria-label", toggleLabel);
-      toggle.setAttribute("title", toggleLabel);
-      toggle.textContent = narrowViewport ? "=" : (sidebarOpen ? "<" : ">");
-    }
-
-    const closeButton = document.querySelector("[data-sidebar-close]");
-    if (closeButton) {
-      closeButton.style.display = narrowViewport ? "" : "none";
-    }
-  }
-
-  function configureTopbar() {
-    const actionsBar = document.querySelector(".topbar .actions");
-    if (actionsBar && !actionsBar.querySelector("[data-manual-link]")) {
-      const statusPill = document.createElement("div");
-      statusPill.className = "connection-pill";
-      statusPill.setAttribute("id", "connection-status-pill");
-      statusPill.innerHTML = '<span class="connection-dot"></span><span id="connection-status-label">Checking API...</span>';
       actionsBar.insertBefore(statusPill, actionsBar.firstChild);
 
       const manualLink = document.createElement("a");
@@ -1120,7 +833,7 @@
 
     const logoutLink = document.querySelector("a[href='index.html'], a[href='login.html']");
     if (logoutLink) {
-      logoutLink.setAttribute("href", "index.html");
+      logoutLink.setAttribute("href", "login.html");
       logoutLink.addEventListener("click", () => {
         window.api.logout();
       });
@@ -1186,7 +899,7 @@
       return;
     }
     container.innerHTML = (tags || [])
-      .map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`)
+      .map((tag) => `<span class="dashboard-hero-tag">${escapeHtml(tag)}</span>`)
       .join("");
   }
 
@@ -1198,10 +911,10 @@
     container.innerHTML = (cards || [])
       .map(
         (card) => `
-          <article class="card dashboard-focus-card" data-tone="${escapeHtml(card.tone || "default")}">
+          <article class="dashboard-focus-card dashboard-focus-card-${escapeHtml(card.tone || "default")}">
             <span class="dashboard-focus-label">${escapeHtml(card.label)}</span>
-            <strong class="dashboard-focus-value">${escapeHtml(card.value)}</strong>
-            <p class="dashboard-focus-copy">${escapeHtml(card.copy)}</p>
+            <strong>${escapeHtml(card.value)}</strong>
+            <p>${escapeHtml(card.copy)}</p>
           </article>
         `,
       )
@@ -1217,606 +930,13 @@
       .map(
         (item) => `
           <article class="dashboard-side-item">
-            <span class="dashboard-side-item-label">${escapeHtml(item.label)}</span>
-            <strong class="dashboard-side-item-value">${escapeHtml(item.value)}</strong>
-            <p class="dashboard-side-item-copy">${escapeHtml(item.copy)}</p>
+            <span>${escapeHtml(item.label)}</span>
+            <strong>${escapeHtml(item.value)}</strong>
+            <p>${escapeHtml(item.copy)}</p>
           </article>
         `,
       )
       .join("");
-  }
-
-  function humanizeStatus(status) {
-    return String(status || "")
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (match) => match.toUpperCase());
-  }
-
-  function formatDashboardStageCount(count) {
-    return `${count || 0}`;
-  }
-
-  function countClaimsByStatus(claims, statuses) {
-    const allowed = new Set(statuses);
-    return (claims || []).filter((claim) => allowed.has(String(claim.status || "").toLowerCase())).length;
-  }
-
-  function getClaimCurrentOwner(claim) {
-    const eligible = (claim?.eligible_roles || []).filter(Boolean);
-    if (eligible.length) {
-      return eligible[0];
-    }
-    const affected = (claim?.affected_roles || []).filter(Boolean);
-    return affected[0] || "Unassigned";
-  }
-
-  function getClaimSupportRoles(claim) {
-    const currentOwner = getClaimCurrentOwner(claim);
-    return (claim?.affected_roles || []).filter((role) => role && role !== currentOwner);
-  }
-
-  function getRoleScopedClaims(claims) {
-    if (["Administrator", "Practice Manager", "Bureau Manager"].includes(state.role)) {
-      return claims || [];
-    }
-    return (claims || []).filter((claim) => {
-      return getClaimCurrentOwner(claim) === state.role;
-    });
-  }
-
-  function getDashboardPrimaryAction() {
-    const actions = {
-      Administrator: { label: "Open users", href: "users.html" },
-      "Front Office": { label: "Open patients", href: "patients.html" },
-      Billing: { label: "Open claims", href: "claims.html" },
-      Clinical: { label: "Open patients", href: "patients.html" },
-      Finance: { label: "Open payments", href: "payments.html" },
-      Audit: { label: "Open audit", href: "audit.html" },
-      "Practice Manager": { label: "Open reports", href: "reports.html" },
-      "Bureau Manager": { label: "Open reports", href: "reports.html" },
-      "Reception / Patient Access": { label: "Open patients", href: "patients.html" },
-      "Billing Specialist": { label: "Open claims", href: "claims.html" },
-      "Clinical Coder": { label: "Open claims", href: "claims.html" },
-      "Authorisations Coordinator": { label: "Open claims", href: "claims.html" },
-      "Healthcare Provider": { label: "Open patients", href: "patients.html" },
-      "Finance Officer": { label: "Open payments", href: "payments.html" },
-      "Reconciliation Specialist": { label: "Open payments", href: "payments.html" },
-      "Credit Controller": { label: "Open patients", href: "patients.html" },
-      "Compliance Auditor": { label: "Open audit", href: "audit.html" },
-    };
-    return actions[state.role] || actions.Billing;
-  }
-
-  function renderDashboardKpis(items) {
-    (items || []).forEach((item) => {
-      setTextById(item.valueId, item.value);
-      setTextById(item.copyId, item.copy);
-    });
-  }
-
-  function shouldShowModuleCollaborationSurface() {
-    return !["index.html", "login.html", "manual.html", "users.html", "settings.html"].includes(state.page);
-  }
-
-  function ensureModuleCollaborationSurface() {
-    if (!shouldShowModuleCollaborationSurface()) {
-      return null;
-    }
-    const main = document.querySelector(".main");
-    const topbar = document.querySelector(".main .topbar");
-    if (!main || !topbar) {
-      return null;
-    }
-    let surface = document.getElementById("module-collaboration-surface");
-    if (!surface) {
-      surface = document.createElement("section");
-      surface.id = "module-collaboration-surface";
-      surface.className = "module-collaboration-surface";
-      topbar.insertAdjacentElement("afterend", surface);
-    }
-    return surface;
-  }
-
-  function getClaimBlockerReason(claim) {
-    const blocker = claim?.onboarding_blockers?.[0]?.message;
-    if (blocker) return blocker;
-    const history = claim?.role_action_history || [];
-    const latestException = [...history].reverse().find((item) => ["blocked", "rejected", "pended", "validation_exception", "exception"].includes(String(item.status || "").toLowerCase()));
-    if (latestException?.action) {
-      return humanizeStatus(latestException.status || latestException.action);
-    }
-    if (claim?.latest_response?.reasons?.[0]?.message) {
-      return claim.latest_response.reasons[0].message;
-    }
-    if (["blocked", "rejected", "pended", "validation_exception", "exception"].includes(String(claim?.status || "").toLowerCase())) {
-      return getDashboardPrimaryReason(claim);
-    }
-    return "No active blocker. Workflow is progressing.";
-  }
-
-  function getClaimHandoffTrigger(claim) {
-    const triggers = {
-      draft: "Patient access and visit capture are complete.",
-      pended: "Outstanding scheme or evidence requests are resolved.",
-      blocked: "Readiness blockers are corrected and rechecked.",
-      ready_to_close: "Billing closure and coding checks are completed.",
-      closed: "Audit validation is requested on the closed version.",
-      validation_exception: "Corrections are supplied and validation is rerun.",
-      ready_to_submit: "Billing confirms the payload is ready for dispatch.",
-      submitted: "Scheme acknowledgement or remittance is received.",
-      acknowledged: "Payment advice lands and finance posts the receipt.",
-      paid: "Finance completes reconciliation and passes evidence forward.",
-      exception: "Finance resolves the variance or returns it to billing.",
-      reconciled: "Audit accepts the evidence packet and archives the flow.",
-      rejected: "Billing recovers the claim and prepares a corrected version.",
-    };
-    return triggers[String(claim?.status || "").toLowerCase()] || "Workflow data is available for review.";
-  }
-
-  function getClaimNextOwner(claim) {
-    const nextOwners = {
-      draft: "Billing",
-      pended: "Billing",
-      blocked: "Billing",
-      ready_to_close: "Audit",
-      closed: "Audit",
-      validation_exception: "Billing",
-      ready_to_submit: "Finance",
-      submitted: "Finance",
-      acknowledged: "Finance",
-      paid: "Audit",
-      exception: "Billing",
-      reconciled: "Audit archive",
-      rejected: "Billing",
-    };
-    return nextOwners[String(claim?.status || "").toLowerCase()] || "Unassigned";
-  }
-
-  function buildAppHref(page, params = {}) {
-    const search = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value === null || value === undefined || value === "") {
-        return;
-      }
-      search.set(key, String(value));
-    });
-    const query = search.toString();
-    return query ? `${page}?${query}` : page;
-  }
-
-  function syncChipSelection(selector, attribute, value, fallbackValue = "all") {
-    const normalizedValue = String(value || fallbackValue || "").toLowerCase();
-    let hasMatch = false;
-    document.querySelectorAll(selector).forEach((button) => {
-      const active = String(button.getAttribute(attribute) || "").toLowerCase() === normalizedValue;
-      button.classList.toggle("info", active);
-      hasMatch = hasMatch || active;
-    });
-    if (!hasMatch && fallbackValue) {
-      document.querySelectorAll(selector).forEach((button) => {
-        const active = String(button.getAttribute(attribute) || "").toLowerCase() === String(fallbackValue).toLowerCase();
-        button.classList.toggle("info", active);
-      });
-    }
-  }
-
-  function buildBlockingTaskHref(claim) {
-    if (!claim?.id) {
-      return "claims.html";
-    }
-    return buildAppHref("claims.html", {
-      status: String(claim.status || "").toLowerCase(),
-      claim: claim.id,
-      source: state.page.replace(".html", ""),
-    });
-  }
-
-  function buildOwnerQueueHref(claim) {
-    const owner = getClaimCurrentOwner(claim);
-    return buildAppHref("dashboard.html", {
-      owner,
-      claim: claim?.id || claim?.claim_id || "",
-      source: state.page.replace(".html", ""),
-    });
-  }
-
-  function buildTensionClaimHref(claim) {
-    return buildAppHref("claim_detail.html", {
-      id: claim?.id || claim?.claim_id || "",
-      source: state.page.replace(".html", ""),
-    });
-  }
-
-  function getModuleDefaultCollaboration(page = state.page) {
-    const defaults = {
-      "dashboard.html": {
-        label: "Cross-module workflow view",
-        primaryOwner: state.role,
-        collaborators: "Front Office, Billing, Clinical, Finance, Audit",
-        handoffTrigger: "The active worklist stage changes.",
-        nextOwner: "Role-specific queue owner",
-        blockerReason: "No claim selected. Using the current module queue summary.",
-      },
-      "patients.html": {
-        label: "Patient access collaboration",
-        primaryOwner: "Front Office",
-        collaborators: "Billing, Clinical",
-        handoffTrigger: "Member and visit details are complete.",
-        nextOwner: "Billing",
-        blockerReason: "Select a patient or active claim to inspect the real blocker.",
-      },
-      "providers.html": {
-        label: "Provider workflow collaboration",
-        primaryOwner: "Clinical",
-        collaborators: "Billing, Audit",
-        handoffTrigger: "Clinical evidence and coding support are complete.",
-        nextOwner: "Billing",
-        blockerReason: "Select a provider-linked claim to inspect the real blocker.",
-      },
-      "claims.html": {
-        label: "Claims workflow collaboration",
-        primaryOwner: "Billing",
-        collaborators: "Front Office, Clinical, Finance, Audit",
-        handoffTrigger: "The selected claim changes lifecycle stage.",
-        nextOwner: "Finance",
-        blockerReason: "Claim queue summary is being used until one item is selected.",
-      },
-      "payments.html": {
-        label: "Finance workflow collaboration",
-        primaryOwner: "Finance",
-        collaborators: "Billing, Audit",
-        handoffTrigger: "Remittance or reconciliation status changes.",
-        nextOwner: "Audit",
-        blockerReason: "Payment queue summary is being used until one item is selected.",
-      },
-      "reports.html": {
-        label: "Revenue cycle collaboration",
-        primaryOwner: "Finance",
-        collaborators: "Billing, Audit, Front Office",
-        handoffTrigger: "A report highlights an exception worth operational follow-up.",
-        nextOwner: "Billing",
-        blockerReason: "Report-level summary is active until a contributing claim is selected.",
-      },
-      "audit.html": {
-        label: "Control collaboration",
-        primaryOwner: "Audit",
-        collaborators: "Billing, Finance, Clinical",
-        handoffTrigger: "Audit evidence is missing or a lifecycle exception is flagged.",
-        nextOwner: "Operational owner in the claim queue",
-        blockerReason: "Audit page is showing control-level context rather than a single claim.",
-      },
-    };
-    return defaults[page] || defaults["dashboard.html"];
-  }
-
-  function getRepresentativeClaimForPage(claims) {
-    const allClaims = claims || state.claims || [];
-    if (!allClaims.length) {
-      return null;
-    }
-    if (state.page === "patients.html") {
-      const activeClaimId = state.patientClaimContext?.claim_ready_profile?.active_claim_id;
-      return allClaims.find((claim) => Number(claim.id) === Number(activeClaimId))
-        || allClaims.find((claim) => Number(claim.patient_id) === Number(state.selectedPatientId))
-        || null;
-    }
-    if (state.page === "providers.html") {
-      return allClaims.find((claim) => Number(claim.provider_id) === Number(state.selectedProviderId)) || null;
-    }
-    const pageRanks = {
-      "claims.html": ["blocked", "validation_exception", "rejected", "pended", "ready_to_submit", "submitted"],
-      "payments.html": ["exception", "acknowledged", "submitted", "paid", "reconciled"],
-      "reports.html": ["exception", "rejected", "pended", "blocked", "paid"],
-      "audit.html": ["exception", "reconciled", "closed", "validation_exception", "paid"],
-      "dashboard.html": ["blocked", "validation_exception", "exception", "rejected", "pended", "submitted"],
-    };
-    const ranks = pageRanks[state.page] || pageRanks["dashboard.html"];
-    const priority = new Map(ranks.map((status, index) => [status, index]));
-    return [...allClaims]
-      .sort((left, right) => {
-        const leftRank = priority.get(String(left.status || "").toLowerCase()) ?? 99;
-        const rightRank = priority.get(String(right.status || "").toLowerCase()) ?? 99;
-        if (leftRank !== rightRank) return leftRank - rightRank;
-        return Number(right.id || 0) - Number(left.id || 0);
-      })[0] || null;
-  }
-
-  async function renderModuleCollaborationSurface(claims = null) {
-    const surface = ensureModuleCollaborationSurface();
-    if (!surface) {
-      return;
-    }
-    let workingClaims = claims || state.claims || [];
-    if (!workingClaims.length && shouldShowModuleCollaborationSurface()) {
-      workingClaims = await window.api.getClaims().catch(() => []);
-      if (workingClaims.length) {
-        state.claims = workingClaims;
-      }
-    }
-    const claim = getRepresentativeClaimForPage(workingClaims);
-    const fallback = getModuleDefaultCollaboration();
-    const primaryOwner = claim
-      ? getClaimCurrentOwner(claim)
-      : (state.page === "dashboard.html" ? getDashboardRoleFamily() : fallback.primaryOwner);
-    const collaborators = claim
-      ? getClaimSupportRoles(claim).join(", ") || "None"
-      : fallback.collaborators;
-    const handoffTrigger = claim ? getClaimHandoffTrigger(claim) : fallback.handoffTrigger;
-    const nextOwner = claim ? getClaimNextOwner(claim) : fallback.nextOwner;
-    const blockerReason = claim ? getClaimBlockerReason(claim) : fallback.blockerReason;
-    const label = claim
-      ? `${fallback.label} · ${claim.claim_number || `Claim ${claim.id}`}`
-      : fallback.label;
-    const blockingHref = claim ? buildBlockingTaskHref(claim) : "claims.html";
-    const ownerQueueHref = claim ? buildOwnerQueueHref(claim) : buildAppHref("dashboard.html", { owner: getDashboardRoleFamily() });
-    const tensionClaimHref = claim ? buildTensionClaimHref(claim) : "claims.html";
-
-    surface.innerHTML = `
-      <div class="module-collaboration-shell">
-        <div class="module-collaboration-head">
-          <div>
-            <span class="module-collaboration-kicker">Workflow Collaboration</span>
-            <h2>${escapeHtml(label)}</h2>
-          </div>
-          ${
-            claim
-              ? `<div class="module-collaboration-meta">
-                  <span class="chip ${statusClass(claim.status)}">${escapeHtml(humanizeStatus(claim.status))}</span>
-                  <a class="chip info" href="claim_detail.html?id=${claim.id}">Open claim</a>
-                </div>`
-              : `<div class="module-collaboration-meta"><span class="chip">Module summary</span></div>`
-          }
-        </div>
-        <div class="module-collaboration-grid">
-          <article class="module-collaboration-card">
-            <span>Primary owner</span>
-            <strong>${escapeHtml(primaryOwner)}</strong>
-          </article>
-          <article class="module-collaboration-card">
-            <span>Collaborating role(s)</span>
-            <strong>${escapeHtml(collaborators)}</strong>
-          </article>
-          <article class="module-collaboration-card">
-            <span>Handoff trigger</span>
-            <strong>${escapeHtml(handoffTrigger)}</strong>
-          </article>
-          <article class="module-collaboration-card">
-            <span>Next owner</span>
-            <strong>${escapeHtml(nextOwner)}</strong>
-          </article>
-          <article class="module-collaboration-card module-collaboration-card-wide">
-            <span>Current blocker reason</span>
-            <strong>${escapeHtml(blockerReason)}</strong>
-          </article>
-        </div>
-        <div class="module-collaboration-actions">
-          <a class="btn secondary" href="${escapeHtml(blockingHref)}">Open blocking task</a>
-          <a class="btn secondary" href="${escapeHtml(ownerQueueHref)}">Open ${escapeHtml(primaryOwner)} queue</a>
-          <a class="btn" href="${escapeHtml(tensionClaimHref)}">${claim ? "Open tension claim" : "Open workflow queue"}</a>
-        </div>
-      </div>
-    `;
-  }
-
-  function renderDashboardWorkflow(stages) {
-    const container = document.getElementById("dashboard-workflow-flow");
-    if (!container) {
-      return;
-    }
-    container.innerHTML = (stages || [])
-      .map(
-        (stage) => `
-          <article class="dashboard-flow-card ${stage.active ? "is-active" : ""}">
-            <div class="dashboard-flow-label">
-              <span>${escapeHtml(stage.label)}</span>
-              <span class="chip ${stage.active ? "info" : ""}">${escapeHtml(stage.state || (stage.active ? "Live" : "Tracked"))}</span>
-            </div>
-            <strong class="dashboard-flow-value">${escapeHtml(stage.value || formatDashboardCount(stage.count || 0))}</strong>
-            <span class="dashboard-flow-role">${escapeHtml(stage.owner || ((stage.statuses || []).join(", ") || "Role-owned stage"))}</span>
-            <p class="dashboard-flow-copy">${escapeHtml(stage.copy || `${stage.count || 0} claims currently sitting in this stage.`)}</p>
-          </article>
-        `,
-      )
-      .join("");
-  }
-
-  function renderDashboardOwnershipBoard(claimsOrBoard) {
-    const container = document.getElementById("dashboard-ownership-board");
-    if (!container) {
-      return;
-    }
-
-    const roles = ["Front Office", "Billing", "Clinical", "Finance", "Audit", "Administrator"];
-    const isServerBoard = Array.isArray(claimsOrBoard) && claimsOrBoard[0] && Object.prototype.hasOwnProperty.call(claimsOrBoard[0], "claims");
-    const board = isServerBoard
-      ? claimsOrBoard
-      : roles.map((role) => {
-          const items = (claimsOrBoard || [])
-            .filter((claim) => {
-              const status = String(claim.status || "").toLowerCase();
-              return !["paid", "reconciled"].includes(status) || status === "reconciled" && ["Audit"].includes(getClaimCurrentOwner(claim));
-            })
-            .sort((left, right) => Number(right.id || 0) - Number(left.id || 0));
-          const owned = items.filter((claim) => getClaimCurrentOwner(claim) === role).slice(0, 5);
-          return { role, count: owned.length, claims: owned };
-        });
-
-    container.innerHTML = board
-      .map((column) => {
-        const owned = column.claims || [];
-        const role = column.role;
-        return `
-          <section class="dashboard-owner-column">
-            <div class="dashboard-owner-head">
-              <strong>${escapeHtml(role)}</strong>
-              <span>${owned.length} active item${owned.length === 1 ? "" : "s"}</span>
-            </div>
-            <div class="dashboard-owner-list">
-              ${
-                owned.length
-                  ? owned
-                      .map((claim) => `
-                        <article class="dashboard-owner-card">
-                          <div class="dashboard-owner-meta">
-                            <span class="code">${escapeHtml(claim.claim_number || `Claim ${claim.id || claim.claim_id}`)}</span>
-                            <span class="chip ${statusClass(claim.status)}">${escapeHtml(humanizeStatus(claim.status))}</span>
-                          </div>
-                          <div class="dashboard-owner-copy">${escapeHtml(claim.next_action || getDashboardNextAction(claim))}</div>
-                          <div class="dashboard-owner-watchers">Support: ${escapeHtml((claim.support_roles || getClaimSupportRoles(claim)).join(", ") || "None")}</div>
-                          <div class="row-actions"><a class="chip info" href="claim_detail.html?id=${claim.id || claim.claim_id}">Open</a></div>
-                        </article>
-                      `)
-                      .join("")
-                  : '<div class="dashboard-owner-empty">No active work assigned.</div>'
-              }
-            </div>
-          </section>
-        `;
-      })
-      .join("");
-  }
-
-  function getDashboardPrimaryReason(claim, worklistItem) {
-    const firstReason = worklistItem?.reasons?.[0];
-    if (firstReason) {
-      return firstReason;
-    }
-    const blockerMessage = claim?.onboarding_blockers?.[0]?.message;
-    if (blockerMessage) {
-      return blockerMessage;
-    }
-    if (claim?.latest_validation_bundle?.outcome) {
-      return `Validation ${claim.latest_validation_bundle.outcome}`;
-    }
-    return `${humanizeStatus(claim?.status || "draft")} requires attention.`;
-  }
-
-  function getDashboardNextAction(claim, worklistItem) {
-    if (worklistItem?.next_action) {
-      return worklistItem.next_action;
-    }
-    const status = String(claim?.status || "").toLowerCase();
-    const nextSteps = {
-      draft: "Complete encounter details and run readiness.",
-      blocked: "Resolve readiness blockers and rerun readiness.",
-      ready_to_close: "Review the file and close the current claim version.",
-      closed: "Run post-closure validation before payload generation.",
-      validation_exception: "Correct validation blockers and create a corrected version.",
-      ready_to_submit: "Generate the payload and dispatch to the scheme.",
-      submitted: "Monitor acknowledgement and response traffic.",
-      acknowledged: "Track remittance and receipt confirmation.",
-      rejected: "Review rejection reasons and resubmit a corrected claim.",
-      pended: "Provide supporting evidence or motivation.",
-      paid: "Post payment and complete reconciliation review.",
-      reconciled: "Retain evidence and close financial review.",
-      exception: "Investigate remittance mismatch and reconcile.",
-    };
-    return nextSteps[status] || "Review the claim lifecycle.";
-  }
-
-  function getDashboardRolePriorities() {
-    const family = getDashboardRoleFamily();
-    const priorities = {
-      Administrator: ["blocked", "validation_exception", "exception", "rejected", "pended", "ready_to_submit", "submitted"],
-      "Front Office": ["draft", "pended"],
-      Billing: ["blocked", "ready_to_close", "validation_exception", "ready_to_submit", "rejected"],
-      Clinical: ["draft", "blocked", "pended", "validation_exception"],
-      Finance: ["submitted", "acknowledged", "paid", "exception"],
-      Audit: ["closed", "validation_exception", "reconciled", "exception"],
-    };
-    return priorities[family] || priorities.Billing;
-  }
-
-  function buildDashboardWorkflow(summary, claims) {
-    const family = getDashboardRoleFamily();
-    const configs = {
-      Administrator: [
-        { label: "Intake", statuses: ["draft", "blocked"], owner: "Admin and Billing", copy: "Platform-level visibility over draft capture and blocked readiness." },
-        { label: "Clinical and Billing", statuses: ["ready_to_close", "closed", "validation_exception"], owner: "Billing and Provider", copy: "Closure pressure across readiness, validation and coding checks." },
-        { label: "Submission", statuses: ["ready_to_submit", "submitted", "acknowledged"], owner: "Billing and Finance", copy: "Claims moving into payload, dispatch and acknowledgement handling." },
-        { label: "Finance", statuses: ["paid", "reconciled", "exception"], owner: "Finance", copy: "Cash posting, mismatch handling and reconciliation control." },
-        { label: "Governance", statuses: ["rejected", "pended", "exception"], owner: "Audit and Admin", copy: "Cross-role exceptions requiring control review or policy intervention." },
-      ],
-      "Front Office": [
-        { label: "Patient intake", statuses: ["draft"], owner: "Front Office", copy: "Patient, member and visit capture before billing begins." },
-        { label: "Scheme follow-up", statuses: ["pended"], owner: "Front Office with clinical support", copy: "Cases waiting on scheme information, motivations or patient details." },
-        { label: "Collaboration need", statuses: ["draft", "pended"], owner: "Front Office, Billing, Clinical", copy: "Front-office actions must hand clean data into billing and clinical teams." },
-      ],
-      Billing: [
-        { label: "Readiness triage", statuses: ["blocked"], owner: "Billing", copy: "Billing owns readiness blockers and coordinates the fix path." },
-        { label: "Closure", statuses: ["ready_to_close"], owner: "Billing with clinical support", copy: "Claims clinically complete enough for coding and closure." },
-        { label: "Submission", statuses: ["ready_to_submit"], owner: "Billing with finance visibility", copy: "Billing is the single operational owner before claims move to finance." },
-        { label: "Recovery", statuses: ["rejected", "validation_exception"], owner: "Billing with front-office and clinical collaboration", copy: "Billing drives corrections, while collaborators supply the missing evidence or data." },
-      ],
-      Clinical: [
-        { label: "Clinical capture", statuses: ["draft"], owner: "Clinical", copy: "Diagnosis, treatment and evidence capture feeding the claim." },
-        { label: "Support blockers", statuses: ["blocked", "pended"], owner: "Clinical supporting billing and front office", copy: "Clinical work unblocks coding, PMB and evidence issues." },
-        { label: "Correction loop", statuses: ["validation_exception"], owner: "Clinical supporting billing", copy: "Clinical clarifications are supplied back into the billing recovery path." },
-      ],
-      Finance: [
-        { label: "In flight", statuses: ["submitted", "acknowledged"], owner: "Finance", copy: "Scheme-facing items being tracked for response and remittance." },
-        { label: "Cash posting", statuses: ["paid"], owner: "Finance", copy: "Receipts and remittances are posted and prepared for assurance." },
-        { label: "Exceptions", statuses: ["exception"], owner: "Finance with billing support", copy: "Mismatch review has one finance owner with billing pulled in only when needed." },
-      ],
-      Audit: [
-        { label: "Post-close review", statuses: ["closed", "validation_exception"], owner: "Audit", copy: "Audit reviews control posture after billing closes the claim." },
-        { label: "Exception assurance", statuses: ["exception"], owner: "Audit supporting finance", copy: "Audit sees exceptions, but finance stays the operational owner." },
-        { label: "Archive and evidence", statuses: ["reconciled"], owner: "Audit", copy: "Audit owns final evidence posture once finance reconciles the cash outcome." },
-      ],
-    };
-
-    const stages = configs[family] || configs.Billing;
-    return stages.map((stage, index) => ({
-      label: stage.label,
-      owner: stage.owner,
-      copy: stage.copy,
-      value: formatDashboardStageCount(countClaimsByStatus(claims, stage.statuses)),
-      state: index === 0 ? "Live" : "Tracked",
-      active: index === 0 || countClaimsByStatus(claims, stage.statuses) > 0,
-    }));
-  }
-
-  function buildDashboardWorklist(summary, claims) {
-    if (Array.isArray(summary?.worklist) && summary.worklist.length) {
-      return summary.worklist.map((item) => ({
-        claim_id: item.claim_id,
-        claim_number: item.claim_number,
-        status: item.status,
-        reason: item.reasons?.[0] || `${humanizeStatus(item.status)} requires attention.`,
-        next_action: item.next_action || "Review claim",
-        current_owner: item.current_owner || item.eligible_roles?.[0] || "Unassigned",
-        affected_roles: item.affected_roles || [],
-        onboarding_blockers: item.onboarding_blockers || [],
-      }));
-    }
-    const priorities = getDashboardRolePriorities();
-    const priorityRank = new Map(priorities.map((status, index) => [status, index]));
-    const summaryWorklist = new Map((summary.worklist || []).map((item) => [item.claim_id, item]));
-
-    return getRoleScopedClaims(claims)
-      .filter((claim) => priorityRank.has(String(claim.status || "").toLowerCase()))
-      .sort((left, right) => {
-        const leftStatus = priorityRank.get(String(left.status || "").toLowerCase()) ?? 99;
-        const rightStatus = priorityRank.get(String(right.status || "").toLowerCase()) ?? 99;
-        if (leftStatus !== rightStatus) {
-          return leftStatus - rightStatus;
-        }
-        return Number(right.id || 0) - Number(left.id || 0);
-      })
-      .slice(0, 12)
-      .map((claim) => {
-        const worklistItem = summaryWorklist.get(claim.id);
-        return {
-          claim_id: claim.id,
-          claim_number: claim.claim_number,
-          status: claim.status,
-          reason: getDashboardPrimaryReason(claim, worklistItem),
-          next_action: getDashboardNextAction(claim, worklistItem),
-          current_owner: getClaimCurrentOwner(claim),
-          affected_roles: worklistItem?.affected_roles || claim.affected_roles || [],
-          onboarding_blockers: worklistItem?.onboarding_blockers || claim.onboarding_blockers || [],
-        };
-      });
   }
 
   function getDashboardRoleConfig(summary) {
@@ -1824,14 +944,13 @@
     const topRuleText = topRules.join(", ") || "No rule pressure";
     const activePolicy = summary.active_policy?.profile || "SCHEME_A:OPTION_X";
     const activeVersion = `v${summary.active_policy?.version || 1}`;
-    const family = getDashboardRoleFamily();
 
     const roleConfigs = {
       Administrator: {
-        pageTitle: "Administrator Command Centre",
+        pageTitle: "Administrator Command",
         pageSubtitle: "Platform-wide control across tenants, practices, rules, users and claim flow.",
         searchPlaceholder: "Search tenant, user, claim or provider...",
-        primaryActionLabel: "Open users",
+        createLabel: "New tenant object",
         badge: "Administrator",
         heading: "Platform command across every operational surface.",
         copy: "Monitor governance, throughput and configuration drift from one executive workspace built for South African medical operations.",
@@ -1855,42 +974,14 @@
           { label: "Control posture", value: "POPIA, ECT, HPCSA", copy: "Privacy, integrity and archive controls carried through the workflow." },
         ],
       },
-      "Front Office": {
-        pageTitle: "Front Office Operations",
-        pageSubtitle: "Patient access, member validation, family checks and clean handoff into billing.",
-        searchPlaceholder: "Search patient, member, authorisation or booking...",
-        primaryActionLabel: "Open patients",
-        badge: "Front Office",
-        heading: "Patient access is the first billing control.",
-        copy: "This workspace keeps the front office focused on patient capture, membership quality and smooth handoff into billing without owning downstream claim recovery.",
-        tags: ["Benefit checks", "Patient intake", "Front-desk controls"],
-        priorityLabel: "Access quality",
-        tenantScope: "Practice-scoped access desk",
-        complianceState: "POPIA access controls active",
-        worklistTitle: "Front-desk action queue",
-        worklistCopy: "Patient-access items still blocking clean billing handoff.",
-        worklistChip: "Access live queue",
-        sideTitle: "Intake posture",
-        sideCopy: "Signals that show whether patients and memberships are ready for downstream claims handling.",
-        focusCards: [
-          { label: "Ready for billing handoff", value: formatDashboardCount(summary.ready_to_close), copy: "Claims with patient access and basic validation completed.", tone: "teal" },
-          { label: "Pending blockers", value: formatDashboardCount(summary.rejected_or_pended), copy: `Most common issue: ${topRuleText}.`, tone: "amber" },
-          { label: "Submission-ready claims", value: formatDashboardCount(summary.ready_to_submit), copy: "Front-office capture already supporting downstream throughput.", tone: "blue" },
-        ],
-        sideItems: [
-          { label: "Member checks", value: "Benefits and family validation", copy: "Driven from the same patient and scheme context as billing." },
-          { label: "Top blocker", value: topRuleText, copy: "The dominant intake issue delaying claim readiness." },
-          { label: "Patient statements", value: "Collections aware", copy: "Front desk can see downstream billing impact and patient balances." },
-        ],
-      },
-      Billing: {
+      "Billing Specialist": {
         pageTitle: "Billing Operations",
-        pageSubtitle: "Readiness triage, coding closure, claim submission and rejection recovery.",
+        pageSubtitle: "Submission readiness, rejection recovery and payment follow-through for the active billing team.",
         searchPlaceholder: "Search claim, member, batch or scheme...",
-        primaryActionLabel: "Open claims",
-        badge: "Billing",
-        heading: "Billing owns the operational claim flow.",
-        copy: "Billing is the single primary owner for readiness triage, closure, submission and recovery, while pulling in front office or clinical teams only where required.",
+        createLabel: "New billing item",
+        badge: "Billing Specialist",
+        heading: "Claims flow shaped around throughput and recovery.",
+        copy: "This workspace keeps the queue centered on what can close, what can submit, and which exceptions are slowing cash movement.",
         tags: ["Scheme routing", "ICD-10 coding", "Submission ready"],
         priorityLabel: "Submission throughput",
         tenantScope: "Practice-scoped billing",
@@ -1911,14 +1002,14 @@
           { label: "Remit exceptions", value: formatDashboardCount(summary.reconciliation_exceptions), copy: "Partial pay and mismatch review still open." },
         ],
       },
-      Clinical: {
-        pageTitle: "Clinical Claim Support",
-        pageSubtitle: "Clinical documentation, diagnosis quality and evidence support for billable claims.",
+      "Healthcare Provider": {
+        pageTitle: "Clinical Claim Readiness",
+        pageSubtitle: "Provider-facing claim readiness with emphasis on diagnosis completeness, coding and clinical follow-up.",
         searchPlaceholder: "Search patient, claim or provider...",
-        primaryActionLabel: "Open patients",
-        badge: "Clinical",
-        heading: "Clinical teams support claim quality without duplicating billing ownership.",
-        copy: "Clinical users focus on diagnosis, PMB and evidence quality, then collaborate with billing only where claim progression needs clinical input.",
+        createLabel: "New clinical item",
+        badge: "Healthcare Provider",
+        heading: "Clinical visibility before claims leave the practice.",
+        copy: "The provider dashboard prioritizes diagnosis quality, patient context and the claim actions that most affect medical scheme acceptance.",
         tags: ["Clinical coding", "Patient context", "Provider evidence"],
         priorityLabel: "Diagnosis readiness",
         tenantScope: "Provider practice scope",
@@ -1939,14 +1030,14 @@
           { label: "Archive posture", value: "HPCSA archive logic", copy: "Record retention and evidence posture remain enforced." },
         ],
       },
-      Finance: {
+      "Finance Officer": {
         pageTitle: "Finance and Remittance",
         pageSubtitle: "Collections, remittance and reconciliation monitoring for scheme receipts and downstream finance review.",
         searchPlaceholder: "Search remittance, claim or payment reference...",
-        primaryActionLabel: "Open payments",
-        badge: "Finance",
+        createLabel: "New finance record",
+        badge: "Finance Officer",
         heading: "Cash posture and reconciliation in one finance view.",
-        copy: "Finance owns all in-flight, paid and exception cash states, while billing and audit collaborate without taking over the queue.",
+        copy: "Track what is ready to convert into cash, what was paid short, and which reconciliation gaps need immediate finance follow-up.",
         tags: ["Remittance control", "Collections visibility", "Variance monitoring"],
         priorityLabel: "Cash conversion",
         tenantScope: "Finance practice scope",
@@ -1967,14 +1058,14 @@
           { label: "Scheme profile", value: activePolicy, copy: `Remittance context currently aligned to ${activeVersion}.` },
         ],
       },
-      Audit: {
+      "Compliance Auditor": {
         pageTitle: "Compliance Oversight",
         pageSubtitle: "Audit evidence, control posture and rule outcomes surfaced for governance and assurance teams.",
         searchPlaceholder: "Search control, claim, evidence or audit item...",
-        primaryActionLabel: "Open audit",
-        badge: "Audit",
+        createLabel: "New audit item",
+        badge: "Compliance Auditor",
         heading: "Evidence-led oversight across privacy, coding and archive controls.",
-        copy: "Audit reviews the lifecycle at the control points that matter, without becoming a duplicate operational queue owner.",
+        copy: "Review live operational outputs through a control lens, with rule trends, policy versions and archive posture visible in one dashboard.",
         tags: ["POPIA posture", "HPCSA archive", "Evidence visibility"],
         priorityLabel: "Control assurance",
         tenantScope: "Governance scoped access",
@@ -1997,11 +1088,7 @@
       },
     };
 
-    const resolved = roleConfigs[state.role] || roleConfigs[family] || roleConfigs.Billing;
-    if (state.role && state.role !== family) {
-      return { ...resolved, badge: state.role };
-    }
-    return resolved;
+    return roleConfigs[state.role] || roleConfigs["Billing Specialist"];
   }
 
   async function loadDashboardSummary() {
@@ -2180,169 +1267,6 @@
     });
   }
 
-  async function loadDashboardSummary() {
-    const [summary, claims, payments, patients] = await Promise.all([
-      window.api.getDashboardSummary(),
-      window.api.getClaims().catch(() => []),
-      window.api.getPayments().catch(() => []),
-      window.api.getPatients().catch(() => []),
-    ]);
-    state.claims = claims;
-    state.payments = payments;
-    state.patients = patients;
-
-    const config = getDashboardRoleConfig(summary);
-    const primaryAction = getDashboardPrimaryAction();
-    const scopedClaims = getRoleScopedClaims(claims);
-    const worklist = buildDashboardWorklist(summary, claims);
-    const focusedOwner = state.routeContext.owner || "";
-    const focusedClaimId = Number(state.routeContext.focusClaimId || 0);
-    const ownershipBoard = summary.ownership_board?.length ? summary.ownership_board : claims;
-    const filteredWorklist = worklist.filter((item) => {
-      const ownerMatch = !focusedOwner || normalizeRole(item.current_owner) === focusedOwner;
-      const claimMatch = !focusedClaimId || Number(item.claim_id) === focusedClaimId;
-      return ownerMatch && claimMatch;
-    });
-    const filteredOwnershipBoard = focusedOwner
-      ? (summary.ownership_board?.length
-          ? (summary.ownership_board || []).filter((column) => normalizeRole(column.role) === focusedOwner)
-          : [{
-              role: focusedOwner,
-              count: filteredWorklist.length,
-              claims: claims.filter((claim) => normalizeRole(getClaimCurrentOwner(claim)) === focusedOwner).slice(0, 5),
-            }])
-      : ownershipBoard;
-    const priorityStatuses = new Set(getDashboardRolePriorities().slice(0, 3));
-    const roleQueueCount = Object.values(summary.role_queue_counts || {}).reduce((total, value) => total + Number(value || 0), 0);
-    const priorityCount = Object.entries(summary.role_queue_counts || {})
-      .filter(([status]) => priorityStatuses.has(String(status || "").toLowerCase()))
-      .reduce((total, [, value]) => total + Number(value || 0), 0) || scopedClaims.filter((claim) => priorityStatuses.has(String(claim.status || "").toLowerCase())).length;
-    const financials = summary.financials || {};
-
-    document.body?.setAttribute("data-dashboard-role", state.role.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
-    setTextById("dashboard-page-title", config.pageTitle);
-    setTextById("dashboard-page-subtitle", config.pageSubtitle);
-    setTextById("dashboard-role-badge", config.badge);
-    setTextById("dashboard-role-heading", config.heading);
-    setTextById("dashboard-role-copy", config.copy);
-    setTextById("dashboard-priority-label", config.priorityLabel);
-    setTextById("dashboard-tenant-scope", config.tenantScope);
-    setTextById("dashboard-compliance-state", config.complianceState);
-    setTextById("dashboard-worklist-title", config.worklistTitle);
-    setTextById(
-      "dashboard-worklist-copy",
-      focusedOwner
-        ? `Focused on ${focusedOwner.toLowerCase()} ownership so handoff links land on the live queue, not a generic summary.`
-        : config.worklistCopy,
-    );
-    setTextById("dashboard-worklist-chip", focusedOwner ? `${focusedOwner} queue` : config.worklistChip);
-    setTextById("dashboard-side-panel-title", config.sideTitle);
-    setTextById("dashboard-side-panel-copy", config.sideCopy);
-    setTextById("dashboard-primary-action", config.primaryActionLabel || primaryAction.label);
-    setTextById("dashboard-workflow-title", `${config.badge} workflow`);
-    setTextById("dashboard-workflow-copy", `Stage ownership stays aligned to the backend claim lifecycle for ${config.badge.toLowerCase()}.`);
-    setTextById("dashboard-workflow-chip", "Backend aligned");
-
-    const actionButton = document.getElementById("dashboard-primary-action");
-    if (actionButton) {
-      actionButton.setAttribute("data-href", primaryAction.href);
-    }
-
-    const searchInput = document.getElementById("dashboard-search-input");
-    if (searchInput) {
-      searchInput.placeholder = config.searchPlaceholder;
-    }
-
-    renderDashboardHeroTags(config.tags);
-    renderDashboardFocusCards(config.focusCards);
-    renderDashboardSidePanel(config.sideItems);
-    renderDashboardWorkflow(summary.workflow?.length ? summary.workflow : buildDashboardWorkflow(summary, claims));
-    renderDashboardOwnershipBoard(filteredOwnershipBoard);
-    renderDashboardKpis([
-      {
-        valueId: "dashboard-kpi-total-claims",
-        copyId: "dashboard-kpi-total-copy",
-        value: formatDashboardCount(claims.length),
-        copy: `${summary.ready_to_close || 0} ready to close and ${summary.ready_to_submit || 0} ready to submit.`,
-      },
-      {
-        valueId: "dashboard-kpi-role-queue",
-        copyId: "dashboard-kpi-role-copy",
-        value: formatDashboardCount(roleQueueCount || scopedClaims.length),
-        copy: `${filteredWorklist.length} priority items currently surfaced for ${focusedOwner ? focusedOwner.toLowerCase() : state.role.toLowerCase()}.`,
-      },
-      {
-        valueId: "dashboard-kpi-priority-count",
-        copyId: "dashboard-kpi-priority-copy",
-        value: formatDashboardCount(priorityCount),
-        copy: `${config.priorityLabel} remains the main operating pressure today.`,
-      },
-      {
-        valueId: "dashboard-kpi-control-count",
-        copyId: "dashboard-kpi-control-copy",
-        value: formatDashboardCount(summary.reconciliation_exceptions + summary.rejected_or_pended),
-        copy: financials.outstanding_member_liability_cents
-          ? `Outstanding member liability ${formatCurrency((financials.outstanding_member_liability_cents || 0) / 100)} with ${financials.remittance_exception_count || 0} remittance exceptions.`
-          : `${getDashboardTopRuleNames(summary).join(", ") || "No dominant rule pressure"} in the active tenant scope.`,
-      },
-    ]);
-
-    const tbody = document.getElementById("dashboard-worklist-rows");
-    const renderWorklist = () => {
-      if (!tbody) {
-        return;
-      }
-      const query = (searchInput?.value || "").trim().toLowerCase();
-      const filtered = filteredWorklist.filter((item) => {
-        if (!query) {
-          return true;
-        }
-        return [
-          item.claim_number,
-          item.reason,
-          item.status,
-          item.next_action,
-          ...(item.affected_roles || []),
-        ]
-          .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(query));
-      });
-
-      tbody.innerHTML = filtered.length
-        ? filtered
-            .map((item) => {
-              const badges = [
-                (item.onboarding_blockers || []).length ? '<span class="badge badge-warning">Onboarding blocked</span>' : "",
-                item.current_owner ? `<span class="badge badge-info">Owner: ${escapeHtml(item.current_owner)}</span>` : "",
-                (item.affected_roles || []).length ? `<span class="badge badge-info">Support: ${escapeHtml(item.affected_roles.filter((role) => role !== item.current_owner).join(", ") || "None")}</span>` : "",
-              ]
-                .filter(Boolean)
-                .join("");
-              return `
-                <tr>
-                  <td class="code">${escapeHtml(item.claim_number || `Claim ${item.claim_id}`)}</td>
-                  <td>
-                    <div>${escapeHtml(item.reason)}</div>
-                    ${badges ? `<div class="dashboard-worklist-badges">${badges}</div>` : ""}
-                  </td>
-                  <td><span class="chip ${statusClass(item.status)}">${escapeHtml(humanizeStatus(item.status))}</span></td>
-                  <td>${escapeHtml(item.next_action)}</td>
-                  <td class="row-actions"><a class="chip info" href="claim_detail.html?id=${item.claim_id}">Open</a></td>
-                </tr>
-              `;
-            })
-            .join("")
-        : `<tr><td colspan="5" class="dashboard-empty-row">No worklist items match the current ${escapeHtml(focusedOwner || state.role)} queue focus.</td></tr>`;
-    };
-
-    if (searchInput && !searchInput.dataset.dashboardSearchBound) {
-      searchInput.dataset.dashboardSearchBound = "true";
-      searchInput.addEventListener("input", renderWorklist);
-    }
-    renderWorklist();
-    await renderModuleCollaborationSurface(claims);
-  }
-
   function _renderArAgingChart(claims) {
     const canvas = document.getElementById("chart-ar-aging");
     if (!canvas || !window.Chart) return;
@@ -2394,9 +1318,6 @@
         case "open-api-docs":
           window.open(window.api.getDocsUrl(), "_blank", "noopener");
           break;
-        case "open-dashboard-target":
-          location.href = button.getAttribute("data-href") || "claims.html";
-          break;
         case "create-new":
           handleCreateNew();
           break;
@@ -2439,9 +1360,6 @@
           break;
         case "apply-line-diagnosis-links":
           await handleApplyLineDiagnosisLinks();
-          break;
-        case "auto-link-line-diagnosis-links":
-          await handleAutoLinkLineDiagnosisLinks();
           break;
         case "add-attachment":
           await handleAddAttachment(false);
@@ -2641,7 +1559,6 @@
       const targetId = state.selectedPatientId || patients[0].id;
       await handleViewPatientClaimContext(targetId).catch(() => {});
     }
-    await renderModuleCollaborationSurface(state.claims);
   }
 
   async function _loadPatientBalances(patients) {
@@ -2740,7 +1657,6 @@
       state.selectedProviderId = state.selectedProviderId || providers[0].id;
       renderProviderWorkspace();
     }
-    await renderModuleCollaborationSurface(state.claims);
   }
 
   function renderProviderWorkspace() {
@@ -2791,23 +1707,19 @@
   async function loadClaims() {
     const claims = await window.api.getClaims();
     state.claims = claims;
-    state._claimsFilter = state.routeContext.status || state._claimsFilter || "all";
+    state._claimsFilter = state._claimsFilter || "all";
     state._claimsSearch = state._claimsSearch || "";
-    state._claimsFocusClaimId = state.routeContext.focusClaimId || state._claimsFocusClaimId || null;
 
     function applyClaimsFilter() {
       const tab    = state._claimsFilter;
       const query  = (state._claimsSearch || "").toLowerCase();
-      const focusClaimId = Number(state._claimsFocusClaimId || 0);
       const filtered = claims.filter(c => {
         const tabMatch = tab === "all" || (c.status || "").toLowerCase() === tab;
-        const focusMatch = !focusClaimId || Number(c.id) === focusClaimId;
         const searchMatch = !query
-          || String(c.id || "").toLowerCase().includes(query)
           || (c.claim_number || "").toLowerCase().includes(query)
           || (c.member_number || "").toLowerCase().includes(query)
           || (c.scheme_id || "").toLowerCase().includes(query);
-        return tabMatch && focusMatch && searchMatch;
+        return tabMatch && searchMatch;
       });
       const tbody = document.getElementById("claims-tbody");
       const countEl = document.getElementById("claims-count");
@@ -2825,7 +1737,6 @@
               </tr>`).join("")
           : `<tr><td colspan="6" style="text-align:center;color:#999;">No claims match filter.</td></tr>`;
       }
-      syncChipSelection("[data-claim-tab]", "data-claim-tab", tab, "");
     }
 
     applyClaimsFilter();
@@ -2833,7 +1744,8 @@
     // Wire tabs
     document.querySelectorAll("[data-claim-tab]").forEach(btn => {
       btn.onclick = () => {
-        state._claimsFocusClaimId = null;
+        document.querySelectorAll("[data-claim-tab]").forEach(b => b.classList.remove("info"));
+        btn.classList.add("info");
         state._claimsFilter = btn.getAttribute("data-claim-tab");
         applyClaimsFilter();
       };
@@ -2844,12 +1756,10 @@
     if (searchEl && !searchEl._wired) {
       searchEl._wired = true;
       searchEl.addEventListener("input", () => {
-        state._claimsFocusClaimId = null;
         state._claimsSearch = searchEl.value;
         applyClaimsFilter();
       });
     }
-    await renderModuleCollaborationSurface(claims);
   }
 
   async function loadPayments() {
@@ -2933,7 +1843,6 @@
            <div class="muted" style="margin-top:8px;font-size:12px;">${submittedUnpaid.length} submitted claims awaiting payment reconciliation</div>`
         : `<div class="muted">All submitted claims have corresponding payment records.</div>`;
     }
-    await renderModuleCollaborationSurface(claims);
   }
 
   async function loadReports() {
@@ -3069,7 +1978,6 @@
 
     // Report tabs wiring
     _wireReportTabs();
-    await renderModuleCollaborationSurface(claims);
   }
 
   function _wireReportTabs() {
@@ -3126,9 +2034,7 @@
   async function loadAuditLogs() {
     const logs = await window.api.getAuditLogs();
     state.auditLogs = logs;
-    state.claims = state.claims.length ? state.claims : await window.api.getClaims().catch(() => []);
     renderAuditTrail();
-    await renderModuleCollaborationSurface(state.claims);
   }
 
   async function loadUsers() {
@@ -3600,20 +2506,18 @@
       });
       searchInput.addEventListener("keydown", (e) => {
         const items = dropdown.querySelectorAll("[data-icd10-idx]");
+        if (!items.length) return;
         if (e.key === "ArrowDown") {
-          if (!items.length) return;
           e.preventDefault();
           activeIdx = Math.min(activeIdx + 1, items.length - 1);
           highlightItem(activeIdx);
         } else if (e.key === "ArrowUp") {
-          if (!items.length) return;
           e.preventDefault();
           activeIdx = Math.max(activeIdx - 1, 0);
           highlightItem(activeIdx);
-        } else if (e.key === "Enter" && items.length) {
+        } else if (e.key === "Enter" && activeIdx >= 0) {
           e.preventDefault();
-          const candidate = activeIdx >= 0 ? currentResults[activeIdx] : currentResults[0];
-          if (candidate) selectResult(candidate);
+          if (currentResults[activeIdx]) selectResult(currentResults[activeIdx]);
         } else if (e.key === "Escape") {
           closeDropdown();
         }
@@ -3652,8 +2556,6 @@
       return;
     }
 
-    const recommendation = getRecommendedPrimaryDiagnosis(diagnoses, state.claimLineItems || []);
-
     container.innerHTML = diagnoses
       .map(
         (diagnosis) => `
@@ -3662,11 +2564,6 @@
               <div>
                 <strong class="code">${escapeHtml(diagnosis.icd10_code)}</strong>
                 <span class="chip ${diagnosis.is_primary ? "pass" : "info"}" style="margin-left:8px;">${diagnosis.is_primary ? "PRIMARY" : "SECONDARY"}</span>
-                ${
-                  recommendation?.diagnosis_id === diagnosis.diagnosis_id && !diagnosis.is_primary
-                    ? '<span class="chip warn" style="margin-left:8px;">Recommended primary</span>'
-                    : ""
-                }
               </div>
               <div class="row-actions">
                 ${diagnosis.is_primary ? "" : `<button class="chip" data-action="make-primary-diagnosis" data-id="${escapeHtml(diagnosis.diagnosis_id)}">Set primary</button>`}
@@ -3675,58 +2572,10 @@
             <div class="muted">
               Source: ${escapeHtml(diagnosis.source || "UserEntry")} · Captured: ${escapeHtml(diagnosis.captured_at || "-")}
             </div>
-            ${
-              recommendation?.diagnosis_id === diagnosis.diagnosis_id && !diagnosis.is_primary
-                ? `<div class="muted">Suggestion: ${escapeHtml(recommendation.reason)}</div>`
-                : ""
-            }
           </article>
         `,
       )
       .join("");
-  }
-
-  function getRecommendedPrimaryDiagnosis(diagnoses, lineItems) {
-    if (!Array.isArray(diagnoses) || !diagnoses.length || diagnoses.some((item) => item.is_primary)) {
-      return null;
-    }
-    if (diagnoses.length === 1) {
-      return {
-        diagnosis_id: diagnoses[0].diagnosis_id,
-        reason: "Only diagnosis on the claim, so it should usually be the primary ICD-10.",
-      };
-    }
-
-    const linkCounts = new Map(diagnoses.map((item) => [item.diagnosis_id, 0]));
-    (lineItems || []).forEach((line) => {
-      (line.diagnosis_ids || []).forEach((diagnosisId) => {
-        if (linkCounts.has(diagnosisId)) {
-          linkCounts.set(diagnosisId, (linkCounts.get(diagnosisId) || 0) + 1);
-        }
-      });
-    });
-
-    const ranked = [...diagnoses]
-      .map((diagnosis, index) => ({
-        diagnosis,
-        linkCount: linkCounts.get(diagnosis.diagnosis_id) || 0,
-        index,
-      }))
-      .sort((left, right) => {
-        if (left.linkCount !== right.linkCount) return right.linkCount - left.linkCount;
-        return left.index - right.index;
-      });
-
-    const best = ranked[0];
-    const second = ranked[1];
-    if (!best || best.linkCount <= 0 || (second && best.linkCount === second.linkCount)) {
-      return null;
-    }
-
-    return {
-      diagnosis_id: best.diagnosis.diagnosis_id,
-      reason: `Linked to ${best.linkCount} billed line item${best.linkCount === 1 ? "" : "s"}, so it is the strongest primary candidate.`,
-    };
   }
 
   function renderClaimLineDiagnosisOptions() {
@@ -3860,101 +2709,6 @@
         </tbody>
       </table>
     `;
-  }
-
-  function renderClaimWorkflowPanels(claim) {
-    const rolePanel = document.getElementById("roleProgressPanel");
-    if (!rolePanel || !claim) {
-      return;
-    }
-
-    rolePanel.style.display = "";
-    setTextById("currentRoleOwner", getClaimCurrentOwner(claim));
-    setTextById("supportRoles", getClaimSupportRoles(claim).join(", ") || "None");
-    setTextById("lastCompletedRole", claim.last_completed_role || "Not completed yet");
-    setTextById("eligibleRoles", (claim.eligible_roles || []).join(", ") || "None");
-    setTextById("claimNextAction", getDashboardNextAction(claim));
-
-    const stateProgression = document.getElementById("stateProgression");
-    if (stateProgression) {
-      const progression = claim.state_progression || [];
-      stateProgression.innerHTML = progression.length
-        ? progression
-            .map(
-              (step) => `
-                <article class="state-progression-card">
-                  <strong>${escapeHtml(humanizeStatus(step.status))}</strong>
-                  <div class="state-progression-meta">
-                    <span class="chip info">${escapeHtml(step.completed_by || "System")}</span>
-                    <span class="muted">${escapeHtml(formatDateTime(step.completed_at) || "-")}</span>
-                  </div>
-                </article>
-              `,
-            )
-            .join("")
-        : '<div class="dashboard-owner-empty">No progression has been recorded yet.</div>';
-    }
-
-    const historyContainer = document.getElementById("roleActionHistory");
-    if (historyContainer) {
-      const history = (claim.role_action_history || []).slice().reverse().slice(0, 6);
-      historyContainer.innerHTML = history.length
-        ? history
-            .map(
-              (item) => `
-                <article class="role-action-card">
-                  <strong>${escapeHtml(item.action || "Workflow action")}</strong>
-                  <div class="role-action-meta">
-                    <span class="chip">${escapeHtml(item.role || "System")}</span>
-                    <span class="muted">${escapeHtml(formatDateTime(item.timestamp) || "-")}</span>
-                  </div>
-                  <div class="muted">${escapeHtml(humanizeStatus(item.status || claim.status))} by ${escapeHtml(item.actor || "system")}</div>
-                </article>
-              `,
-            )
-            .join("")
-        : '<div class="dashboard-owner-empty">No role action history available yet.</div>';
-    }
-
-    const onboardingPanel = document.getElementById("onboardingPanel");
-    if (onboardingPanel) {
-      const blockers = claim.onboarding_blockers || [];
-      const actions = claim.onboarding_actions || [];
-      onboardingPanel.style.display = claim.onboarding_status || blockers.length || actions.length ? "" : "none";
-      setTextById("providerOnboardingStatus", claim.onboarding_status || "Not flagged");
-
-      const blockerContainer = document.getElementById("onboardingBlockers");
-      if (blockerContainer) {
-        blockerContainer.innerHTML = blockers.length
-          ? blockers
-              .map(
-                (blocker) => `
-                  <article class="role-action-card">
-                    <strong>${escapeHtml(blocker.message || blocker.reason_code || "Onboarding blocker")}</strong>
-                    <div class="muted">${escapeHtml(blocker.remediation || blocker.affected_field || "")}</div>
-                  </article>
-                `,
-              )
-              .join("")
-          : '<div class="dashboard-owner-empty">No onboarding blockers detected.</div>';
-      }
-
-      const actionsContainer = document.getElementById("onboardingActions");
-      if (actionsContainer) {
-        actionsContainer.innerHTML = actions.length
-          ? actions
-              .map(
-                (action) => `
-                  <article class="role-action-card">
-                    <strong>${escapeHtml(action.label || "Follow-up action")}</strong>
-                    <div class="muted">${escapeHtml(action.target || action.description || "")}</div>
-                  </article>
-                `,
-              )
-              .join("")
-          : '<div class="dashboard-owner-empty">No onboarding follow-up actions.</div>';
-      }
-    }
   }
 
   function canonicalToStages(payload) {
@@ -4474,22 +3228,6 @@
     }
     setDiagnosisFeedback("Primary diagnosis auto-fixed. Readiness is rerunning.", "success");
     await rerunReadinessFromDiagnosisAction("Primary diagnosis auto-fixed");
-  }
-
-  async function handleAutoLinkLineDiagnosisLinks() {
-    const result = await window.api.autoLinkClaimLineDiagnosisLinks(resolveClaimId(state.claimId));
-    if (!result.updated) {
-      setLineItemsFeedback(result.message || "No automatic diagnosis links were applied.", "error");
-      return;
-    }
-    state.highlightedLineIds = result.linked_line_ids || [];
-    setLineItemsFeedback(result.message || "Missing diagnosis links were auto-linked.", "success");
-    if (result.validation) {
-      await refreshClaimViews();
-      showValidationSummaryModal(`Post-closure validation: ${result.validation.claim_number || result.validation.claim_id}`, result.validation);
-      return;
-    }
-    await refreshClaimViews();
   }
 
   // ── AI Notes ────────────────────────────────────────────────────────────
@@ -5059,7 +3797,6 @@
     state.patientTimeline = timeline;
     renderPatientClaimContext();
     renderPatientTimeline();
-    await renderModuleCollaborationSurface(state.claims);
   }
 
   async function handleCreatePolicyVersion() {
@@ -6293,7 +5030,6 @@
     selectProvider(id) {
       state.selectedProviderId = Number(id);
       renderProviderWorkspace();
-      void renderModuleCollaborationSurface(state.claims);
     },
   };
   // ===== END PATIENT PROFILE DRAWER =====
